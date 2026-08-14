@@ -52,9 +52,7 @@ class _PhotoSelectScreenState extends State<PhotoSelectScreen> {
     if (kIsWeb) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text(
-            '이 환경에서는 카메라를 사용할 수 없습니다.\n갤러리에서 사진을 선택해주세요.',
-          ),
+          content: Text('이 환경에서는 카메라를 사용할 수 없습니다.\n갤러리에서 사진을 선택해주세요.'),
         ),
       );
       return;
@@ -97,9 +95,9 @@ class _PhotoSelectScreenState extends State<PhotoSelectScreen> {
     } catch (error) {
       debugPrint('사진 선택 실패: $error');
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(failureMessage)),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(failureMessage)));
     } finally {
       if (mounted) {
         setState(() => _isPickingImage = false);
@@ -146,124 +144,131 @@ class _PhotoSelectScreenState extends State<PhotoSelectScreen> {
         surfaceTintColor: Colors.transparent,
       ),
       body: SafeArea(
-        child: LayoutBuilder(
-          builder: (context, constraints) {
-            return SingleChildScrollView(
-              child: ConstrainedBox(
-                // 화면 높이만큼은 최소로 차지하도록 하여
-                // '스타일 선택하기' 버튼이 항상 하단에 위치하도록 한다.
-                constraints: BoxConstraints(
-                  minHeight: constraints.maxHeight,
-                ),
-                child: IntrinsicHeight(
-                  child: Padding(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 24,
-                      vertical: 24,
+        child: Center(
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 900),
+            child: LayoutBuilder(
+              builder: (context, constraints) {
+                return SingleChildScrollView(
+                  child: ConstrainedBox(
+                    // 화면 높이만큼은 최소로 차지하도록 하여
+                    // '스타일 선택하기' 버튼이 항상 하단에 위치하도록 한다.
+                    constraints: BoxConstraints(
+                      minHeight: constraints.maxHeight,
                     ),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.stretch,
-                      children: [
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.stretch,
-                            children: [
-                              // 상단 안내 영역
-                              Text(
-                                '우리 집 사진을 선택해주세요',
-                                style: Theme.of(context)
-                                    .textTheme
-                                    .headlineSmall
-                                    ?.copyWith(
-                                      fontWeight: FontWeight.bold,
-                                      color: const Color(0xFF3E2723),
-                                    ),
-                              ),
-                              const SizedBox(height: 12),
-                              Text(
-                                '거실, 침실, 주방 등\n'
-                                '인테리어를 바꾸고 싶은 공간의 사진을 준비해주세요.',
-                                style: Theme.of(context)
-                                    .textTheme
-                                    .titleMedium
-                                    ?.copyWith(
-                                      color: const Color(0xFF5D4037),
-                                      height: 1.4,
-                                    ),
-                              ),
-                              const SizedBox(height: 24),
-                              // 사진 미리보기 영역
-                              _PhotoPreviewBox(
-                                imageBytes: _selectedImageBytes,
-                                isLoading: _isPickingImage,
-                              ),
-                              if (hasSelectedImage) ...[
-                                const SizedBox(height: 12),
-                                const Row(
-                                  children: [
-                                    Icon(
-                                      Icons.check_circle_rounded,
-                                      size: 18,
-                                      color: Color(0xFF8D6E63),
-                                    ),
-                                    SizedBox(width: 6),
-                                    Text(
-                                      '사진이 선택되었습니다.',
-                                      style: TextStyle(
-                                        fontSize: 15,
-                                        fontWeight: FontWeight.w600,
-                                        color: Color(0xFF5D4037),
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                                if (sourceType != null) ...[
-                                  const SizedBox(height: 4),
+                    child: IntrinsicHeight(
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 24,
+                          vertical: 24,
+                        ),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.stretch,
+                                children: [
+                                  // 상단 안내 영역
                                   Text(
-                                    _sourceLabel(sourceType),
-                                    style: const TextStyle(
-                                      fontSize: 13,
-                                      color: Color(0xFF8D6E63),
+                                    '우리 집 사진을 선택해주세요',
+                                    style: Theme.of(context)
+                                        .textTheme
+                                        .headlineSmall
+                                        ?.copyWith(
+                                          fontWeight: FontWeight.bold,
+                                          color: const Color(0xFF3E2723),
+                                        ),
+                                  ),
+                                  const SizedBox(height: 12),
+                                  Text(
+                                    '거실, 침실, 주방 등\n'
+                                    '인테리어를 바꾸고 싶은 공간의 사진을 준비해주세요.',
+                                    style: Theme.of(context)
+                                        .textTheme
+                                        .titleMedium
+                                        ?.copyWith(
+                                          color: const Color(0xFF5D4037),
+                                          height: 1.4,
+                                        ),
+                                  ),
+                                  const SizedBox(height: 24),
+                                  // 사진 미리보기 영역
+                                  _PhotoPreviewBox(
+                                    imageBytes: _selectedImageBytes,
+                                    isLoading: _isPickingImage,
+                                  ),
+                                  if (hasSelectedImage) ...[
+                                    const SizedBox(height: 12),
+                                    const Row(
+                                      children: [
+                                        Icon(
+                                          Icons.check_circle_rounded,
+                                          size: 18,
+                                          color: Color(0xFF8D6E63),
+                                        ),
+                                        SizedBox(width: 6),
+                                        Text(
+                                          '사진이 선택되었습니다.',
+                                          style: TextStyle(
+                                            fontSize: 15,
+                                            fontWeight: FontWeight.w600,
+                                            color: Color(0xFF5D4037),
+                                          ),
+                                        ),
+                                      ],
                                     ),
+                                    if (sourceType != null) ...[
+                                      const SizedBox(height: 4),
+                                      Text(
+                                        _sourceLabel(sourceType),
+                                        style: const TextStyle(
+                                          fontSize: 13,
+                                          color: Color(0xFF8D6E63),
+                                        ),
+                                      ),
+                                    ],
+                                  ],
+                                  const SizedBox(height: 24),
+                                  // 사진 선택 버튼 (카메라 / 갤러리).
+                                  // 선택창을 여는 동안에는 중복 실행을 막기 위해
+                                  // 두 버튼 모두 비활성화한다.
+                                  PhotoSourceCard(
+                                    icon: Icons.camera_alt_rounded,
+                                    label: '카메라로 촬영',
+                                    onTap: _isPickingImage
+                                        ? null
+                                        : _handleCameraTap,
+                                  ),
+                                  const SizedBox(height: 16),
+                                  PhotoSourceCard(
+                                    icon: Icons.photo_library_rounded,
+                                    label: '갤러리에서 선택',
+                                    onTap: _isPickingImage
+                                        ? null
+                                        : _handleGalleryTap,
                                   ),
                                 ],
-                              ],
-                              const SizedBox(height: 24),
-                              // 사진 선택 버튼 (카메라 / 갤러리).
-                              // 선택창을 여는 동안에는 중복 실행을 막기 위해
-                              // 두 버튼 모두 비활성화한다.
-                              PhotoSourceCard(
-                                icon: Icons.camera_alt_rounded,
-                                label: '카메라로 촬영',
-                                onTap:
-                                    _isPickingImage ? null : _handleCameraTap,
                               ),
-                              const SizedBox(height: 16),
-                              PhotoSourceCard(
-                                icon: Icons.photo_library_rounded,
-                                label: '갤러리에서 선택',
-                                onTap: _isPickingImage
-                                    ? null
-                                    : _handleGalleryTap,
-                              ),
-                            ],
-                          ),
+                            ),
+                            const SizedBox(height: 16),
+                            // 화면 하단 영역: 스타일 선택하기 버튼.
+                            // 사진을 선택해야만 다음 단계로 넘어갈 수 있다.
+                            PrimaryButton(
+                              label: '스타일 선택하기',
+                              onPressed: hasSelectedImage
+                                  ? _goToStyleSelect
+                                  : null,
+                            ),
+                          ],
                         ),
-                        const SizedBox(height: 16),
-                        // 화면 하단 영역: 스타일 선택하기 버튼.
-                        // 사진을 선택해야만 다음 단계로 넘어갈 수 있다.
-                        PrimaryButton(
-                          label: '스타일 선택하기',
-                          onPressed:
-                              hasSelectedImage ? _goToStyleSelect : null,
-                        ),
-                      ],
+                      ),
                     ),
                   ),
-                ),
-              ),
-            );
-          },
+                );
+              },
+            ),
+          ),
         ),
       ),
     );

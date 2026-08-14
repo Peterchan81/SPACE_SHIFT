@@ -1,3 +1,7 @@
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
+
 plugins {
     id("com.android.application")
     // The Flutter Gradle Plugin must be applied after the Android and Kotlin Gradle plugins.
@@ -42,4 +46,29 @@ kotlin {
 
 flutter {
     source = "../.."
+}
+
+// `flutter build apk --release`가 완료될 때 Galaxy Tab 배포용 APK를
+// SPACE_SHIFT_V버전_YYYYMMDD.apk 규칙으로 함께 생성한다.
+afterEvaluate {
+    tasks.named("assembleRelease").configure {
+        doLast {
+            val sourceApk = layout.buildDirectory.file(
+                "outputs/flutter-apk/app-release.apk",
+            ).get().asFile
+            val releaseVersion = android.defaultConfig.versionName
+                ?.split(".")
+                ?.take(2)
+                ?.joinToString(".")
+                ?: "1.0"
+            val buildDate = SimpleDateFormat("yyyyMMdd", Locale.US).format(Date())
+            val outputName = "SPACE_SHIFT_v${releaseVersion}_${buildDate}.apk"
+
+            copy {
+                from(sourceApk)
+                into(sourceApk.parentFile)
+                rename { outputName }
+            }
+        }
+    }
 }

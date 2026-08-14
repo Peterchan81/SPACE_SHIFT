@@ -19,7 +19,7 @@ enabled = true
 # Deno 런타임 정책.
 policy = "oneshot"
 
-# ASON Space의 AI 인테리어 생성 요청을 받는 기본 Edge Function.
+# SPACE SHIFT의 AI 인테리어 생성 요청을 받는 기본 Edge Function.
 [functions.generate-interior]
 # 이번 단계에서는 인증 없이도 로컬에서 쉽게 호출/테스트할 수 있도록
 # verify_jwt를 꺼 둔다. 실제 서비스에 적용할 때는 앱 자체 인증

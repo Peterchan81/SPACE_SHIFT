@@ -49,9 +49,9 @@ class _StyleSelectScreenState extends State<StyleSelectScreen> {
     // 스타일을 아직 선택하지 않았다면 화면을 이동시키지 않고 안내만 표시한다.
     final selectedIndex = _selectedIndex;
     if (selectedIndex == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('스타일을 먼저 선택해주세요.')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('스타일을 먼저 선택해주세요.')));
       return;
     }
 
@@ -78,62 +78,70 @@ class _StyleSelectScreenState extends State<StyleSelectScreen> {
         surfaceTintColor: Colors.transparent,
       ),
       body: SafeArea(
-        child: Column(
-          children: [
-            // 상단 안내 영역 (스크롤 되지 않는 고정 영역)
-            Padding(
-              padding: const EdgeInsets.fromLTRB(24, 24, 24, 8),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    '원하는 스타일을 선택해주세요',
-                    style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                          fontWeight: FontWeight.bold,
-                          color: const Color(0xFF3E2723),
-                        ),
+        child: Center(
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 900),
+            child: Column(
+              children: [
+                // 상단 안내 영역 (스크롤 되지 않는 고정 영역)
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(24, 24, 24, 8),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        '원하는 스타일을 선택해주세요',
+                        style: Theme.of(context).textTheme.headlineSmall
+                            ?.copyWith(
+                              fontWeight: FontWeight.bold,
+                              color: const Color(0xFF3E2723),
+                            ),
+                      ),
+                      const SizedBox(height: 12),
+                      Text(
+                        'AI가 선택한 스타일에 맞게\n공간 이미지를 새롭게 생성합니다.',
+                        style: Theme.of(context).textTheme.titleMedium
+                            ?.copyWith(
+                              color: const Color(0xFF5D4037),
+                              height: 1.4,
+                            ),
+                      ),
+                    ],
                   ),
-                  const SizedBox(height: 12),
-                  Text(
-                    'AI가 선택한 스타일에 맞게\n공간 이미지를 새롭게 생성합니다.',
-                    style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                          color: const Color(0xFF5D4037),
-                          height: 1.4,
-                        ),
-                  ),
-                ],
-              ),
-            ),
-            // 스타일 카드 목록 (세로 스크롤)
-            Expanded(
-              child: ListView.separated(
-                padding: const EdgeInsets.fromLTRB(24, 8, 24, 8),
-                itemCount: _styles.length,
-                separatorBuilder: (context, index) => const SizedBox(height: 16),
-                itemBuilder: (context, index) {
-                  final style = _styles[index];
-                  return StyleCard(
-                    title: style.title,
-                    description: style.description,
-                    selected: _selectedIndex == index,
-                    onTap: () {
-                      setState(() {
-                        _selectedIndex = index;
-                      });
+                ),
+                // 스타일 카드 목록 (세로 스크롤)
+                Expanded(
+                  child: ListView.separated(
+                    padding: const EdgeInsets.fromLTRB(24, 8, 24, 8),
+                    itemCount: _styles.length,
+                    separatorBuilder: (context, index) =>
+                        const SizedBox(height: 16),
+                    itemBuilder: (context, index) {
+                      final style = _styles[index];
+                      return StyleCard(
+                        title: style.title,
+                        description: style.description,
+                        selected: _selectedIndex == index,
+                        onTap: () {
+                          setState(() {
+                            _selectedIndex = index;
+                          });
+                        },
+                      );
                     },
-                  );
-                },
-              ),
+                  ),
+                ),
+                // 하단 영역: AI로 공간 만들기 버튼
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(24, 8, 24, 24),
+                  child: PrimaryButton(
+                    label: 'AI로 공간 만들기',
+                    onPressed: _goToGenerate,
+                  ),
+                ),
+              ],
             ),
-            // 하단 영역: AI로 공간 만들기 버튼
-            Padding(
-              padding: const EdgeInsets.fromLTRB(24, 8, 24, 24),
-              child: PrimaryButton(
-                label: 'AI로 공간 만들기',
-                onPressed: _goToGenerate,
-              ),
-            ),
-          ],
+          ),
         ),
       ),
     );
