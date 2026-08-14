@@ -36,7 +36,7 @@ supabase functions deploy generate-interior
 ```bash
 flutter run \
   --dart-define=AI_PROVIDER=fal \
-  --dart-define=AI_EDGE_FUNCTION_URL=https://<PROJECT_REF>.supabase.co/functions/v1/generate-interior
+  --dart-define=AI_EDGE_FUNCTION_URL=https://mljvgngjmrvoqjwvvyeg.supabase.co/functions/v1/generate-interior
 ```
 
 Release 빌드도 동일한 두 `dart-define`만 사용한다. `FAL_KEY`는 어떤
