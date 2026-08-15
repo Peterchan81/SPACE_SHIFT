@@ -1,22 +1,12 @@
 /// 앱이 실행되는 배포 환경 종류.
-enum AppEnvironmentType {
-  development,
-  staging,
-  production,
-}
+enum AppEnvironmentType { development, staging, production }
 
 /// 지원하는(또는 지원 예정인) AI 이미지 생성 Provider 종류.
 ///
 /// 이번 단계에서는 [mock]을 제외한 나머지 값이 선택되어도 실제 네트워크
 /// 호출은 하지 않고 Mock 결과를 반환한다. 자세한 내용은
 /// [AiGenerationService]와 프로젝트 루트의 AI_SETUP.md를 참고한다.
-enum AiProviderType {
-  mock,
-  fal,
-  openai,
-  stability,
-  replicate,
-}
+enum AiProviderType { mock, fal, openai, stability, replicate }
 
 /// 문자열을 [AiProviderType]으로 안전하게 변환한다.
 ///
@@ -49,14 +39,8 @@ AiProviderType parseAiProvider(String value) {
 ///   --dart-define=AI_PROVIDER=mock
 /// ```
 ///
-/// ⚠️ 보안 경고 — Flutter Web에서의 API Key 노출
-/// `--dart-define`으로 전달한 값은 Flutter Web 빌드 결과물(JS 번들) 안에
-/// 그대로 문자열로 포함되어, 브라우저 개발자 도구 등으로 손쉽게 추출할 수
-/// 있다. 즉 `AI_API_KEY`를 실제 서비스에서 그대로 사용해 Flutter 앱이
-/// AI 업체를 직접 호출하도록 만들면 API Key가 유출된다.
-/// 그러므로 실제 서비스에서는 Flutter 앱이 AI Provider를 직접 호출하지
-/// 않고, 백엔드 서버 또는 Supabase Edge Function 등 신뢰할 수 있는
-/// 서버를 경유해 호출해야 한다. 자세한 내용은 AI_SETUP.md를 참고한다.
+/// Flutter에는 AI Provider Key를 받는 설정 자체가 없다. 실제 Secret은
+/// Supabase Edge Function 환경에만 저장하고 앱은 공개 함수 URL만 사용한다.
 class AppEnvironment {
   const AppEnvironment._();
 
@@ -78,20 +62,26 @@ class AppEnvironment {
     defaultValue: 'mock',
   );
 
-  /// `--dart-define=AI_API_KEY=...`.
-  ///
-  /// 실제 키 값은 절대 이 파일이나 다른 Dart 파일에 하드코딩하지 않는다.
-  /// 의도적으로 private으로 두어, 이 클래스 밖에서는 값 자체가 아니라
-  /// [hasApiKey](설정 여부)만 확인할 수 있게 한다. debugPrint, toString,
-  /// 로그, 예외 메시지 어디에도 이 값을 그대로 출력해서는 안 된다.
-  static const String _apiKey = String.fromEnvironment(
-    'AI_API_KEY',
+  /// 공개된 Supabase Edge Function 전체 URL.
+  /// AI Provider Secret이 아니며, 지정하지 않으면 안전하게 Mock을 사용한다.
+  static const String edgeFunctionUrl = String.fromEnvironment(
+    'AI_EDGE_FUNCTION_URL',
     defaultValue: '',
   );
 
-  /// `--dart-define=AI_API_BASE_URL=...`. 지정하지 않으면 빈 문자열이다.
-  static const String apiBaseUrl = String.fromEnvironment(
-    'AI_API_BASE_URL',
+  /// `--dart-define=ESTIMATE_EDGE_FUNCTION_URL=...`.
+  /// 무료 예상견적 요청을 접수하는 Supabase Edge Function URL.
+  /// 지정하지 않으면 EstimateService가 안전하게 로컬 Mock으로 동작한다.
+  static const String estimateEdgeFunctionUrl = String.fromEnvironment(
+    'ESTIMATE_EDGE_FUNCTION_URL',
+    defaultValue: '',
+  );
+
+  /// `--dart-define=SITE_MEETING_EDGE_FUNCTION_URL=...`.
+  /// 현장미팅 문의를 접수하는 Supabase Edge Function URL.
+  /// 지정하지 않으면 SiteMeetingService가 안전하게 로컬 Mock으로 동작한다.
+  static const String siteMeetingEdgeFunctionUrl = String.fromEnvironment(
+    'SITE_MEETING_EDGE_FUNCTION_URL',
     defaultValue: '',
   );
 
@@ -110,11 +100,8 @@ class AppEnvironment {
   /// 현재 선택된 AI Provider. 알 수 없는 값이면 mock으로 안전하게 처리된다.
   static AiProviderType get aiProvider => parseAiProvider(_rawProvider);
 
-  /// API Key가 비어 있지 않은지 여부. 값 자체는 노출하지 않는다.
-  static bool get hasApiKey => _apiKey.isNotEmpty;
-
   /// Mock AI를 사용해야 하는지 여부.
-  /// Provider가 명시적으로 mock이거나, 아직 API Key가 없으면 true다.
+  /// Provider가 mock이거나 Edge Function URL이 없으면 true다.
   static bool get useMockAi =>
-      aiProvider == AiProviderType.mock || !hasApiKey;
+      aiProvider == AiProviderType.mock || edgeFunctionUrl.trim().isEmpty;
 }

@@ -2,6 +2,7 @@ import 'package:flutter/foundation.dart';
 
 import '../config/app_environment.dart';
 import 'ai_generation_service.dart';
+import 'edge_function_ai_generation_service.dart';
 
 /// [AppEnvironment] 설정에 맞는 [AiGenerationService]를 생성한다.
 ///
@@ -16,23 +17,20 @@ import 'ai_generation_service.dart';
 /// 바꿀 수 없으므로, 여러 Provider 상황을 테스트하기 위한 용도로 둔 값이다.
 AiGenerationService createAiGenerationService({
   AiProviderType? providerOverride,
+  String? edgeFunctionUrlOverride,
 }) {
   final provider = providerOverride ?? AppEnvironment.aiProvider;
+  final edgeFunctionUrl =
+      edgeFunctionUrlOverride ?? AppEnvironment.edgeFunctionUrl;
 
-  if (provider != AiProviderType.mock) {
-    // API Key 등 민감 정보는 절대 출력하지 않는다.
-    debugPrint('선택된 AI Provider는 아직 연결되지 않아 Mock 서비스를 사용합니다.');
+  if (provider == AiProviderType.fal && edgeFunctionUrl.trim().isNotEmpty) {
+    return EdgeFunctionAiGenerationService(
+      endpoint: Uri.parse(edgeFunctionUrl),
+    );
   }
 
-  // 이번 단계에서는 Provider와 무관하게 항상 Mock 결과를 반환하는
-  // AiGenerationService를 생성한다. 실제 Fal.ai/OpenAI/Stability AI/
-  // Replicate 연동은 이번 작업 범위가 아니다.
-  //
-  // TODO(provider == AiProviderType.fal 실제 연동 시):
-  //   여기서 Mock을 쓰는 AiGenerationService 대신, requestGeneration()이
-  //   supabase/functions/generate-interior Edge Function을 HTTP로 호출하는
-  //   구현으로 교체한 서비스를 반환한다. Edge Function의 요청/응답 형식은
-  //   `supabase/functions/generate-interior/README.md`를 참고한다.
-  //   (Flutter는 이 경우에도 Fal.ai를 직접 호출하지 않는다.)
+  if (provider != AiProviderType.mock) {
+    debugPrint('Edge Function URL이 없어 Mock AI를 사용합니다.');
+  }
   return AiGenerationService(provider: provider);
 }

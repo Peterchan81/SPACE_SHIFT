@@ -7,6 +7,7 @@ import '../config/app_environment.dart';
 import '../models/ai_generation_request.dart';
 import '../services/ai_generation_provider.dart';
 import '../services/ai_generation_service.dart';
+import '../widgets/primary_button.dart';
 import 'result_screen.dart';
 
 /// AI가 새로운 공간 이미지를 생성하는 동안 보여주는 대기 화면.
@@ -61,11 +62,12 @@ class _GenerateScreenState extends State<GenerateScreen> {
 
   int _progressIndex = 0;
   Timer? _progressTimer;
+  bool _isLoading = true;
+  String? _errorMessage;
 
   @override
   void initState() {
     super.initState();
-    _startProgressMessages();
     _startGeneration();
   }
 
@@ -91,6 +93,14 @@ class _GenerateScreenState extends State<GenerateScreen> {
   }
 
   Future<void> _startGeneration() async {
+    _progressTimer?.cancel();
+    setState(() {
+      _isLoading = true;
+      _errorMessage = null;
+      _progressIndex = 0;
+    });
+    _startProgressMessages();
+
     final request = AiGenerationRequest(
       imageBytes: widget.selectedImageBytes,
       selectedStyle: widget.selectedStyle,
@@ -114,10 +124,11 @@ class _GenerateScreenState extends State<GenerateScreen> {
       return;
     }
 
-    // 생성에 실패해도 앱이 종료되지 않고 이 화면에 그대로 머문다.
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('AI 생성 중 오류가 발생했습니다.')),
-    );
+    _progressTimer?.cancel();
+    setState(() {
+      _isLoading = false;
+      _errorMessage = response.errorMessage ?? 'AI 생성 중 오류가 발생했습니다.';
+    });
   }
 
   @override
@@ -138,27 +149,57 @@ class _GenerateScreenState extends State<GenerateScreen> {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              const SizedBox(
-                width: 72,
-                height: 72,
-                child: CircularProgressIndicator(
-                  strokeWidth: 5,
+              if (_isLoading) ...[
+                const SizedBox(
+                  width: 72,
+                  height: 72,
+                  child: CircularProgressIndicator(
+                    strokeWidth: 5,
+                    color: Color(0xFF8D6E63),
+                  ),
+                ),
+                const SizedBox(height: 28),
+                AnimatedSwitcher(
+                  duration: const Duration(milliseconds: 300),
+                  child: Text(
+                    _progressMessages[_progressIndex],
+                    key: ValueKey<int>(_progressIndex),
+                    textAlign: TextAlign.center,
+                    style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                      fontWeight: FontWeight.bold,
+                      color: const Color(0xFF3E2723),
+                    ),
+                  ),
+                ),
+              ] else ...[
+                const Icon(
+                  Icons.error_outline_rounded,
+                  size: 72,
                   color: Color(0xFF8D6E63),
                 ),
-              ),
-              const SizedBox(height: 28),
-              AnimatedSwitcher(
-                duration: const Duration(milliseconds: 300),
-                child: Text(
-                  _progressMessages[_progressIndex],
-                  key: ValueKey<int>(_progressIndex),
-                  textAlign: TextAlign.center,
+                const SizedBox(height: 20),
+                Text(
+                  '이미지를 생성하지 못했습니다',
                   style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                        fontWeight: FontWeight.bold,
-                        color: const Color(0xFF3E2723),
-                      ),
+                    fontWeight: FontWeight.bold,
+                    color: const Color(0xFF3E2723),
+                  ),
                 ),
-              ),
+                const SizedBox(height: 10),
+                Text(
+                  _errorMessage ?? '잠시 후 다시 시도해주세요.',
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(color: Color(0xFF5D4037)),
+                ),
+                const SizedBox(height: 24),
+                ConstrainedBox(
+                  constraints: const BoxConstraints(maxWidth: 360),
+                  child: PrimaryButton(
+                    label: '다시 시도하기',
+                    onPressed: _startGeneration,
+                  ),
+                ),
+              ],
             ],
           ),
         ),

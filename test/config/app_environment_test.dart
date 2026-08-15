@@ -7,7 +7,7 @@
 // 1. AI Provider 문자열 파싱 테스트 (mock/FAL/openai/stability/replicate/알 수 없는 값)
 // 2. 공백과 대소문자 처리 테스트
 // 3. 알 수 없는 Provider는 mock 반환
-// 4. API Key가 비어 있어도(dart-define 미지정) 앱이 종료되지 않음
+// 4. Edge Function URL이 없으면 Mock 모드를 유지함
 
 import 'package:flutter_test/flutter_test.dart';
 
@@ -53,10 +53,14 @@ void main() {
       expect(AppEnvironment.aiProvider, AiProviderType.mock);
     });
 
-    test('API Key를 지정하지 않아도 앱이 종료되지 않고 hasApiKey/useMockAi로 안전하게 확인된다', () {
-      expect(() => AppEnvironment.hasApiKey, returnsNormally);
-      expect(AppEnvironment.hasApiKey, isFalse);
+    test('Edge Function URL을 지정하지 않으면 Mock 모드를 유지한다', () {
+      expect(AppEnvironment.edgeFunctionUrl, isEmpty);
       expect(AppEnvironment.useMockAi, isTrue);
+    });
+
+    test('예상견적/현장미팅 Edge Function URL을 지정하지 않으면 비어 있다', () {
+      expect(AppEnvironment.estimateEdgeFunctionUrl, isEmpty);
+      expect(AppEnvironment.siteMeetingEdgeFunctionUrl, isEmpty);
     });
   });
 }

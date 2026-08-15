@@ -1,7 +1,7 @@
 // createAiGenerationService() Factory에 대한 단위 테스트.
 //
 // 5. Factory가 AiGenerationService를 반환하는지 확인한다.
-// 6. Provider를 fal로 지정해도 현재 단계에서는 Mock 응답을 반환하는지
+// 6. Edge Function URL이 없으면 fal에서도 Mock 응답을 반환하는지
 //    확인한다(providerOverride로 dart-define 없이도 검증 가능하게 한다).
 
 import 'dart:typed_data';
@@ -12,6 +12,7 @@ import 'package:ason_space/config/app_environment.dart';
 import 'package:ason_space/models/ai_generation_request.dart';
 import 'package:ason_space/services/ai_generation_provider.dart';
 import 'package:ason_space/services/ai_generation_service.dart';
+import 'package:ason_space/services/edge_function_ai_generation_service.dart';
 
 void main() {
   // Mock 서비스가 내부적으로 rootBundle.load()를 사용하므로, testWidgets가
@@ -27,17 +28,30 @@ void main() {
   });
 
   test('providerOverride로 지정한 Provider가 서비스에 그대로 반영된다', () {
-    final service =
-        createAiGenerationService(providerOverride: AiProviderType.fal);
+    final service = createAiGenerationService(
+      providerOverride: AiProviderType.fal,
+    );
 
     expect(service.provider, AiProviderType.fal);
   });
 
+  test('fal과 Edge Function URL을 지정하면 실제 Edge Function 서비스를 생성한다', () {
+    final service = createAiGenerationService(
+      providerOverride: AiProviderType.fal,
+      edgeFunctionUrlOverride:
+          'https://project.supabase.co/functions/v1/generate-interior',
+    );
+
+    expect(service, isA<EdgeFunctionAiGenerationService>());
+    expect(service.provider, AiProviderType.fal);
+  });
+
   test(
-    'Provider를 fal로 지정해도 이번 단계에서는 실제 호출 없이 Mock 응답을 반환한다',
+    'Edge Function URL 없이 fal만 지정하면 Mock 응답을 반환한다',
     () async {
-      final service =
-          createAiGenerationService(providerOverride: AiProviderType.fal);
+      final service = createAiGenerationService(
+        providerOverride: AiProviderType.fal,
+      );
 
       final request = AiGenerationRequest(
         imageBytes: Uint8List.fromList([1, 2, 3, 4]),
