@@ -49,8 +49,8 @@ void main() {
         selectedImageBytes: imageBytes,
         generatedImageBytes: imageBytes,
       ),
-      const EstimateRequestScreen(),
-      const SiteMeetingRequestScreen(),
+      EstimateRequestScreen(),
+      SiteMeetingRequestScreen(),
     ];
 
     for (final screen in screens) {

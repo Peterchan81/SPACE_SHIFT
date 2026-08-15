@@ -57,5 +57,10 @@ void main() {
       expect(AppEnvironment.edgeFunctionUrl, isEmpty);
       expect(AppEnvironment.useMockAi, isTrue);
     });
+
+    test('예상견적/현장미팅 Edge Function URL을 지정하지 않으면 비어 있다', () {
+      expect(AppEnvironment.estimateEdgeFunctionUrl, isEmpty);
+      expect(AppEnvironment.siteMeetingEdgeFunctionUrl, isEmpty);
+    });
   });
 }

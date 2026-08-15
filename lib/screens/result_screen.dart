@@ -103,7 +103,7 @@ class ResultScreen extends StatelessWidget {
 
   void _goToSiteMeetingRequest(BuildContext context) {
     Navigator.of(context).push(
-      MaterialPageRoute(builder: (context) => const SiteMeetingRequestScreen()),
+      MaterialPageRoute(builder: (context) => SiteMeetingRequestScreen()),
     );
   }
 

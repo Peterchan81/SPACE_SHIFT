@@ -3,6 +3,16 @@ import 'package:flutter_test/flutter_test.dart';
 
 import 'package:ason_space/models/estimate_request.dart';
 import 'package:ason_space/screens/estimate_request_screen.dart';
+import 'package:ason_space/services/estimate_service.dart';
+
+class _FailingEstimateService extends EstimateService {
+  const _FailingEstimateService();
+
+  @override
+  Future<void> submit(EstimateRequest request) {
+    throw Exception('요청 접수에 실패했습니다.');
+  }
+}
 
 void main() {
   Future<void> selectDropdown(
@@ -57,7 +67,7 @@ void main() {
   });
 
   testWidgets('필수 항목이 비어 있으면 요청을 접수하지 않는다', (tester) async {
-    await tester.pumpWidget(const MaterialApp(home: EstimateRequestScreen()));
+    await tester.pumpWidget(MaterialApp(home: EstimateRequestScreen()));
 
     await tester.ensureVisible(find.text('예상견적 요청하기'));
     await tester.pumpAndSettle();
@@ -115,5 +125,29 @@ void main() {
     expect(find.text('예상견적 요청이 접수되었습니다'), findsOneWidget);
     expect(submittedRequest?.desiredColorTone, '기타');
     expect(submittedRequest?.customColorTone, '연한 세이지 그린');
+  });
+
+  testWidgets('접수 서비스가 실패하면 완료 화면 대신 오류 메시지를 보여준다', (tester) async {
+    var submittedCallbackFired = false;
+    await tester.pumpWidget(
+      MaterialApp(
+        home: EstimateRequestScreen(
+          service: const _FailingEstimateService(),
+          onSubmitted: (_) => submittedCallbackFired = true,
+        ),
+      ),
+    );
+
+    await selectDropdown(tester, 0, '거실');
+    await selectDropdown(tester, 1, '10~20평');
+    await selectDropdown(tester, 2, '부분 시공');
+    await selectColorTone(tester, '베이지');
+    await tester.ensureVisible(find.text('예상견적 요청하기'));
+    await tester.tap(find.text('예상견적 요청하기'));
+    await tester.pump();
+
+    expect(find.text('예상견적 요청이 접수되었습니다'), findsNothing);
+    expect(find.text('요청 접수에 실패했습니다. 다시 시도해주세요.'), findsOneWidget);
+    expect(submittedCallbackFired, isFalse);
   });
 }

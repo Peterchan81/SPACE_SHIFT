@@ -69,6 +69,22 @@ class AppEnvironment {
     defaultValue: '',
   );
 
+  /// `--dart-define=ESTIMATE_EDGE_FUNCTION_URL=...`.
+  /// 무료 예상견적 요청을 접수하는 Supabase Edge Function URL.
+  /// 지정하지 않으면 EstimateService가 안전하게 로컬 Mock으로 동작한다.
+  static const String estimateEdgeFunctionUrl = String.fromEnvironment(
+    'ESTIMATE_EDGE_FUNCTION_URL',
+    defaultValue: '',
+  );
+
+  /// `--dart-define=SITE_MEETING_EDGE_FUNCTION_URL=...`.
+  /// 현장미팅 문의를 접수하는 Supabase Edge Function URL.
+  /// 지정하지 않으면 SiteMeetingService가 안전하게 로컬 Mock으로 동작한다.
+  static const String siteMeetingEdgeFunctionUrl = String.fromEnvironment(
+    'SITE_MEETING_EDGE_FUNCTION_URL',
+    defaultValue: '',
+  );
+
   /// 현재 실행 환경.
   static AppEnvironmentType get current {
     switch (_rawEnvironment.trim().toLowerCase()) {

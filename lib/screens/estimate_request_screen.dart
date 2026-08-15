@@ -1,19 +1,24 @@
 import 'package:flutter/material.dart';
 
 import '../models/estimate_request.dart';
+import '../services/estimate_service.dart';
 import '../widgets/primary_button.dart';
 
 class EstimateRequestScreen extends StatefulWidget {
-  const EstimateRequestScreen({
+  EstimateRequestScreen({
     super.key,
     this.onSubmitted,
     this.onSiteMeetingRequested,
-  });
+    EstimateService? service,
+  }) : service = service ?? createEstimateService();
 
   final ValueChanged<EstimateRequest>? onSubmitted;
 
   /// 현장미팅 문의 화면이 구현되면 이 콜백에 이동 동작을 연결한다.
   final VoidCallback? onSiteMeetingRequested;
+
+  /// 실제 접수를 담당하며 테스트에서는 가짜 구현으로 교체할 수 있다.
+  final EstimateService service;
 
   @override
   State<EstimateRequestScreen> createState() => _EstimateRequestScreenState();
@@ -54,6 +59,7 @@ class _EstimateRequestScreenState extends State<EstimateRequestScreen> {
   String? _scope;
   String? _colorTone;
   bool _isSubmitted = false;
+  bool _isSubmitting = false;
 
   @override
   void dispose() {
@@ -62,7 +68,7 @@ class _EstimateRequestScreenState extends State<EstimateRequestScreen> {
     super.dispose();
   }
 
-  void _submit() {
+  Future<void> _submit() async {
     if (!(_formKey.currentState?.validate() ?? false)) return;
 
     final request = EstimateRequest(
@@ -75,8 +81,23 @@ class _EstimateRequestScreenState extends State<EstimateRequestScreen> {
           : '',
       notes: _notesController.text.trim(),
     );
-    widget.onSubmitted?.call(request);
-    setState(() => _isSubmitted = true);
+
+    setState(() => _isSubmitting = true);
+    try {
+      await widget.service.submit(request);
+      widget.onSubmitted?.call(request);
+      if (!mounted) return;
+      setState(() {
+        _isSubmitting = false;
+        _isSubmitted = true;
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() => _isSubmitting = false);
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('요청 접수에 실패했습니다. 다시 시도해주세요.')),
+      );
+    }
   }
 
   InputDecoration _decoration(String label) {
@@ -258,7 +279,10 @@ class _EstimateRequestScreenState extends State<EstimateRequestScreen> {
             ).copyWith(hintText: '예: 수납공간을 늘리고 싶어요.', alignLabelWithHint: true),
           ),
           const SizedBox(height: 12),
-          PrimaryButton(label: '예상견적 요청하기', onPressed: _submit),
+          PrimaryButton(
+            label: _isSubmitting ? '접수 중...' : '예상견적 요청하기',
+            onPressed: _isSubmitting ? null : _submit,
+          ),
         ],
       ),
     );

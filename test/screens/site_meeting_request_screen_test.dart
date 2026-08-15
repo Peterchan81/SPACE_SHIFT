@@ -6,6 +6,16 @@ import 'dart:typed_data';
 import 'package:ason_space/models/site_meeting_request.dart';
 import 'package:ason_space/screens/site_meeting_request_screen.dart';
 import 'package:ason_space/screens/result_screen.dart';
+import 'package:ason_space/services/site_meeting_service.dart';
+
+class _FailingSiteMeetingService extends SiteMeetingService {
+  const _FailingSiteMeetingService();
+
+  @override
+  Future<void> submit(SiteMeetingRequest request) {
+    throw Exception('문의 접수에 실패했습니다.');
+  }
+}
 
 void main() {
   testWidgets('결과 화면에서 현장미팅 문의 화면으로 진입한다', (tester) async {
@@ -75,7 +85,7 @@ void main() {
 
   testWidgets('개인정보 동의 없이 제출하면 문의를 접수하지 않는다', (tester) async {
     await tester.pumpWidget(
-      const MaterialApp(home: SiteMeetingRequestScreen()),
+      MaterialApp(home: SiteMeetingRequestScreen()),
     );
 
     await tester.enterText(find.byKey(const ValueKey('meeting_name')), '홍길동');
@@ -97,5 +107,40 @@ void main() {
 
     expect(find.text('개인정보 수집 및 이용에 동의해주세요.'), findsOneWidget);
     expect(find.text('현장미팅 문의가 접수되었습니다'), findsNothing);
+  });
+
+  testWidgets('접수 서비스가 실패하면 완료 화면 대신 오류 메시지를 보여준다', (tester) async {
+    var submittedCallbackFired = false;
+    await tester.pumpWidget(
+      MaterialApp(
+        home: SiteMeetingRequestScreen(
+          service: const _FailingSiteMeetingService(),
+          onSubmitted: (_) => submittedCallbackFired = true,
+        ),
+      ),
+    );
+
+    await tester.enterText(find.byKey(const ValueKey('meeting_name')), '홍길동');
+    await tester.enterText(
+      find.byKey(const ValueKey('meeting_contact')),
+      '010-1234-5678',
+    );
+    await tester.enterText(
+      find.byKey(const ValueKey('meeting_area')),
+      '서울시 강남구',
+    );
+    await tester.enterText(
+      find.byKey(const ValueKey('meeting_datetime')),
+      '8월 20일 오후 2시',
+    );
+    await tester.ensureVisible(find.byType(CheckboxListTile));
+    await tester.tap(find.byType(CheckboxListTile));
+    await tester.ensureVisible(find.text('현장미팅 문의하기'));
+    await tester.tap(find.text('현장미팅 문의하기'));
+    await tester.pump();
+
+    expect(find.text('현장미팅 문의가 접수되었습니다'), findsNothing);
+    expect(find.text('문의 접수에 실패했습니다. 다시 시도해주세요.'), findsOneWidget);
+    expect(submittedCallbackFired, isFalse);
   });
 }

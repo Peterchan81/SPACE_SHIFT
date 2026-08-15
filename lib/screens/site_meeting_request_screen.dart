@@ -1,12 +1,17 @@
 import 'package:flutter/material.dart';
 
 import '../models/site_meeting_request.dart';
+import '../services/site_meeting_service.dart';
 import '../widgets/primary_button.dart';
 
 class SiteMeetingRequestScreen extends StatefulWidget {
-  const SiteMeetingRequestScreen({super.key, this.onSubmitted});
+  SiteMeetingRequestScreen({super.key, this.onSubmitted, SiteMeetingService? service})
+    : service = service ?? createSiteMeetingService();
 
   final ValueChanged<SiteMeetingRequest>? onSubmitted;
+
+  /// 실제 접수를 담당하며 테스트에서는 가짜 구현으로 교체할 수 있다.
+  final SiteMeetingService service;
 
   @override
   State<SiteMeetingRequestScreen> createState() =>
@@ -23,6 +28,7 @@ class _SiteMeetingRequestScreenState extends State<SiteMeetingRequestScreen> {
   final _notesController = TextEditingController();
   bool _privacyAgreed = false;
   bool _isSubmitted = false;
+  bool _isSubmitting = false;
 
   @override
   void dispose() {
@@ -52,20 +58,34 @@ class _SiteMeetingRequestScreenState extends State<SiteMeetingRequestScreen> {
     return value == null || value.trim().isEmpty ? '필수 항목입니다.' : null;
   }
 
-  void _submit() {
+  Future<void> _submit() async {
     if (!(_formKey.currentState?.validate() ?? false)) return;
 
-    widget.onSubmitted?.call(
-      SiteMeetingRequest(
-        name: _nameController.text.trim(),
-        contact: _contactController.text.trim(),
-        visitArea: _areaController.text.trim(),
-        preferredDateTime: _dateTimeController.text.trim(),
-        notes: _notesController.text.trim(),
-        privacyAgreed: _privacyAgreed,
-      ),
+    final request = SiteMeetingRequest(
+      name: _nameController.text.trim(),
+      contact: _contactController.text.trim(),
+      visitArea: _areaController.text.trim(),
+      preferredDateTime: _dateTimeController.text.trim(),
+      notes: _notesController.text.trim(),
+      privacyAgreed: _privacyAgreed,
     );
-    setState(() => _isSubmitted = true);
+
+    setState(() => _isSubmitting = true);
+    try {
+      await widget.service.submit(request);
+      widget.onSubmitted?.call(request);
+      if (!mounted) return;
+      setState(() {
+        _isSubmitting = false;
+        _isSubmitted = true;
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() => _isSubmitting = false);
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('문의 접수에 실패했습니다. 다시 시도해주세요.')),
+      );
+    }
   }
 
   @override
@@ -180,7 +200,10 @@ class _SiteMeetingRequestScreenState extends State<SiteMeetingRequestScreen> {
             ),
           ),
           const SizedBox(height: 12),
-          PrimaryButton(label: '현장미팅 문의하기', onPressed: _submit),
+          PrimaryButton(
+            label: _isSubmitting ? '접수 중...' : '현장미팅 문의하기',
+            onPressed: _isSubmitting ? null : _submit,
+          ),
         ],
       ),
     );
