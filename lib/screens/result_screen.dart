@@ -2,12 +2,17 @@ import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 
+import '../models/work_area.dart';
+import '../models/work_instruction.dart';
 import '../services/result_image_service.dart';
+import '../theme/space_shift_colors.dart';
 import '../widgets/action_button.dart';
+import '../widgets/gradient_cta_button.dart';
 import '../widgets/primary_button.dart';
 import '../widgets/result_image_card.dart';
 import 'estimate_request_screen.dart';
 import 'site_meeting_request_screen.dart';
+import 'workspace_screen.dart';
 
 /// AI 생성 결과를 확인하는 화면.
 ///
@@ -20,6 +25,8 @@ class ResultScreen extends StatelessWidget {
     required this.selectedImageBytes,
     this.generatedImageBytes,
     this.resultImageService = const ResultImageService(),
+    this.workInstructions = const [],
+    this.additionalNotes = '',
   });
 
   /// StyleSelectScreen에서 사용자가 선택한 스타일 이름
@@ -37,6 +44,13 @@ class ResultScreen extends StatelessWidget {
 
   /// 결과 이미지 저장/공유를 담당하며 테스트에서는 가짜 구현으로 교체할 수 있다.
   final ResultImageService resultImageService;
+
+  /// WorkspaceScreen(공간 작업실)에서 완성해 이 결과를 만든 작업 지시 목록.
+  /// "변경된 내용" 요약과 "수정 재요청" 흐름에 사용한다.
+  final List<WorkInstruction> workInstructions;
+
+  /// WorkspaceScreen에서 입력한 추가 작업 지시.
+  final String additionalNotes;
 
   /// Splash, 사진/스타일 선택 화면과 동일한 밝은 아이보리 계열 배경색
   static const Color _ivoryBackground = Color(0xFFFFF8E7);
@@ -104,6 +118,75 @@ class ResultScreen extends StatelessWidget {
   void _goToSiteMeetingRequest(BuildContext context) {
     Navigator.of(context).push(
       MaterialPageRoute(builder: (context) => SiteMeetingRequestScreen()),
+    );
+  }
+
+  // 기존 작업 지시(선택 영역 + 지시문)를 그대로 이어받아 공간 작업실로
+  // 돌아가 수정할 수 있게 한다. 수정 후 다시 생성하면 새 ResultScreen으로
+  // 교체되어 이전 결과 화면 스택은 남기지 않는다.
+  void _goToReviseRequest(BuildContext context) {
+    Navigator.of(context).pushReplacement(
+      MaterialPageRoute(
+        builder: (context) => WorkspaceScreen(
+          selectedStyle: selectedStyle,
+          selectedImageBytes: selectedImageBytes,
+          initialWorkInstructions: workInstructions,
+          initialAdditionalNotes: additionalNotes,
+        ),
+      ),
+    );
+  }
+
+  void _showMoreOptions(BuildContext context) {
+    showModalBottomSheet<void>(
+      context: context,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (sheetContext) {
+        return SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.symmetric(vertical: 12),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                ListTile(
+                  leading: const Icon(Icons.download_rounded),
+                  title: const Text('결과 저장하기'),
+                  onTap: () {
+                    Navigator.of(sheetContext).pop();
+                    _handleSave(context);
+                  },
+                ),
+                ListTile(
+                  leading: const Icon(Icons.share_rounded),
+                  title: const Text('결과 공유하기'),
+                  onTap: () {
+                    Navigator.of(sheetContext).pop();
+                    _handleShare(context);
+                  },
+                ),
+                ListTile(
+                  leading: const Icon(Icons.request_quote_outlined),
+                  title: const Text('무료 예상견적 받기'),
+                  onTap: () {
+                    Navigator.of(sheetContext).pop();
+                    _goToEstimateRequest(context);
+                  },
+                ),
+                ListTile(
+                  leading: const Icon(Icons.handshake_outlined),
+                  title: const Text('현장미팅 문의하기'),
+                  onTap: () {
+                    Navigator.of(sheetContext).pop();
+                    _goToSiteMeetingRequest(context);
+                  },
+                ),
+              ],
+            ),
+          ),
+        );
+      },
     );
   }
 
@@ -231,6 +314,75 @@ class ResultScreen extends StatelessWidget {
                   ),
                   const SizedBox(height: 28),
 
+                  if (workInstructions.isNotEmpty) ...[
+                    const Text(
+                      '변경된 내용',
+                      style: TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.bold,
+                        color: Color(0xFF3E2723),
+                      ),
+                    ),
+                    const SizedBox(height: 10),
+                    Container(
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        borderRadius: BorderRadius.circular(16),
+                        border: Border.all(
+                          color: const Color(0xFFD7CCC8),
+                          width: 1.5,
+                        ),
+                      ),
+                      child: Column(
+                        children: [
+                          for (final instruction in workInstructions)
+                            _ChangedItemTile(
+                              instruction: instruction,
+                              onEditPressed: () => _goToReviseRequest(context),
+                            ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 20),
+                  ],
+
+                  // 수정 재요청(작업실로 돌아가 다시 지시) / 완료(추가 옵션)
+                  Row(
+                    children: [
+                      Expanded(
+                        child: OutlinedButton(
+                          onPressed: () => _goToReviseRequest(context),
+                          style: OutlinedButton.styleFrom(
+                            minimumSize: const Size.fromHeight(52),
+                            foregroundColor: SpaceShiftColors.selectionAccent,
+                            side: const BorderSide(
+                              color: SpaceShiftColors.selectionAccent,
+                              width: 1.5,
+                            ),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(14),
+                            ),
+                          ),
+                          child: const Text(
+                            '수정 재요청',
+                            style: TextStyle(
+                              fontSize: 16,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: GradientCtaButton(
+                          label: '완료',
+                          onPressed: () => _showMoreOptions(context),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 24),
+
                   // 저장하기 / 공유하기 버튼.
                   // 화면 폭이 좁으면 세로로, 넓으면 가로로 배치한다.
                   LayoutBuilder(
@@ -304,6 +456,58 @@ class ResultScreen extends StatelessWidget {
             ),
           ),
         ),
+      ),
+    );
+  }
+}
+
+/// "변경된 내용" 목록에서 작업 지시 하나를 요약해서 보여주는 줄.
+/// 오른쪽의 "수정"을 누르면 해당 작업을 이어서 고칠 수 있도록 공간
+/// 작업실로 돌아간다.
+class _ChangedItemTile extends StatelessWidget {
+  const _ChangedItemTile({
+    required this.instruction,
+    required this.onEditPressed,
+  });
+
+  final WorkInstruction instruction;
+  final VoidCallback onEditPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+      child: Row(
+        children: [
+          Icon(
+            instruction.area.icon,
+            size: 20,
+            color: const Color(0xFF8D6E63),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  instruction.area.label,
+                  style: const TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.bold,
+                    color: Color(0xFF3E2723),
+                  ),
+                ),
+                Text(
+                  instruction.instructionText,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(fontSize: 13, color: Color(0xFF5D4037)),
+                ),
+              ],
+            ),
+          ),
+          TextButton(onPressed: onEditPressed, child: const Text('수정')),
+        ],
       ),
     );
   }

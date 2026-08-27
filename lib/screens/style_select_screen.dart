@@ -4,7 +4,7 @@ import 'package:flutter/material.dart';
 
 import '../widgets/primary_button.dart';
 import '../widgets/style_card.dart';
-import 'generate_screen.dart';
+import 'workspace_screen.dart';
 
 /// 선택 가능한 인테리어 스타일 하나를 나타내는 데이터.
 class _StyleOption {
@@ -45,7 +45,7 @@ class _StyleSelectScreenState extends State<StyleSelectScreen> {
   /// 현재 선택된 스타일의 인덱스. 아직 선택하지 않았다면 null.
   int? _selectedIndex;
 
-  void _goToGenerate() {
+  void _goToWorkspace() {
     // 스타일을 아직 선택하지 않았다면 화면을 이동시키지 않고 안내만 표시한다.
     final selectedIndex = _selectedIndex;
     if (selectedIndex == null) {
@@ -58,7 +58,7 @@ class _StyleSelectScreenState extends State<StyleSelectScreen> {
     final selectedStyleName = _styles[selectedIndex].title;
     Navigator.of(context).push(
       MaterialPageRoute(
-        builder: (context) => GenerateScreen(
+        builder: (context) => WorkspaceScreen(
           selectedStyle: selectedStyleName,
           selectedImageBytes: widget.selectedImageBytes,
         ),
@@ -136,7 +136,7 @@ class _StyleSelectScreenState extends State<StyleSelectScreen> {
                   padding: const EdgeInsets.fromLTRB(24, 8, 24, 24),
                   child: PrimaryButton(
                     label: 'AI로 공간 만들기',
-                    onPressed: _goToGenerate,
+                    onPressed: _goToWorkspace,
                   ),
                 ),
               ],

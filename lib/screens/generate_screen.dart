@@ -5,8 +5,10 @@ import 'package:flutter/material.dart';
 
 import '../config/app_environment.dart';
 import '../models/ai_generation_request.dart';
+import '../models/work_instruction.dart';
 import '../services/ai_generation_provider.dart';
 import '../services/ai_generation_service.dart';
+import '../services/usage_policy_service.dart';
 import '../widgets/primary_button.dart';
 import 'result_screen.dart';
 
@@ -21,6 +23,8 @@ class GenerateScreen extends StatefulWidget {
     super.key,
     required this.selectedStyle,
     required this.selectedImageBytes,
+    this.workInstructions = const [],
+    this.additionalNotes = '',
     this.aiGenerationService,
   });
 
@@ -31,6 +35,12 @@ class GenerateScreen extends StatefulWidget {
   /// PhotoSelectScreen에서 사용자가 선택한 사진 데이터.
   /// 결과 화면의 원본 카드에 표시하기 위해 그대로 전달한다.
   final Uint8List selectedImageBytes;
+
+  /// WorkspaceScreen(공간 작업실)에서 완성한 부위별 부분 선택 + 작업 지시 목록.
+  final List<WorkInstruction> workInstructions;
+
+  /// WorkspaceScreen에서 입력한, 특정 부위에 묶이지 않는 추가 작업 지시.
+  final String additionalNotes;
 
   /// AI 생성 요청을 담당하는 서비스.
   ///
@@ -106,7 +116,12 @@ class _GenerateScreenState extends State<GenerateScreen> {
       selectedStyle: widget.selectedStyle,
       createdAt: DateTime.now(),
       appVersion: AppEnvironment.appVersion,
+      workInstructions: widget.workInstructions,
+      additionalNotes: widget.additionalNotes,
     );
+
+    // 무료 이용 횟수는 실제로 AI 생성을 시도하는 이 시점에 1회로 집계한다.
+    UsagePolicyService.instance.recordGeneration();
 
     final response = await _aiGenerationService.generate(request);
     if (!mounted) return;
@@ -118,6 +133,8 @@ class _GenerateScreenState extends State<GenerateScreen> {
             selectedStyle: widget.selectedStyle,
             selectedImageBytes: widget.selectedImageBytes,
             generatedImageBytes: response.generatedImageBytes,
+            workInstructions: widget.workInstructions,
+            additionalNotes: widget.additionalNotes,
           ),
         ),
       );
@@ -143,10 +160,13 @@ class _GenerateScreenState extends State<GenerateScreen> {
         surfaceTintColor: Colors.transparent,
         automaticallyImplyLeading: false,
       ),
-      body: Center(
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 32),
-          child: Column(
+      body: SafeArea(
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 24),
+          child: Center(
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 900),
+              child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
               if (_isLoading) ...[
@@ -171,6 +191,8 @@ class _GenerateScreenState extends State<GenerateScreen> {
                     ),
                   ),
                 ),
+                const SizedBox(height: 36),
+                const _SpaceShiftIntroSection(),
               ] else ...[
                 const Icon(
                   Icons.error_outline_rounded,
@@ -201,8 +223,108 @@ class _GenerateScreenState extends State<GenerateScreen> {
                 ),
               ],
             ],
+              ),
+            ),
           ),
         ),
+      ),
+    );
+  }
+}
+
+/// 생성 대기 시간을 단순 progress로만 끝내지 않기 위한 SPACE SHIFT 소개 영역.
+///
+/// MASTER UI 5번 화면(생성 중 + 서비스 소개) 기준으로, 서비스 한 줄 소개와
+/// 핵심 기능 3가지를 간단한 카드 형태로 보여준다.
+class _SpaceShiftIntroSection extends StatelessWidget {
+  const _SpaceShiftIntroSection();
+
+  static const List<(IconData, String, String)> _features = [
+    (
+      Icons.center_focus_strong_rounded,
+      '정확한 공간 분석',
+      'AI가 공간 구조와 스타일을 정확하게 파악해요.',
+    ),
+    (
+      Icons.tune_rounded,
+      '원하는 대로 변경',
+      '부위별 부분 선택과 텍스트 지시로 자유롭게 바꿀 수 있어요.',
+    ),
+    (
+      Icons.visibility_rounded,
+      '실시간 미리보기',
+      '변경 결과를 바로 확인하고 다시 수정 요청할 수 있어요.',
+    ),
+  ];
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: const Color(0xFFEFE6DA)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text(
+            'SPACE SHIFT 소개',
+            style: TextStyle(
+              fontSize: 15,
+              fontWeight: FontWeight.bold,
+              color: Color(0xFF3E2723),
+            ),
+          ),
+          const SizedBox(height: 8),
+          const Text(
+            'SPACE SHIFT는 당신의 공간을 사진 한 장으로 분석해서, '
+            '원하는 변화 방향을 AI 이미지로 만들어드리는 서비스입니다.',
+            style: TextStyle(
+              fontSize: 13,
+              color: Color(0xFF5D4037),
+              height: 1.4,
+            ),
+          ),
+          const SizedBox(height: 16),
+          for (final feature in _features)
+            Padding(
+              padding: const EdgeInsets.only(bottom: 12),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Icon(feature.$1, size: 22, color: const Color(0xFF8D6E63)),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          feature.$2,
+                          style: const TextStyle(
+                            fontSize: 14,
+                            fontWeight: FontWeight.bold,
+                            color: Color(0xFF3E2723),
+                          ),
+                        ),
+                        const SizedBox(height: 2),
+                        Text(
+                          feature.$3,
+                          style: const TextStyle(
+                            fontSize: 12,
+                            color: Color(0xFF5D4037),
+                            height: 1.3,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+        ],
       ),
     );
   }

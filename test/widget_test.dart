@@ -37,6 +37,8 @@ import 'package:ason_space/screens/result_screen.dart';
 import 'package:ason_space/services/ai_generation_service.dart';
 import 'package:ason_space/services/image_picker_service.dart';
 import 'package:ason_space/services/result_image_service.dart';
+import 'package:ason_space/services/usage_policy_service.dart';
+import 'package:ason_space/widgets/region_selector.dart';
 
 /// 테스트에서 사용하는 1x1 픽셀 PNG 이미지 바이트.
 /// Image.memory가 실제로 디코딩 가능한 유효한 이미지 데이터가 필요하다.
@@ -198,7 +200,8 @@ Future<void> _pumpPhotoSelectScreenWithFakeCameraImage(
 }
 
 /// PhotoSelectScreen에서 이미 사진이 선택된 상태를 가정하고,
-/// 스타일 선택 -> AI 생성 대기 -> 결과 화면 도착까지 진행한다.
+/// 스타일 선택 -> 공간 작업실(부분 선택 + 작업 지시) -> AI 생성 대기 ->
+/// 결과 화면 도착까지 진행한다.
 Future<void> _proceedToResultScreen(WidgetTester tester) async {
   await tester.ensureVisible(find.text('스타일 선택하기'));
   await tester.pumpAndSettle();
@@ -209,10 +212,29 @@ Future<void> _proceedToResultScreen(WidgetTester tester) async {
   await tester.tap(find.text('모던'));
   await tester.pump();
 
-  // AI로 공간 만들기 버튼을 누르면 AI 생성(대기) 화면으로 이동
+  // AI로 공간 만들기 버튼을 누르면 공간 작업실(WorkspaceScreen)로 이동한다.
   await tester.ensureVisible(find.text('AI로 공간 만들기'));
   await tester.pumpAndSettle();
   await tester.tap(find.text('AI로 공간 만들기'));
+  await tester.pumpAndSettle();
+
+  expect(find.text('공간 작업실'), findsOneWidget);
+
+  // 사진 위에서 손가락(마우스)으로 드래그해 부분 영역을 하나 선택한다.
+  await tester.drag(find.byType(RegionSelector), const Offset(160, 140));
+  await tester.pump();
+
+  // 선택한 부분을 어떻게 바꾸고 싶은지 작업 지시를 입력한다.
+  await tester.enterText(
+    find.byType(TextField).first,
+    '좌측 벽 부분을 밝은 아이보리 컬러로 변경해주세요.',
+  );
+  await tester.pump();
+
+  // 공간의 변화 만들기 버튼을 누르면 AI 생성(대기) 화면으로 이동
+  await tester.ensureVisible(find.text('공간의 변화 만들기'));
+  await tester.pumpAndSettle();
+  await tester.tap(find.text('공간의 변화 만들기'));
   // CircularProgressIndicator는 무한 반복 애니메이션이므로 pumpAndSettle 대신
   // 화면 전환 애니메이션만큼만 진행한다.
   await tester.pump();
@@ -236,6 +258,13 @@ Future<void> _pumpToResultScreen(WidgetTester tester) async {
 }
 
 void main() {
+  // 여러 테스트가 GenerateScreen을 거치므로, 하루 무료 횟수 카운터(전역
+  // 싱글턴)가 테스트 간에 누적되어 WorkspaceScreen의 한도 초과 안내가
+  // 뜨는 일이 없도록 매 테스트 전에 초기화한다.
+  setUp(() {
+    UsagePolicyService.instance.resetForTesting();
+  });
+
   testWidgets('스플래시 화면에서 시작하기를 누르면 사진 선택 화면으로 이동한다', (
     WidgetTester tester,
   ) async {
