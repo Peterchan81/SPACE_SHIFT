@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import '../theme/space_shift_colors.dart';
+
 /// 결과 화면 하단의 보조 액션 버튼(저장하기, 공유하기 등)에 사용하는 위젯.
 ///
 /// PrimaryButton보다 시각적으로 약하게 강조되는 아웃라인 스타일을 사용해
@@ -33,8 +35,11 @@ class ActionButton extends StatelessWidget {
           style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
         ),
         style: OutlinedButton.styleFrom(
-          foregroundColor: const Color(0xFF3E2723),
-          side: const BorderSide(color: Color(0xFF8D6E63), width: 1.5),
+          foregroundColor: SpaceShiftColors.textPrimary,
+          side: const BorderSide(
+            color: SpaceShiftColors.selectionAccent,
+            width: 1.5,
+          ),
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(16),
           ),

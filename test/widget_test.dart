@@ -1,25 +1,26 @@
-// SPACE SHIFT 화면 이동 흐름 및 사진 선택(갤러리/카메라) 기능에 대한 위젯 테스트.
+// SPACE SHIFT MASTER UI 1~9번 화면 이동 흐름과 사진 선택(갤러리/카메라) 기능에
+// 대한 위젯 테스트.
 //
 // image_picker는 실제 플랫폼 선택창을 위젯 테스트에서 직접 열 수 없으므로,
 // ImagePickerService를 상속한 가짜 구현으로 이미지 데이터(또는 취소/예외)를
 // 주입해 테스트한다.
 //
-// 1. 스플래시 화면 -> 사진 선택 화면 이동을 확인한다.
-// 2. 사진이 없을 때 스타일 선택하기 버튼이 비활성화되는지 확인한다.
+// 1. 로그인 화면(1번) -> 사진 등록 화면(2번) 이동을 확인한다.
+// 2. 사진이 없을 때 "다음" 버튼이 비활성화되는지 확인한다.
 // 3. 가짜 갤러리/카메라 이미지를 선택하면 미리보기와 출처 안내가 표시되고,
-//    스타일 선택하기 버튼이 활성화되는지 확인한다.
-// 4. 사진 선택 -> 스타일 선택 -> AI 생성(대기) -> 결과 화면으로 이어지는
-//    흐름과, 선택한 사진/스타일이 결과 화면까지 전달되는지 확인한다.
-// 5. 결과 화면의 저장하기/공유하기 SnackBar와 '다른 스타일로 다시 만들기'
-//    이동이 정상 동작하는지 확인한다.
+//    "다음" 버튼이 활성화되는지 확인한다.
+// 4. 사진 등록(2) -> 사진 미리보기(3) -> 공간 작업실(4) -> AI 생성(5) ->
+//    결과 확인(6)으로 이어지는 흐름과, 선택한 사진이 결과 화면까지
+//    전달되는지 확인한다. 스타일 선택 화면은 더 이상 거치지 않는다.
+// 5. 결과 화면(6)의 저장하기/공유하기 SnackBar 동작을 확인한다.
 // 6. 카메라 촬영 취소 시 기존 사진이 유지되고, 실패 시 SnackBar가
 //    표시되는지 확인한다.
 // 7. 이미지 선택 중에는 카메라/갤러리 버튼이 모두 비활성화되어 중복
 //    입력이 차단되는지 확인한다.
 // 8. GenerateScreen이 AiGenerationService.generate()를 호출하고, 성공/실패
 //    응답에 따라 결과 화면 이동 또는 SnackBar 표시로 이어지는지 확인한다.
-// 9. ResultScreen은 generatedImageBytes가 없으면 AI 결과 카드에 기존
-//    Placeholder를, 있으면 실제 이미지를 표시하는지 확인한다.
+// 9. 결과 화면(6)의 "수정 재요청"은 수정된 결과 확인(8번)으로, "완료"는
+//    최종 확인(9번)으로 이어지는지 확인한다.
 
 import 'dart:async';
 import 'dart:convert';
@@ -28,16 +29,20 @@ import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:ason_space/main.dart';
 import 'package:ason_space/models/ai_generation_request.dart';
 import 'package:ason_space/models/ai_generation_response.dart';
+import 'package:ason_space/screens/final_confirm_screen.dart';
 import 'package:ason_space/screens/generate_screen.dart';
+import 'package:ason_space/screens/login_screen.dart';
+import 'package:ason_space/screens/photo_preview_screen.dart';
 import 'package:ason_space/screens/photo_select_screen.dart';
 import 'package:ason_space/screens/result_screen.dart';
+import 'package:ason_space/screens/revise_result_screen.dart';
 import 'package:ason_space/services/ai_generation_service.dart';
 import 'package:ason_space/services/image_picker_service.dart';
 import 'package:ason_space/services/result_image_service.dart';
 import 'package:ason_space/services/usage_policy_service.dart';
+import 'package:ason_space/widgets/gradient_cta_button.dart';
 import 'package:ason_space/widgets/region_selector.dart';
 
 /// 테스트에서 사용하는 1x1 픽셀 PNG 이미지 바이트.
@@ -48,10 +53,6 @@ final Uint8List _fakeImageBytes = base64Decode(
 );
 
 /// 실제 플랫폼 선택창 대신 미리 정해진 결과를 즉시 반환하는 가짜 서비스.
-///
-/// [galleryResult]/[cameraResult]로 각각 반환할 이미지(또는 취소를 뜻하는
-/// null)를 지정하고, [throwOnGallery]/[throwOnCamera]로 예외 상황을
-/// 흉내낼 수 있다.
 class _FakeImagePickerService extends ImagePickerService {
   const _FakeImagePickerService({
     this.galleryResult,
@@ -157,65 +158,50 @@ class _FakeResultImageService extends ResultImageService {
   }
 }
 
-/// PhotoSelectScreen을 가짜 갤러리 이미지 선택 서비스와 함께 단독으로
-/// 그린 뒤, 갤러리에서 선택 버튼을 눌러 사진이 선택된 상태로 만든다.
-Future<void> _pumpPhotoSelectScreenWithFakeGalleryImage(
-  WidgetTester tester,
-) async {
+/// 실제 앱과 동일하게 'photo_select'라는 이름의 라우트로 [PhotoSelectScreen]을
+/// 최초 화면으로 그린다. 이렇게 해야 ResultScreen 이후 화면들의
+/// popUntil(ModalRoute.withName('photo_select')) 동작을 검증할 수 있다.
+Future<void> _pumpFromPhotoSelect(
+  WidgetTester tester, {
+  ImagePickerService imagePickerService = const ImagePickerService(),
+}) async {
   await tester.pumpWidget(
     MaterialApp(
-      home: PhotoSelectScreen(
-        imagePickerService: _FakeImagePickerService(
-          galleryResult: _fakeImageBytes,
-        ),
+      initialRoute: 'photo_select',
+      onGenerateRoute: (settings) => MaterialPageRoute(
+        builder: (context) =>
+            PhotoSelectScreen(imagePickerService: imagePickerService),
+        settings: settings,
       ),
     ),
   );
+}
 
-  await tester.ensureVisible(find.text('갤러리에서 선택'));
+/// 사진 등록 화면(2번)에서 갤러리 사진을 고른 뒤 미리보기 및 시작(3번)까지
+/// 이동한다.
+Future<void> _pickGalleryAndGoToPreview(WidgetTester tester) async {
+  await tester.ensureVisible(find.text('사진 선택'));
   await tester.pumpAndSettle();
-  await tester.tap(find.text('갤러리에서 선택'));
+  await tester.tap(find.text('사진 선택'));
+  await tester.pumpAndSettle();
+
+  await tester.ensureVisible(find.byType(GradientCtaButton).first);
+  await tester.pumpAndSettle();
+  await tester.tap(find.text('다음'));
   await tester.pumpAndSettle();
 }
 
-/// PhotoSelectScreen을 가짜 카메라 촬영 서비스와 함께 단독으로 그린 뒤,
-/// 카메라로 촬영 버튼을 눌러 사진이 선택된 상태로 만든다.
-Future<void> _pumpPhotoSelectScreenWithFakeCameraImage(
-  WidgetTester tester,
-) async {
-  await tester.pumpWidget(
-    MaterialApp(
-      home: PhotoSelectScreen(
-        imagePickerService: _FakeImagePickerService(
-          cameraResult: _fakeImageBytes,
-        ),
-      ),
-    ),
-  );
-
-  await tester.ensureVisible(find.text('카메라로 촬영'));
-  await tester.pumpAndSettle();
-  await tester.tap(find.text('카메라로 촬영'));
-  await tester.pumpAndSettle();
-}
-
-/// PhotoSelectScreen에서 이미 사진이 선택된 상태를 가정하고,
-/// 스타일 선택 -> 공간 작업실(부분 선택 + 작업 지시) -> AI 생성 대기 ->
-/// 결과 화면 도착까지 진행한다.
+/// 사진 등록(2) -> 미리보기(3) -> 공간 작업실(4) -> AI 생성(5) -> 결과
+/// 확인(6)까지 진행한다.
 Future<void> _proceedToResultScreen(WidgetTester tester) async {
-  await tester.ensureVisible(find.text('스타일 선택하기'));
-  await tester.pumpAndSettle();
-  await tester.tap(find.text('스타일 선택하기'));
-  await tester.pumpAndSettle();
+  await _pickGalleryAndGoToPreview(tester);
 
-  // 스타일 카드 하나를 선택한다.
-  await tester.tap(find.text('모던'));
-  await tester.pump();
+  expect(find.byType(PhotoPreviewScreen), findsOneWidget);
+  expect(find.text('1 / 1'), findsOneWidget);
 
-  // AI로 공간 만들기 버튼을 누르면 공간 작업실(WorkspaceScreen)로 이동한다.
-  await tester.ensureVisible(find.text('AI로 공간 만들기'));
+  await tester.ensureVisible(find.text('공간 변화 시작하기'));
   await tester.pumpAndSettle();
-  await tester.tap(find.text('AI로 공간 만들기'));
+  await tester.tap(find.text('공간 변화 시작하기'));
   await tester.pumpAndSettle();
 
   expect(find.text('공간 작업실'), findsOneWidget);
@@ -250,13 +236,6 @@ Future<void> _proceedToResultScreen(WidgetTester tester) async {
   await tester.pump(const Duration(milliseconds: 300));
 }
 
-/// 갤러리에서 사진을 선택하고 스타일까지 고른 뒤 결과 화면에 도착하기까지의
-/// 공통 절차. Splash 화면은 사진 선택과 무관하므로 거치지 않는다.
-Future<void> _pumpToResultScreen(WidgetTester tester) async {
-  await _pumpPhotoSelectScreenWithFakeGalleryImage(tester);
-  await _proceedToResultScreen(tester);
-}
-
 void main() {
   // 여러 테스트가 GenerateScreen을 거치므로, 하루 무료 횟수 카운터(전역
   // 싱글턴)가 테스트 간에 누적되어 WorkspaceScreen의 한도 초과 안내가
@@ -265,57 +244,71 @@ void main() {
     UsagePolicyService.instance.resetForTesting();
   });
 
-  testWidgets('스플래시 화면에서 시작하기를 누르면 사진 선택 화면으로 이동한다', (
+  testWidgets('로그인 화면에서 로그인을 누르면 사진 등록 화면으로 이동한다', (
     WidgetTester tester,
   ) async {
-    await tester.pumpWidget(const AsonSpaceApp());
+    await tester.pumpWidget(const MaterialApp(home: LoginScreen()));
 
     expect(find.text('SPACE SHIFT'), findsOneWidget);
-    await tester.tap(find.text('시작하기'));
+    expect(find.text('로그인'), findsWidgets);
+
+    await tester.tap(find.widgetWithText(GradientCtaButton, '로그인'));
     await tester.pumpAndSettle();
 
-    expect(find.text('사진 선택'), findsOneWidget);
-    expect(find.text('우리 집 사진을 선택해주세요'), findsOneWidget);
-    expect(find.text('선택된 사진이 없습니다'), findsOneWidget);
+    expect(find.text('공간 사진 등록'), findsOneWidget);
+    expect(find.text('변화시킬 공간을 보여주세요'), findsOneWidget);
   });
 
-  testWidgets('사진이 없을 때 스타일 선택하기 버튼이 비활성화된다', (WidgetTester tester) async {
-    await tester.pumpWidget(const MaterialApp(home: PhotoSelectScreen()));
+  testWidgets('사진이 없을 때 다음 버튼이 비활성화된다', (WidgetTester tester) async {
+    await _pumpFromPhotoSelect(tester);
 
-    final button = tester.widget<ElevatedButton>(find.byType(ElevatedButton));
+    final button = tester.widget<GradientCtaButton>(
+      find.byType(GradientCtaButton),
+    );
     expect(button.onPressed, isNull);
   });
 
-  testWidgets('가짜 갤러리 이미지를 선택하면 미리보기와 출처가 표시된다', (WidgetTester tester) async {
-    await _pumpPhotoSelectScreenWithFakeGalleryImage(tester);
+  testWidgets('가짜 갤러리 이미지를 선택하면 미리보기와 출처가 표시되고 다음 버튼이 활성화된다', (
+    WidgetTester tester,
+  ) async {
+    await _pumpFromPhotoSelect(
+      tester,
+      imagePickerService: _FakeImagePickerService(
+        galleryResult: _fakeImageBytes,
+      ),
+    );
+
+    await tester.ensureVisible(find.text('사진 선택'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('사진 선택'));
+    await tester.pumpAndSettle();
 
     expect(find.text('선택된 사진이 없습니다'), findsNothing);
     expect(find.text('사진이 선택되었습니다.'), findsOneWidget);
     expect(find.text('갤러리에서 선택한 사진'), findsOneWidget);
-    expect(find.byType(Image), findsOneWidget);
-  });
 
-  testWidgets('갤러리 사진 선택 후 스타일 선택하기 버튼이 활성화된다', (WidgetTester tester) async {
-    await _pumpPhotoSelectScreenWithFakeGalleryImage(tester);
-
-    final button = tester.widget<ElevatedButton>(find.byType(ElevatedButton));
+    final button = tester.widget<GradientCtaButton>(
+      find.byType(GradientCtaButton),
+    );
     expect(button.onPressed, isNotNull);
   });
 
   testWidgets('가짜 카메라 이미지를 선택하면 미리보기와 출처가 표시된다', (WidgetTester tester) async {
-    await _pumpPhotoSelectScreenWithFakeCameraImage(tester);
+    await _pumpFromPhotoSelect(
+      tester,
+      imagePickerService: _FakeImagePickerService(
+        cameraResult: _fakeImageBytes,
+      ),
+    );
+
+    await tester.ensureVisible(find.text('카메라 촬영'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('카메라 촬영'));
+    await tester.pumpAndSettle();
 
     expect(find.text('선택된 사진이 없습니다'), findsNothing);
     expect(find.text('사진이 선택되었습니다.'), findsOneWidget);
     expect(find.text('카메라로 촬영한 사진'), findsOneWidget);
-    expect(find.byType(Image), findsOneWidget);
-  });
-
-  testWidgets('카메라 사진 선택 후 스타일 선택하기 버튼이 활성화된다', (WidgetTester tester) async {
-    await _pumpPhotoSelectScreenWithFakeCameraImage(tester);
-
-    final button = tester.widget<ElevatedButton>(find.byType(ElevatedButton));
-    expect(button.onPressed, isNotNull);
   });
 
   testWidgets('카메라 촬영을 취소하면 기존에 선택되어 있던 사진이 그대로 유지된다', (
@@ -325,20 +318,16 @@ void main() {
       galleryResult: _fakeImageBytes,
       // cameraResult를 지정하지 않으면 촬영 취소(null 반환)를 의미한다.
     );
-    await tester.pumpWidget(
-      MaterialApp(home: PhotoSelectScreen(imagePickerService: fakeService)),
-    );
+    await _pumpFromPhotoSelect(tester, imagePickerService: fakeService);
 
-    // 먼저 갤러리에서 사진을 선택해 둔다.
-    await tester.ensureVisible(find.text('갤러리에서 선택'));
+    await tester.ensureVisible(find.text('사진 선택'));
     await tester.pumpAndSettle();
-    await tester.tap(find.text('갤러리에서 선택'));
+    await tester.tap(find.text('사진 선택'));
     await tester.pumpAndSettle();
 
     expect(find.text('갤러리에서 선택한 사진'), findsOneWidget);
 
-    // 카메라 촬영을 시도했지만 취소한 경우, 기존 사진이 유지되어야 한다.
-    await tester.tap(find.text('카메라로 촬영'));
+    await tester.tap(find.text('카메라 촬영'));
     await tester.pumpAndSettle();
 
     expect(find.text('사진이 선택되었습니다.'), findsOneWidget);
@@ -346,38 +335,28 @@ void main() {
   });
 
   testWidgets('갤러리 선택이 실패하면 안내 SnackBar가 표시된다', (WidgetTester tester) async {
-    await tester.pumpWidget(
-      MaterialApp(
-        home: PhotoSelectScreen(
-          imagePickerService: const _FakeImagePickerService(
-            throwOnGallery: true,
-          ),
-        ),
-      ),
+    await _pumpFromPhotoSelect(
+      tester,
+      imagePickerService: const _FakeImagePickerService(throwOnGallery: true),
     );
 
-    await tester.ensureVisible(find.text('갤러리에서 선택'));
+    await tester.ensureVisible(find.text('사진 선택'));
     await tester.pumpAndSettle();
-    await tester.tap(find.text('갤러리에서 선택'));
+    await tester.tap(find.text('사진 선택'));
     await tester.pump();
 
     expect(find.text('사진을 불러오지 못했습니다. 다시 시도해주세요.'), findsOneWidget);
   });
 
   testWidgets('카메라 촬영이 실패하면 안내 SnackBar가 표시된다', (WidgetTester tester) async {
-    await tester.pumpWidget(
-      MaterialApp(
-        home: PhotoSelectScreen(
-          imagePickerService: const _FakeImagePickerService(
-            throwOnCamera: true,
-          ),
-        ),
-      ),
+    await _pumpFromPhotoSelect(
+      tester,
+      imagePickerService: const _FakeImagePickerService(throwOnCamera: true),
     );
 
-    await tester.ensureVisible(find.text('카메라로 촬영'));
+    await tester.ensureVisible(find.text('카메라 촬영'));
     await tester.pumpAndSettle();
-    await tester.tap(find.text('카메라로 촬영'));
+    await tester.tap(find.text('카메라 촬영'));
     await tester.pump();
 
     expect(find.text('카메라를 실행하지 못했습니다. 다시 시도해주세요.'), findsOneWidget);
@@ -387,95 +366,44 @@ void main() {
     WidgetTester tester,
   ) async {
     final fakeService = _DelayedFakeImagePickerService(_fakeImageBytes);
-    await tester.pumpWidget(
-      MaterialApp(home: PhotoSelectScreen(imagePickerService: fakeService)),
-    );
+    await _pumpFromPhotoSelect(tester, imagePickerService: fakeService);
 
-    // 첫 번째 탭으로 선택이 시작되지만 아직 완료되지 않은 상태를 만든다.
-    await tester.ensureVisible(find.text('갤러리에서 선택'));
+    await tester.ensureVisible(find.text('사진 선택'));
     await tester.pumpAndSettle();
-    await tester.tap(find.text('갤러리에서 선택'));
+    await tester.tap(find.text('사진 선택'));
     await tester.pump();
 
     // 선택창이 열려 있는 동안 두 버튼을 다시 눌러도 반응하지 않아야 한다.
-    await tester.tap(find.text('갤러리에서 선택'));
-    await tester.tap(find.text('카메라로 촬영'));
+    await tester.tap(find.text('사진 선택'));
+    await tester.tap(find.text('카메라 촬영'));
     await tester.pump();
 
     expect(fakeService.galleryCallCount, 1);
     expect(fakeService.cameraCallCount, 0);
 
-    // 선택을 완료시키면 정상적으로 사진이 반영된다.
     fakeService.release();
     await tester.pumpAndSettle();
 
     expect(find.text('사진이 선택되었습니다.'), findsOneWidget);
   });
 
-  testWidgets('사진을 선택하고 스타일 선택하기를 누르면 스타일 선택 화면으로 이동한다', (
+  testWidgets('사진을 등록하면 미리보기 화면을 거쳐 공간 작업실로 이동하고 결과 화면까지 이미지가 전달된다', (
     WidgetTester tester,
   ) async {
-    await _pumpPhotoSelectScreenWithFakeGalleryImage(tester);
-
-    await tester.ensureVisible(find.text('스타일 선택하기'));
-    await tester.pumpAndSettle();
-    await tester.tap(find.text('스타일 선택하기'));
-    await tester.pumpAndSettle();
-
-    expect(find.text('인테리어 스타일'), findsOneWidget);
-    expect(find.text('원하는 스타일을 선택해주세요'), findsOneWidget);
-    expect(find.text('모던'), findsOneWidget);
-
-    // 목록을 끝까지 스크롤하여 마지막 스타일 카드도 렌더링되는지 확인한다.
-    await tester.scrollUntilVisible(find.text('따뜻한 우드'), 200);
-    expect(find.text('따뜻한 우드'), findsOneWidget);
-  });
-
-  testWidgets('스타일을 선택하고 AI로 공간 만들기를 누르면 생성 화면을 거쳐 결과 화면으로 이동하고 '
-      '선택한 스타일과 사진이 표시된다', (WidgetTester tester) async {
-    await _pumpToResultScreen(tester);
-
-    expect(find.text('생성 결과'), findsOneWidget);
-    expect(find.text('새로운 공간이 완성되었어요'), findsOneWidget);
-    // 선택한 스타일 정보 카드에 '모던'이 표시되는지 확인한다.
-    expect(find.text('모던'), findsOneWidget);
-    // 원본 카드에는 실제 선택한 사진이, AI 결과 카드에는 실제 AiGenerationService가
-    // 반환한 Mock 이미지가 표시되어 두 Placeholder 문구 모두 사라진다.
-    expect(find.text('원본 사진'), findsNothing);
-    expect(find.text('생성된 이미지'), findsNothing);
-    expect(find.byType(Image), findsNWidgets(2));
-  });
-
-  testWidgets('카메라로 촬영한 사진이 ResultScreen 원본 카드까지 전달된다', (
-    WidgetTester tester,
-  ) async {
-    await _pumpPhotoSelectScreenWithFakeCameraImage(tester);
-    await _proceedToResultScreen(tester);
-
-    expect(find.text('생성 결과'), findsOneWidget);
-    // 원본 카드에 실제 촬영한 사진이, AI 결과 카드에는 Mock 이미지가 표시된다.
-    expect(find.text('원본 사진'), findsNothing);
-    expect(find.text('생성된 이미지'), findsNothing);
-    expect(find.byType(Image), findsNWidgets(2));
-  });
-
-  testWidgets('결과 화면의 무료 예상견적 버튼으로 견적 화면에 진입한다', (WidgetTester tester) async {
-    await tester.pumpWidget(
-      MaterialApp(
-        home: ResultScreen(
-          selectedStyle: '모던',
-          selectedImageBytes: _fakeImageBytes,
-          generatedImageBytes: _fakeImageBytes,
-        ),
+    await _pumpFromPhotoSelect(
+      tester,
+      imagePickerService: _FakeImagePickerService(
+        galleryResult: _fakeImageBytes,
       ),
     );
 
-    await tester.ensureVisible(find.text('무료 예상견적 받기'));
-    await tester.tap(find.text('무료 예상견적 받기'));
-    await tester.pumpAndSettle();
+    await _proceedToResultScreen(tester);
 
-    expect(find.text('무료 예상견적'), findsOneWidget);
-    expect(find.text('공간 종류'), findsOneWidget);
+    expect(find.text('생성 결과'), findsOneWidget);
+    expect(find.text('공간 변화가 완성되었습니다'), findsOneWidget);
+    expect(find.text('원본 사진'), findsNothing);
+    expect(find.text('생성된 이미지'), findsNothing);
+    expect(find.byType(Image), findsNWidgets(2));
   });
 
   testWidgets('결과 화면에서 저장하기를 누르면 생성 이미지를 저장한다', (WidgetTester tester) async {
@@ -483,7 +411,6 @@ void main() {
     await tester.pumpWidget(
       MaterialApp(
         home: ResultScreen(
-          selectedStyle: '모던',
           selectedImageBytes: _fakeImageBytes,
           generatedImageBytes: _fakeImageBytes,
           resultImageService: service,
@@ -506,7 +433,6 @@ void main() {
     await tester.pumpWidget(
       MaterialApp(
         home: ResultScreen(
-          selectedStyle: '모던',
           selectedImageBytes: _fakeImageBytes,
           generatedImageBytes: _fakeImageBytes,
           resultImageService: service,
@@ -523,30 +449,95 @@ void main() {
     expect(service.lastSharedBytes, equals(_fakeImageBytes));
   });
 
-  testWidgets('결과 화면에서 다른 스타일로 다시 만들기를 누르면 스타일 선택 화면으로 돌아간다', (
+  testWidgets('결과 화면의 더보기 메뉴에서 추가 옵션 시트를 열 수 있다', (WidgetTester tester) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        home: ResultScreen(
+          selectedImageBytes: _fakeImageBytes,
+          generatedImageBytes: _fakeImageBytes,
+        ),
+      ),
+    );
+
+    await tester.tap(find.byIcon(Icons.more_vert_rounded));
+    await tester.pumpAndSettle();
+
+    expect(find.text('추가 옵션'), findsOneWidget);
+    expect(find.text('고화질 다운로드'), findsOneWidget);
+    expect(find.text('프로젝트 정보'), findsOneWidget);
+  });
+
+  testWidgets('결과 화면에서 수정 재요청을 누르면 공간 작업실로 돌아가고, 재생성 후 수정된 결과 확인 화면으로 이동한다', (
     WidgetTester tester,
   ) async {
-    await _pumpToResultScreen(tester);
+    await tester.pumpWidget(
+      MaterialApp(
+        home: ResultScreen(
+          selectedImageBytes: _fakeImageBytes,
+          generatedImageBytes: _fakeImageBytes,
+        ),
+      ),
+    );
 
-    await tester.ensureVisible(find.text('다른 스타일로 다시 만들기'));
-    await tester.pumpAndSettle();
-    await tester.tap(find.text('다른 스타일로 다시 만들기'));
+    await tester.ensureVisible(find.text('수정 재요청'));
+    await tester.tap(find.text('수정 재요청'));
     await tester.pumpAndSettle();
 
-    expect(find.text('인테리어 스타일'), findsOneWidget);
-    expect(find.text('원하는 스타일을 선택해주세요'), findsOneWidget);
-    // 결과 화면과 생성 화면은 스택에서 정리되어 더 이상 존재하지 않는다.
-    expect(find.text('생성 결과'), findsNothing);
+    expect(find.text('공간 작업실'), findsOneWidget);
+
+    await tester.drag(find.byType(RegionSelector), const Offset(160, 140));
+    await tester.pump();
+    await tester.enterText(find.byType(TextField).first, '조명을 밝게 해주세요.');
+    await tester.pump();
+
+    await tester.ensureVisible(find.text('공간의 변화 만들기'));
+    await tester.tap(find.text('공간의 변화 만들기'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 300));
+
+    expect(find.text('수정 요청 처리 중'), findsOneWidget);
+
+    await tester.pump(const Duration(seconds: 3));
+    await tester.pumpAndSettle();
+
+    expect(find.byType(ReviseResultScreen), findsOneWidget);
+    expect(find.text('수정된 공간을 확인해주세요'), findsOneWidget);
+    expect(find.text('무료 예상견적 받기'), findsOneWidget);
+    expect(find.text('현장 미팅 문의하기'), findsOneWidget);
+  });
+
+  testWidgets('결과 화면에서 완료를 누르면 최종 확인 화면으로 이동하고, 이대로 확정하면 사진 등록 화면으로 돌아간다', (
+    WidgetTester tester,
+  ) async {
+    await _pumpFromPhotoSelect(
+      tester,
+      imagePickerService: _FakeImagePickerService(
+        galleryResult: _fakeImageBytes,
+      ),
+    );
+    await _proceedToResultScreen(tester);
+
+    await tester.ensureVisible(find.text('완료'));
+    await tester.tap(find.text('완료'));
+    await tester.pumpAndSettle();
+
+    expect(find.byType(FinalConfirmScreen), findsOneWidget);
+    expect(find.text('변경 요약'), findsOneWidget);
+
+    await tester.ensureVisible(find.text('이대로 확정하기'));
+    await tester.tap(find.text('이대로 확정하기'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('공간 변화가 확정되었습니다'), findsOneWidget);
+    await tester.tap(find.text('확인'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('공간 사진 등록'), findsOneWidget);
   });
 
   testWidgets('선택한 이미지가 ResultScreen 원본 카드에 표시된다', (WidgetTester tester) async {
     await tester.pumpWidget(
-      MaterialApp(
-        home: ResultScreen(
-          selectedStyle: '모던',
-          selectedImageBytes: _fakeImageBytes,
-        ),
-      ),
+      MaterialApp(home: ResultScreen(selectedImageBytes: _fakeImageBytes)),
     );
 
     final image = tester.widget<Image>(find.byType(Image));
@@ -567,7 +558,7 @@ void main() {
       await tester.pumpWidget(
         MaterialApp(
           home: GenerateScreen(
-            selectedStyle: '모던',
+            selectedStyle: '',
             selectedImageBytes: _fakeImageBytes,
             aiGenerationService: fakeService,
           ),
@@ -581,7 +572,6 @@ void main() {
       await tester.pump(const Duration(milliseconds: 300));
 
       expect(fakeService.callCount, 1);
-      expect(fakeService.lastRequest?.selectedStyle, '모던');
       expect(fakeService.lastRequest?.imageBytes, equals(_fakeImageBytes));
       expect(find.text('생성 결과'), findsOneWidget);
     },
@@ -601,7 +591,7 @@ void main() {
     await tester.pumpWidget(
       MaterialApp(
         home: GenerateScreen(
-          selectedStyle: '모던',
+          selectedStyle: '',
           selectedImageBytes: _fakeImageBytes,
           aiGenerationService: fakeService,
         ),
@@ -631,7 +621,6 @@ void main() {
     await tester.pumpWidget(
       MaterialApp(
         home: ResultScreen(
-          selectedStyle: '모던',
           selectedImageBytes: _fakeImageBytes,
           // generatedImageBytes를 생략하면 null이다.
         ),
@@ -649,7 +638,6 @@ void main() {
     await tester.pumpWidget(
       MaterialApp(
         home: ResultScreen(
-          selectedStyle: '모던',
           selectedImageBytes: _fakeImageBytes,
           generatedImageBytes: _fakeImageBytes,
         ),
@@ -667,7 +655,7 @@ void main() {
     await tester.pumpWidget(
       MaterialApp(
         home: GenerateScreen(
-          selectedStyle: '모던',
+          selectedStyle: '',
           selectedImageBytes: _fakeImageBytes,
           aiGenerationService: const _NeverCompletingAiGenerationService(),
         ),

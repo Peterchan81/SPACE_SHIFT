@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import '../theme/space_shift_colors.dart';
+
 /// 앱 전반에서 재사용하는 큰 버튼 위젯.
 ///
 /// 40대 이상 사용자도 쉽게 누를 수 있도록 버튼 높이와 글자 크기를 크게 유지한다.
@@ -26,13 +28,15 @@ class PrimaryButton extends StatelessWidget {
       child: ElevatedButton(
         onPressed: onPressed,
         style: ElevatedButton.styleFrom(
+          backgroundColor: SpaceShiftColors.selectionAccent,
+          foregroundColor: Colors.white,
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(16),
           ),
           elevation: 2,
           // 비활성화 상태에서도 글자가 잘 읽히도록 충분한 명암 대비를 유지한다.
-          disabledBackgroundColor: const Color(0xFFE3D9CE),
-          disabledForegroundColor: const Color(0xFF7B6357),
+          disabledBackgroundColor: SpaceShiftColors.border,
+          disabledForegroundColor: SpaceShiftColors.textSecondary,
         ),
         child: Text(
           label,

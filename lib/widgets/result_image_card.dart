@@ -2,6 +2,8 @@ import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 
+import '../theme/space_shift_colors.dart';
+
 /// Before/After 비교에 사용하는 이미지 카드.
 ///
 /// [imageBytes]가 있으면 실제 이미지를 표시하고, 없으면 아이콘 Placeholder를
@@ -40,7 +42,7 @@ class ResultImageCard extends StatelessWidget {
           style: const TextStyle(
             fontSize: 16,
             fontWeight: FontWeight.bold,
-            color: Color(0xFF3E2723),
+            color: SpaceShiftColors.textPrimary,
           ),
         ),
         const SizedBox(height: 8),
@@ -51,7 +53,7 @@ class ResultImageCard extends StatelessWidget {
             decoration: BoxDecoration(
               color: Colors.white,
               borderRadius: BorderRadius.circular(20),
-              border: Border.all(color: const Color(0xFFD7CCC8), width: 1.5),
+              border: Border.all(color: SpaceShiftColors.border, width: 1.5),
               boxShadow: const [
                 BoxShadow(
                   color: Color(0x14000000),
@@ -68,7 +70,7 @@ class ResultImageCard extends StatelessWidget {
                         Icon(
                           placeholderIcon,
                           size: 48,
-                          color: const Color(0xFFBCAAA4),
+                          color: SpaceShiftColors.border,
                         ),
                         const SizedBox(height: 12),
                         Text(
@@ -76,7 +78,7 @@ class ResultImageCard extends StatelessWidget {
                           style: const TextStyle(
                             fontSize: 14,
                             fontWeight: FontWeight.w600,
-                            color: Color(0xFF8D6E63),
+                            color: SpaceShiftColors.textSecondary,
                           ),
                         ),
                       ],
