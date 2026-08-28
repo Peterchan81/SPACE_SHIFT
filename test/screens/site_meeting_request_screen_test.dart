@@ -5,7 +5,7 @@ import 'dart:typed_data';
 
 import 'package:ason_space/models/site_meeting_request.dart';
 import 'package:ason_space/screens/site_meeting_request_screen.dart';
-import 'package:ason_space/screens/result_screen.dart';
+import 'package:ason_space/screens/revise_result_screen.dart';
 import 'package:ason_space/services/site_meeting_service.dart';
 
 class _FailingSiteMeetingService extends SiteMeetingService {
@@ -18,11 +18,10 @@ class _FailingSiteMeetingService extends SiteMeetingService {
 }
 
 void main() {
-  testWidgets('결과 화면에서 현장미팅 문의 화면으로 진입한다', (tester) async {
+  testWidgets('수정된 결과 확인 화면에서 현장미팅 문의 화면으로 진입한다', (tester) async {
     await tester.pumpWidget(
       MaterialApp(
-        home: ResultScreen(
-          selectedStyle: '모던',
+        home: ReviseResultScreen(
           selectedImageBytes: Uint8List.fromList(
             base64Decode(
               'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk'
@@ -33,8 +32,8 @@ void main() {
       ),
     );
 
-    await tester.ensureVisible(find.text('현장미팅 문의하기'));
-    await tester.tap(find.text('현장미팅 문의하기'));
+    await tester.ensureVisible(find.text('현장 미팅 문의하기'));
+    await tester.tap(find.text('현장 미팅 문의하기'));
     await tester.pumpAndSettle();
 
     expect(find.text('현장미팅 문의'), findsOneWidget);

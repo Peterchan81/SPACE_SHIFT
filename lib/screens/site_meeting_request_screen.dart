@@ -2,7 +2,8 @@ import 'package:flutter/material.dart';
 
 import '../models/site_meeting_request.dart';
 import '../services/site_meeting_service.dart';
-import '../widgets/primary_button.dart';
+import '../theme/space_shift_colors.dart';
+import '../widgets/gradient_cta_button.dart';
 
 class SiteMeetingRequestScreen extends StatefulWidget {
   SiteMeetingRequestScreen({super.key, this.onSubmitted, SiteMeetingService? service})
@@ -19,7 +20,6 @@ class SiteMeetingRequestScreen extends StatefulWidget {
 }
 
 class _SiteMeetingRequestScreenState extends State<SiteMeetingRequestScreen> {
-  static const Color _ivoryBackground = Color(0xFFFFF8E7);
   final _formKey = GlobalKey<FormState>();
   final _nameController = TextEditingController();
   final _contactController = TextEditingController();
@@ -49,7 +49,7 @@ class _SiteMeetingRequestScreenState extends State<SiteMeetingRequestScreen> {
       border: OutlineInputBorder(borderRadius: BorderRadius.circular(14)),
       enabledBorder: OutlineInputBorder(
         borderRadius: BorderRadius.circular(14),
-        borderSide: const BorderSide(color: Color(0xFFD7CCC8), width: 1.5),
+        borderSide: const BorderSide(color: SpaceShiftColors.border, width: 1.5),
       ),
     );
   }
@@ -91,11 +91,11 @@ class _SiteMeetingRequestScreenState extends State<SiteMeetingRequestScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: _ivoryBackground,
+      backgroundColor: SpaceShiftColors.background,
       appBar: AppBar(
         title: const Text('현장미팅 문의'),
-        backgroundColor: _ivoryBackground,
-        foregroundColor: const Color(0xFF3E2723),
+        backgroundColor: SpaceShiftColors.background,
+        foregroundColor: SpaceShiftColors.textPrimary,
         elevation: 0,
         surfaceTintColor: Colors.transparent,
       ),
@@ -125,7 +125,7 @@ class _SiteMeetingRequestScreenState extends State<SiteMeetingRequestScreen> {
             '방문 상담에 필요한 정보만 알려주세요',
             style: Theme.of(context).textTheme.headlineSmall?.copyWith(
               fontWeight: FontWeight.bold,
-              color: const Color(0xFF3E2723),
+              color: SpaceShiftColors.textPrimary,
             ),
           ),
           const SizedBox(height: 24),
@@ -177,7 +177,7 @@ class _SiteMeetingRequestScreenState extends State<SiteMeetingRequestScreen> {
                   controlAffinity: ListTileControlAffinity.leading,
                   title: const Text(
                     '개인정보 수집 및 이용에 동의합니다. (필수)',
-                    style: TextStyle(fontSize: 15, color: Color(0xFF3E2723)),
+                    style: TextStyle(fontSize: 15, color: SpaceShiftColors.textPrimary),
                   ),
                   value: _privacyAgreed,
                   onChanged: (value) {
@@ -200,7 +200,7 @@ class _SiteMeetingRequestScreenState extends State<SiteMeetingRequestScreen> {
             ),
           ),
           const SizedBox(height: 12),
-          PrimaryButton(
+          GradientCtaButton(
             label: _isSubmitting ? '접수 중...' : '현장미팅 문의하기',
             onPressed: _isSubmitting ? null : _submit,
           ),
@@ -217,7 +217,7 @@ class _SiteMeetingRequestScreenState extends State<SiteMeetingRequestScreen> {
         const Icon(
           Icons.check_circle_rounded,
           size: 80,
-          color: Color(0xFF8D6E63),
+          color: SpaceShiftColors.selectionAccent,
         ),
         const SizedBox(height: 24),
         Text(
@@ -225,14 +225,14 @@ class _SiteMeetingRequestScreenState extends State<SiteMeetingRequestScreen> {
           textAlign: TextAlign.center,
           style: Theme.of(context).textTheme.headlineSmall?.copyWith(
             fontWeight: FontWeight.bold,
-            color: const Color(0xFF3E2723),
+            color: SpaceShiftColors.textPrimary,
           ),
         ),
         const SizedBox(height: 12),
         const Text(
           '입력하신 연락처로 방문 일정을 안내드릴게요.',
           textAlign: TextAlign.center,
-          style: TextStyle(fontSize: 16, color: Color(0xFF5D4037)),
+          style: TextStyle(fontSize: 16, color: SpaceShiftColors.textSecondary),
         ),
         const SizedBox(height: 36),
         TextButton(

@@ -8,12 +8,15 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:ason_space/models/ai_generation_request.dart';
 import 'package:ason_space/models/ai_generation_response.dart';
 import 'package:ason_space/screens/estimate_request_screen.dart';
+import 'package:ason_space/screens/final_confirm_screen.dart';
 import 'package:ason_space/screens/generate_screen.dart';
+import 'package:ason_space/screens/login_screen.dart';
+import 'package:ason_space/screens/photo_preview_screen.dart';
 import 'package:ason_space/screens/photo_select_screen.dart';
 import 'package:ason_space/screens/result_screen.dart';
+import 'package:ason_space/screens/revise_result_screen.dart';
+import 'package:ason_space/screens/signup_screen.dart';
 import 'package:ason_space/screens/site_meeting_request_screen.dart';
-import 'package:ason_space/screens/splash_screen.dart';
-import 'package:ason_space/screens/style_select_screen.dart';
 import 'package:ason_space/screens/workspace_screen.dart';
 import 'package:ason_space/services/ai_generation_service.dart';
 
@@ -32,22 +35,36 @@ void main() {
     ),
   );
 
-  testWidgets('Galaxy Tab 가로 화면에서 주요 MVP 화면에 렌더링 오류가 없다', (tester) async {
+  testWidgets('Galaxy Tab 가로 화면에서 MASTER UI 1~9번 화면에 렌더링 오류가 없다', (
+    tester,
+  ) async {
     await tester.binding.setSurfaceSize(const Size(1280, 800));
     addTearDown(() => tester.binding.setSurfaceSize(null));
 
     final screens = <Widget>[
-      const SplashScreen(),
+      const LoginScreen(),
+      const SignupScreen(),
       const PhotoSelectScreen(),
-      StyleSelectScreen(selectedImageBytes: imageBytes),
-      WorkspaceScreen(selectedStyle: '모던', selectedImageBytes: imageBytes),
+      PhotoPreviewScreen(selectedImageBytes: imageBytes),
+      WorkspaceScreen(selectedImageBytes: imageBytes),
       GenerateScreen(
-        selectedStyle: '모던',
+        selectedStyle: '',
         selectedImageBytes: imageBytes,
         aiGenerationService: _PendingAiGenerationService(),
       ),
-      ResultScreen(
-        selectedStyle: '모던',
+      GenerateScreen(
+        selectedStyle: '',
+        selectedImageBytes: imageBytes,
+        isRevision: true,
+        aiGenerationService: _PendingAiGenerationService(),
+      ),
+      ResultScreen(selectedImageBytes: imageBytes, generatedImageBytes: imageBytes),
+      ReviseResultScreen(
+        selectedImageBytes: imageBytes,
+        generatedImageBytes: imageBytes,
+      ),
+      FinalConfirmScreen(
+        selectedStyle: '',
         selectedImageBytes: imageBytes,
         generatedImageBytes: imageBytes,
       ),

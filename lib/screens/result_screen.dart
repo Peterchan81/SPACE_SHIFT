@@ -8,20 +8,21 @@ import '../services/result_image_service.dart';
 import '../theme/space_shift_colors.dart';
 import '../widgets/action_button.dart';
 import '../widgets/gradient_cta_button.dart';
-import '../widgets/primary_button.dart';
+import '../widgets/more_options_sheet.dart';
 import '../widgets/result_image_card.dart';
-import 'estimate_request_screen.dart';
-import 'site_meeting_request_screen.dart';
+import 'final_confirm_screen.dart';
 import 'workspace_screen.dart';
 
-/// AI 생성 결과를 확인하는 화면.
+/// MASTER UI 6번 화면 — 결과 확인 및 바로 수정.
 ///
-/// 원본과 AI 결과 이미지를 비교하고, 선택했던 스타일을 확인하며,
-/// 저장/공유와 다시 만들기 흐름을 제공한다.
+/// 원본과 AI 결과 이미지를 비교하고, 변경된 내용을 확인하며, 그 자리에서
+/// 수정을 재요청하거나 "완료"로 최종 확인(9번 화면)으로 넘어갈 수 있다.
+/// 예상견적/현장미팅 문의 등 다음 단계 액션은 수정된 결과 확인(8번 화면)에서
+/// 제공하므로 이 화면에서는 결과 확인과 수정 재요청에만 집중한다.
 class ResultScreen extends StatelessWidget {
   const ResultScreen({
     super.key,
-    required this.selectedStyle,
+    this.selectedStyle = '',
     required this.selectedImageBytes,
     this.generatedImageBytes,
     this.resultImageService = const ResultImageService(),
@@ -29,7 +30,7 @@ class ResultScreen extends StatelessWidget {
     this.additionalNotes = '',
   });
 
-  /// StyleSelectScreen에서 사용자가 선택한 스타일 이름
+  /// 선택된 스타일 이름(있는 경우에만 카드로 표시).
   final String selectedStyle;
 
   /// PhotoSelectScreen에서 사용자가 선택한 원본 사진 데이터.
@@ -51,9 +52,6 @@ class ResultScreen extends StatelessWidget {
 
   /// WorkspaceScreen에서 입력한 추가 작업 지시.
   final String additionalNotes;
-
-  /// Splash, 사진/스타일 선택 화면과 동일한 밝은 아이보리 계열 배경색
-  static const Color _ivoryBackground = Color(0xFFFFF8E7);
 
   Future<void> _handleSave(BuildContext context) async {
     final imageBytes = generatedImageBytes;
@@ -90,40 +88,9 @@ class ResultScreen extends StatelessWidget {
     ).showSnackBar(SnackBar(content: Text(message)));
   }
 
-  // StyleSelectScreen은 이미 스택에 쌓여 있으므로 새로 쌓지 않고
-  // 해당 화면까지 되돌아가 다시 스타일을 고를 수 있게 한다.
-  // 'style_select'는 photo_select_screen.dart에서 StyleSelectScreen을
-  // 열 때 지정한 라우트 이름과 동일해야 한다.
-  void _goToStyleSelectAgain(BuildContext context) {
-    Navigator.of(context).popUntil(ModalRoute.withName('style_select'));
-  }
-
-  // PhotoSelectScreen까지 되돌아가 처음부터 다시 시작할 수 있게 한다.
-  // 'photo_select'는 splash_screen.dart에서 PhotoSelectScreen을
-  // 열 때 지정한 라우트 이름과 동일해야 한다.
-  void _goToPhotoSelectAgain(BuildContext context) {
-    Navigator.of(context).popUntil(ModalRoute.withName('photo_select'));
-  }
-
-  void _goToEstimateRequest(BuildContext context) {
-    Navigator.of(context).push(
-      MaterialPageRoute(
-        builder: (context) => EstimateRequestScreen(
-          onSiteMeetingRequested: () => _goToSiteMeetingRequest(context),
-        ),
-      ),
-    );
-  }
-
-  void _goToSiteMeetingRequest(BuildContext context) {
-    Navigator.of(context).push(
-      MaterialPageRoute(builder: (context) => SiteMeetingRequestScreen()),
-    );
-  }
-
   // 기존 작업 지시(선택 영역 + 지시문)를 그대로 이어받아 공간 작업실로
-  // 돌아가 수정할 수 있게 한다. 수정 후 다시 생성하면 새 ResultScreen으로
-  // 교체되어 이전 결과 화면 스택은 남기지 않는다.
+  // 돌아가 수정할 수 있게 한다. 수정 후 다시 생성하면 GenerateScreen이
+  // isRevision 흐름을 타 ReviseResultScreen(8번)으로 이동한다.
   void _goToReviseRequest(BuildContext context) {
     Navigator.of(context).pushReplacement(
       MaterialPageRoute(
@@ -132,74 +99,52 @@ class ResultScreen extends StatelessWidget {
           selectedImageBytes: selectedImageBytes,
           initialWorkInstructions: workInstructions,
           initialAdditionalNotes: additionalNotes,
+          isRevision: true,
         ),
       ),
     );
   }
 
-  void _showMoreOptions(BuildContext context) {
-    showModalBottomSheet<void>(
-      context: context,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+  void _goToFinalConfirm(BuildContext context) {
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (context) => FinalConfirmScreen(
+          selectedStyle: selectedStyle,
+          selectedImageBytes: selectedImageBytes,
+          generatedImageBytes: generatedImageBytes,
+          workInstructions: workInstructions,
+          additionalNotes: additionalNotes,
+        ),
       ),
-      builder: (sheetContext) {
-        return SafeArea(
-          child: Padding(
-            padding: const EdgeInsets.symmetric(vertical: 12),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                ListTile(
-                  leading: const Icon(Icons.download_rounded),
-                  title: const Text('결과 저장하기'),
-                  onTap: () {
-                    Navigator.of(sheetContext).pop();
-                    _handleSave(context);
-                  },
-                ),
-                ListTile(
-                  leading: const Icon(Icons.share_rounded),
-                  title: const Text('결과 공유하기'),
-                  onTap: () {
-                    Navigator.of(sheetContext).pop();
-                    _handleShare(context);
-                  },
-                ),
-                ListTile(
-                  leading: const Icon(Icons.request_quote_outlined),
-                  title: const Text('무료 예상견적 받기'),
-                  onTap: () {
-                    Navigator.of(sheetContext).pop();
-                    _goToEstimateRequest(context);
-                  },
-                ),
-                ListTile(
-                  leading: const Icon(Icons.handshake_outlined),
-                  title: const Text('현장미팅 문의하기'),
-                  onTap: () {
-                    Navigator.of(sheetContext).pop();
-                    _goToSiteMeetingRequest(context);
-                  },
-                ),
-              ],
-            ),
-          ),
-        );
-      },
+    );
+  }
+
+  void _openMoreOptions(BuildContext context) {
+    showMoreOptionsSheet(
+      context,
+      resultImageBytes: generatedImageBytes,
+      resultImageService: resultImageService,
+      workInstructions: workInstructions,
     );
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: _ivoryBackground,
+      backgroundColor: SpaceShiftColors.background,
       appBar: AppBar(
         title: const Text('생성 결과'),
-        backgroundColor: _ivoryBackground,
-        foregroundColor: const Color(0xFF3E2723),
+        backgroundColor: SpaceShiftColors.background,
+        foregroundColor: SpaceShiftColors.textPrimary,
         elevation: 0,
         surfaceTintColor: Colors.transparent,
+        actions: [
+          IconButton(
+            onPressed: () => _openMoreOptions(context),
+            icon: const Icon(Icons.more_vert_rounded),
+            tooltip: '추가 옵션',
+          ),
+        ],
       ),
       body: SafeArea(
         child: Center(
@@ -212,17 +157,18 @@ class ResultScreen extends StatelessWidget {
                 children: [
                   // 상단 안내 문구
                   Text(
-                    '새로운 공간이 완성되었어요',
+                    '공간 변화가 완성되었습니다',
                     style: Theme.of(context).textTheme.headlineSmall?.copyWith(
                       fontWeight: FontWeight.bold,
-                      color: const Color(0xFF3E2723),
+                      color: SpaceShiftColors.textPrimary,
                     ),
                   ),
                   const SizedBox(height: 12),
-                  Text(
+                  const Text(
                     '원본 사진과 AI가 만든 새로운 공간을 비교해보세요.',
-                    style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                      color: const Color(0xFF5D4037),
+                    style: TextStyle(
+                      fontSize: 15,
+                      color: SpaceShiftColors.textSecondary,
                       height: 1.4,
                     ),
                   ),
@@ -242,7 +188,7 @@ class ResultScreen extends StatelessWidget {
                       // generatedImageBytes가 null이면(현재 더미 응답) 기존
                       // Placeholder를, 값이 채워지면 실제 이미지를 표시한다.
                       final afterCard = ResultImageCard(
-                        title: 'AI 결과',
+                        title: '변경 결과',
                         placeholderIcon: Icons.auto_awesome_rounded,
                         placeholderText: '생성된 이미지',
                         imageBytes: generatedImageBytes,
@@ -269,50 +215,48 @@ class ResultScreen extends StatelessWidget {
                   ),
                   const SizedBox(height: 24),
 
-                  // 선택한 스타일 정보 카드
-                  Container(
-                    padding: const EdgeInsets.all(16),
-                    decoration: BoxDecoration(
-                      color: Colors.white,
-                      borderRadius: BorderRadius.circular(16),
-                      border: Border.all(
-                        color: const Color(0xFFD7CCC8),
-                        width: 1.5,
+                  if (selectedStyle.isNotEmpty) ...[
+                    Container(
+                      padding: const EdgeInsets.all(16),
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        borderRadius: BorderRadius.circular(16),
+                        border: Border.all(color: SpaceShiftColors.border),
+                      ),
+                      child: Row(
+                        children: [
+                          const Icon(
+                            Icons.style_rounded,
+                            size: 28,
+                            color: SpaceShiftColors.selectionAccent,
+                          ),
+                          const SizedBox(width: 14),
+                          Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              const Text(
+                                '선택한 스타일',
+                                style: TextStyle(
+                                  fontSize: 13,
+                                  color: SpaceShiftColors.textSecondary,
+                                ),
+                              ),
+                              const SizedBox(height: 2),
+                              Text(
+                                selectedStyle,
+                                style: const TextStyle(
+                                  fontSize: 18,
+                                  fontWeight: FontWeight.bold,
+                                  color: SpaceShiftColors.textPrimary,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ],
                       ),
                     ),
-                    child: Row(
-                      children: [
-                        const Icon(
-                          Icons.style_rounded,
-                          size: 28,
-                          color: Color(0xFF8D6E63),
-                        ),
-                        const SizedBox(width: 14),
-                        Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            const Text(
-                              '선택한 스타일',
-                              style: TextStyle(
-                                fontSize: 13,
-                                color: Color(0xFF8D6E63),
-                              ),
-                            ),
-                            const SizedBox(height: 2),
-                            Text(
-                              selectedStyle,
-                              style: const TextStyle(
-                                fontSize: 18,
-                                fontWeight: FontWeight.bold,
-                                color: Color(0xFF3E2723),
-                              ),
-                            ),
-                          ],
-                        ),
-                      ],
-                    ),
-                  ),
-                  const SizedBox(height: 28),
+                    const SizedBox(height: 28),
+                  ],
 
                   if (workInstructions.isNotEmpty) ...[
                     const Text(
@@ -320,7 +264,7 @@ class ResultScreen extends StatelessWidget {
                       style: TextStyle(
                         fontSize: 16,
                         fontWeight: FontWeight.bold,
-                        color: Color(0xFF3E2723),
+                        color: SpaceShiftColors.textPrimary,
                       ),
                     ),
                     const SizedBox(height: 10),
@@ -328,10 +272,7 @@ class ResultScreen extends StatelessWidget {
                       decoration: BoxDecoration(
                         color: Colors.white,
                         borderRadius: BorderRadius.circular(16),
-                        border: Border.all(
-                          color: const Color(0xFFD7CCC8),
-                          width: 1.5,
-                        ),
+                        border: Border.all(color: SpaceShiftColors.border),
                       ),
                       child: Column(
                         children: [
@@ -346,45 +287,7 @@ class ResultScreen extends StatelessWidget {
                     const SizedBox(height: 20),
                   ],
 
-                  // 수정 재요청(작업실로 돌아가 다시 지시) / 완료(추가 옵션)
-                  Row(
-                    children: [
-                      Expanded(
-                        child: OutlinedButton(
-                          onPressed: () => _goToReviseRequest(context),
-                          style: OutlinedButton.styleFrom(
-                            minimumSize: const Size.fromHeight(52),
-                            foregroundColor: SpaceShiftColors.selectionAccent,
-                            side: const BorderSide(
-                              color: SpaceShiftColors.selectionAccent,
-                              width: 1.5,
-                            ),
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(14),
-                            ),
-                          ),
-                          child: const Text(
-                            '수정 재요청',
-                            style: TextStyle(
-                              fontSize: 16,
-                              fontWeight: FontWeight.bold,
-                            ),
-                          ),
-                        ),
-                      ),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: GradientCtaButton(
-                          label: '완료',
-                          onPressed: () => _showMoreOptions(context),
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 24),
-
                   // 저장하기 / 공유하기 버튼.
-                  // 화면 폭이 좁으면 세로로, 넓으면 가로로 배치한다.
                   LayoutBuilder(
                     builder: (context, constraints) {
                       final saveButton = ActionButton(
@@ -418,38 +321,40 @@ class ResultScreen extends StatelessWidget {
                   ),
                   const SizedBox(height: 24),
 
-                  PrimaryButton(
-                    label: '무료 예상견적 받기',
-                    onPressed: () => _goToEstimateRequest(context),
-                  ),
-                  const SizedBox(height: 12),
-
-                  PrimaryButton(
-                    label: '현장미팅 문의하기',
-                    onPressed: () => _goToSiteMeetingRequest(context),
-                  ),
-                  const SizedBox(height: 12),
-
-                  // 다른 스타일로 다시 만들기
-                  PrimaryButton(
-                    label: '다른 스타일로 다시 만들기',
-                    onPressed: () => _goToStyleSelectAgain(context),
-                  ),
-                  const SizedBox(height: 12),
-
-                  // 처음부터 다시 시작 (사진 다시 선택)
-                  Center(
-                    child: TextButton(
-                      onPressed: () => _goToPhotoSelectAgain(context),
-                      child: const Text(
-                        '다른 사진 선택하기',
-                        style: TextStyle(
-                          fontSize: 16,
-                          fontWeight: FontWeight.w600,
-                          color: Color(0xFF8D6E63),
+                  // 수정 재요청(작업실로 돌아가 다시 지시) / 완료(최종 확인으로 이동)
+                  Row(
+                    children: [
+                      Expanded(
+                        child: OutlinedButton(
+                          onPressed: () => _goToReviseRequest(context),
+                          style: OutlinedButton.styleFrom(
+                            minimumSize: const Size.fromHeight(52),
+                            foregroundColor: SpaceShiftColors.selectionAccent,
+                            side: const BorderSide(
+                              color: SpaceShiftColors.selectionAccent,
+                              width: 1.5,
+                            ),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(14),
+                            ),
+                          ),
+                          child: const Text(
+                            '수정 재요청',
+                            style: TextStyle(
+                              fontSize: 16,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
                         ),
                       ),
-                    ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: GradientCtaButton(
+                          label: '완료',
+                          onPressed: () => _goToFinalConfirm(context),
+                        ),
+                      ),
+                    ],
                   ),
                 ],
               ),
@@ -482,7 +387,7 @@ class _ChangedItemTile extends StatelessWidget {
           Icon(
             instruction.area.icon,
             size: 20,
-            color: const Color(0xFF8D6E63),
+            color: SpaceShiftColors.selectionAccent,
           ),
           const SizedBox(width: 12),
           Expanded(
@@ -494,14 +399,17 @@ class _ChangedItemTile extends StatelessWidget {
                   style: const TextStyle(
                     fontSize: 14,
                     fontWeight: FontWeight.bold,
-                    color: Color(0xFF3E2723),
+                    color: SpaceShiftColors.textPrimary,
                   ),
                 ),
                 Text(
                   instruction.instructionText,
                   maxLines: 2,
                   overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(fontSize: 13, color: Color(0xFF5D4037)),
+                  style: const TextStyle(
+                    fontSize: 13,
+                    color: SpaceShiftColors.textSecondary,
+                  ),
                 ),
               ],
             ),

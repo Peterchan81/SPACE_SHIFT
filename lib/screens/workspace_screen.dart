@@ -22,14 +22,16 @@ import 'generate_screen.dart';
 class WorkspaceScreen extends StatefulWidget {
   const WorkspaceScreen({
     super.key,
-    required this.selectedStyle,
+    this.selectedStyle = '',
     required this.selectedImageBytes,
     List<WorkInstruction>? initialWorkInstructions,
     this.initialAdditionalNotes = '',
+    this.isRevision = false,
     this.imagePickerService = const ImagePickerService(),
   }) : initialWorkInstructions = initialWorkInstructions ?? const [];
 
-  /// 이전 화면(StyleSelectScreen)에서 선택한 스타일 이름.
+  /// 선택된 스타일 이름. MASTER 최종 흐름에는 별도 스타일 선택 화면이 없으므로
+  /// 기본값은 빈 문자열이며, 결과 화면에서는 값이 있을 때만 스타일 카드를 보여준다.
   final String selectedStyle;
 
   /// 작업 대상이 되는 공간 사진.
@@ -41,6 +43,10 @@ class WorkspaceScreen extends StatefulWidget {
 
   /// "수정 재요청"에서 이어받는 기타 작업 지시.
   final String initialAdditionalNotes;
+
+  /// 결과 화면(6/9번)에서 "수정 재요청"으로 돌아온 경우 true.
+  /// true이면 재생성 후 결과가 아닌 [ReviseResultScreen](8번 화면)으로 이동한다.
+  final bool isRevision;
 
   /// 참고 이미지 선택에 사용하는 서비스. 테스트에서 가짜 구현으로 교체할 수 있다.
   final ImagePickerService imagePickerService;
@@ -218,6 +224,7 @@ class _WorkspaceScreenState extends State<WorkspaceScreen> {
           selectedImageBytes: widget.selectedImageBytes,
           workInstructions: finalInstructions,
           additionalNotes: notes,
+          isRevision: widget.isRevision,
         ),
       ),
     );

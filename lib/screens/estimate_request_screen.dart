@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 
 import '../models/estimate_request.dart';
 import '../services/estimate_service.dart';
+import '../theme/space_shift_colors.dart';
+import '../widgets/gradient_cta_button.dart';
 import '../widgets/primary_button.dart';
 
 class EstimateRequestScreen extends StatefulWidget {
@@ -25,7 +27,6 @@ class EstimateRequestScreen extends StatefulWidget {
 }
 
 class _EstimateRequestScreenState extends State<EstimateRequestScreen> {
-  static const Color _ivoryBackground = Color(0xFFFFF8E7);
   static const List<String> _spaceTypes = [
     '거실',
     '침실',
@@ -108,7 +109,7 @@ class _EstimateRequestScreenState extends State<EstimateRequestScreen> {
       border: OutlineInputBorder(borderRadius: BorderRadius.circular(14)),
       enabledBorder: OutlineInputBorder(
         borderRadius: BorderRadius.circular(14),
-        borderSide: const BorderSide(color: Color(0xFFD7CCC8), width: 1.5),
+        borderSide: const BorderSide(color: SpaceShiftColors.border, width: 1.5),
       ),
     );
   }
@@ -131,11 +132,11 @@ class _EstimateRequestScreenState extends State<EstimateRequestScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: _ivoryBackground,
+      backgroundColor: SpaceShiftColors.background,
       appBar: AppBar(
         title: const Text('무료 예상견적'),
-        backgroundColor: _ivoryBackground,
-        foregroundColor: const Color(0xFF3E2723),
+        backgroundColor: SpaceShiftColors.background,
+        foregroundColor: SpaceShiftColors.textPrimary,
         elevation: 0,
         surfaceTintColor: Colors.transparent,
       ),
@@ -165,7 +166,7 @@ class _EstimateRequestScreenState extends State<EstimateRequestScreen> {
             '간단한 정보만 알려주세요',
             style: Theme.of(context).textTheme.headlineSmall?.copyWith(
               fontWeight: FontWeight.bold,
-              color: const Color(0xFF3E2723),
+              color: SpaceShiftColors.textPrimary,
             ),
           ),
           const SizedBox(height: 10),
@@ -173,7 +174,7 @@ class _EstimateRequestScreenState extends State<EstimateRequestScreen> {
             '정확한 금액은 상담 후 안내드리며, 지금은 예상견적 요청만 접수합니다.',
             style: TextStyle(
               fontSize: 16,
-              color: Color(0xFF5D4037),
+              color: SpaceShiftColors.textSecondary,
               height: 1.4,
             ),
           ),
@@ -206,7 +207,7 @@ class _EstimateRequestScreenState extends State<EstimateRequestScreen> {
                   style: TextStyle(
                     fontSize: 16,
                     fontWeight: FontWeight.bold,
-                    color: Color(0xFF3E2723),
+                    color: SpaceShiftColors.textPrimary,
                   ),
                 ),
                 const SizedBox(height: 10),
@@ -230,13 +231,16 @@ class _EstimateRequestScreenState extends State<EstimateRequestScreen> {
                         });
                         field.didChange(colorTone);
                       },
-                      selectedColor: const Color(0xFFD7CCC8),
+                      selectedColor: SpaceShiftColors.selectionAccent
+                          .withValues(alpha: 0.15),
                       backgroundColor: Colors.white,
-                      side: const BorderSide(color: Color(0xFF8D6E63)),
+                      side: const BorderSide(
+                        color: SpaceShiftColors.selectionAccent,
+                      ),
                       labelStyle: const TextStyle(
                         fontSize: 16,
                         fontWeight: FontWeight.w600,
-                        color: Color(0xFF3E2723),
+                        color: SpaceShiftColors.textPrimary,
                       ),
                     );
                   }).toList(),
@@ -279,7 +283,7 @@ class _EstimateRequestScreenState extends State<EstimateRequestScreen> {
             ).copyWith(hintText: '예: 수납공간을 늘리고 싶어요.', alignLabelWithHint: true),
           ),
           const SizedBox(height: 12),
-          PrimaryButton(
+          GradientCtaButton(
             label: _isSubmitting ? '접수 중...' : '예상견적 요청하기',
             onPressed: _isSubmitting ? null : _submit,
           ),
@@ -296,7 +300,7 @@ class _EstimateRequestScreenState extends State<EstimateRequestScreen> {
         const Icon(
           Icons.check_circle_rounded,
           size: 80,
-          color: Color(0xFF8D6E63),
+          color: SpaceShiftColors.selectionAccent,
         ),
         const SizedBox(height: 24),
         Text(
@@ -304,14 +308,18 @@ class _EstimateRequestScreenState extends State<EstimateRequestScreen> {
           textAlign: TextAlign.center,
           style: Theme.of(context).textTheme.headlineSmall?.copyWith(
             fontWeight: FontWeight.bold,
-            color: const Color(0xFF3E2723),
+            color: SpaceShiftColors.textPrimary,
           ),
         ),
         const SizedBox(height: 12),
         const Text(
           '입력하신 내용을 확인한 뒤 상담을 통해 자세히 안내드릴게요.',
           textAlign: TextAlign.center,
-          style: TextStyle(fontSize: 16, color: Color(0xFF5D4037), height: 1.4),
+          style: TextStyle(
+            fontSize: 16,
+            color: SpaceShiftColors.textSecondary,
+            height: 1.4,
+          ),
         ),
         const SizedBox(height: 36),
         if (widget.onSiteMeetingRequested != null)

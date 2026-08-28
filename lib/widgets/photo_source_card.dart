@@ -1,10 +1,12 @@
 import 'package:flutter/material.dart';
 
-/// 사진을 가져올 방법(카메라 촬영 / 갤러리 선택)을 고르는 큰 버튼 카드.
+import '../theme/space_shift_colors.dart';
+
+/// 사진을 가져올 방법(카메라 촬영 / 갤러리 선택)을 고르는 버튼 카드.
 ///
-/// 아이콘 + 텍스트로 구성되어 있어 무엇을 하는 버튼인지 한눈에 파악할 수 있다.
-/// 카메라, 갤러리 두 곳 모두에서 재사용하며,
-/// 추후 다른 사진 소스가 추가되어도 동일한 형태로 확장할 수 있다.
+/// SS_V1_UI_MASTER.png 2번 화면 기준, 아이콘이 위에 오고 라벨이 아래에 오는
+/// 정사각형에 가까운 카드 형태이며, 카메라/갤러리 두 카드를 가로로 나란히
+/// 배치해 사용한다.
 class PhotoSourceCard extends StatelessWidget {
   const PhotoSourceCard({
     super.key,
@@ -13,14 +15,14 @@ class PhotoSourceCard extends StatelessWidget {
     required this.onTap,
   });
 
-  /// 버튼 왼쪽에 표시할 아이콘
+  /// 카드 위쪽에 표시할 아이콘
   final IconData icon;
 
-  /// 버튼에 표시할 텍스트
+  /// 카드에 표시할 텍스트
   final String label;
 
-  /// 버튼을 눌렀을 때 실행할 동작.
-  /// null을 전달하면 버튼이 비활성화된다(예: 사진 선택창을 여는 동안).
+  /// 카드를 눌렀을 때 실행할 동작.
+  /// null을 전달하면 카드가 비활성화된다(예: 사진 선택창을 여는 동안).
   final VoidCallback? onTap;
 
   @override
@@ -31,38 +33,37 @@ class PhotoSourceCard extends StatelessWidget {
       opacity: enabled ? 1 : 0.5,
       child: Material(
         color: Colors.white,
-        borderRadius: BorderRadius.circular(16),
+        borderRadius: BorderRadius.circular(18),
         child: InkWell(
           onTap: onTap,
-          borderRadius: BorderRadius.circular(16),
+          borderRadius: BorderRadius.circular(18),
           child: Container(
-            height: 72,
-            padding: const EdgeInsets.symmetric(horizontal: 20),
+            height: 110,
+            padding: const EdgeInsets.symmetric(vertical: 16),
             decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(16),
-              border: Border.all(color: const Color(0xFFD7CCC8), width: 1.5),
+              borderRadius: BorderRadius.circular(18),
+              border: Border.all(color: SpaceShiftColors.border, width: 1.5),
             ),
-            child: Row(
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
               children: [
-                Icon(
-                  icon,
-                  size: 30,
-                  color: const Color(0xFF8D6E63),
-                ),
-                const SizedBox(width: 16),
-                Expanded(
-                  child: Text(
-                    label,
-                    style: const TextStyle(
-                      fontSize: 18,
-                      fontWeight: FontWeight.bold,
-                      color: Color(0xFF3E2723),
-                    ),
+                Container(
+                  width: 44,
+                  height: 44,
+                  decoration: BoxDecoration(
+                    gradient: SpaceShiftColors.spectrum,
+                    shape: BoxShape.circle,
                   ),
+                  child: Icon(icon, color: Colors.white, size: 22),
                 ),
-                const Icon(
-                  Icons.chevron_right_rounded,
-                  color: Color(0xFFBCAAA4),
+                const SizedBox(height: 10),
+                Text(
+                  label,
+                  style: const TextStyle(
+                    fontSize: 15,
+                    fontWeight: FontWeight.bold,
+                    color: SpaceShiftColors.textPrimary,
+                  ),
                 ),
               ],
             ),

@@ -4,17 +4,19 @@ import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 
 import '../services/image_picker_service.dart';
+import '../theme/space_shift_colors.dart';
+import '../widgets/gradient_cta_button.dart';
 import '../widgets/photo_source_card.dart';
-import '../widgets/primary_button.dart';
-import 'style_select_screen.dart';
+import 'photo_preview_screen.dart';
 
 /// 선택된 사진이 카메라 촬영인지 갤러리 선택인지 구분하는 값.
 enum _ImageSourceType { camera, gallery }
 
-/// 인테리어를 바꾸고 싶은 집 사진을 선택하는 화면.
+/// MASTER UI 2번 화면 — 공간 사진 등록.
 ///
 /// 카메라 촬영 또는 갤러리에서 사진 한 장을 선택해 미리보기로 보여주고,
-/// 선택한 사진을 StyleSelectScreen 이후 화면까지 전달한다.
+/// 선택한 사진을 [PhotoPreviewScreen](3번 화면)까지 전달한다. 이전에 있던
+/// 스타일 선택 화면은 MASTER 최종 흐름에 없으므로 더 이상 거치지 않는다.
 class PhotoSelectScreen extends StatefulWidget {
   const PhotoSelectScreen({
     super.key,
@@ -30,9 +32,6 @@ class PhotoSelectScreen extends StatefulWidget {
 }
 
 class _PhotoSelectScreenState extends State<PhotoSelectScreen> {
-  /// Splash 화면과 동일한 밝은 아이보리 계열 배경색
-  static const Color _ivoryBackground = Color(0xFFFFF8E7);
-
   /// 사용자가 선택(촬영)한 사진의 바이트 데이터.
   /// 웹/모바일 모두에서 동일하게 Image.memory로 미리보기를 표시할 수 있다.
   Uint8List? _selectedImageBytes;
@@ -105,17 +104,14 @@ class _PhotoSelectScreenState extends State<PhotoSelectScreen> {
     }
   }
 
-  void _goToStyleSelect() {
+  void _goToPhotoPreview() {
     final bytes = _selectedImageBytes;
     // 버튼이 비활성화되어 있어 정상적으로는 호출되지 않지만 안전하게 처리한다.
     if (bytes == null) return;
 
     Navigator.of(context).push(
       MaterialPageRoute(
-        builder: (context) => StyleSelectScreen(selectedImageBytes: bytes),
-        // 결과 화면에서 popUntil로 돌아올 때 사용하는 이름
-        // (result_screen.dart 참고)
-        settings: const RouteSettings(name: 'style_select'),
+        builder: (context) => PhotoPreviewScreen(selectedImageBytes: bytes),
       ),
     );
   }
@@ -135,11 +131,11 @@ class _PhotoSelectScreenState extends State<PhotoSelectScreen> {
     final sourceType = _imageSourceType;
 
     return Scaffold(
-      backgroundColor: _ivoryBackground,
+      backgroundColor: SpaceShiftColors.background,
       appBar: AppBar(
-        title: const Text('사진 선택'),
-        backgroundColor: _ivoryBackground,
-        foregroundColor: const Color(0xFF3E2723),
+        title: const Text('공간 사진 등록'),
+        backgroundColor: SpaceShiftColors.background,
+        foregroundColor: SpaceShiftColors.textPrimary,
         elevation: 0,
         surfaceTintColor: Colors.transparent,
       ),
@@ -152,7 +148,7 @@ class _PhotoSelectScreenState extends State<PhotoSelectScreen> {
                 return SingleChildScrollView(
                   child: ConstrainedBox(
                     // 화면 높이만큼은 최소로 차지하도록 하여
-                    // '스타일 선택하기' 버튼이 항상 하단에 위치하도록 한다.
+                    // 하단 CTA가 항상 하단에 위치하도록 한다.
                     constraints: BoxConstraints(
                       minHeight: constraints.maxHeight,
                     ),
@@ -171,26 +167,24 @@ class _PhotoSelectScreenState extends State<PhotoSelectScreen> {
                                 children: [
                                   // 상단 안내 영역
                                   Text(
-                                    '우리 집 사진을 선택해주세요',
+                                    '변화시킬 공간을 보여주세요',
                                     style: Theme.of(context)
                                         .textTheme
                                         .headlineSmall
                                         ?.copyWith(
                                           fontWeight: FontWeight.bold,
-                                          color: const Color(0xFF3E2723),
+                                          color: SpaceShiftColors.textPrimary,
                                         ),
                                   ),
                                   const SizedBox(height: 12),
-                                  Text(
-                                    '거실, 침실, 주방 등\n'
-                                    '인테리어를 바꾸고 싶은 공간의 사진을 준비해주세요.',
-                                    style: Theme.of(context)
-                                        .textTheme
-                                        .titleMedium
-                                        ?.copyWith(
-                                          color: const Color(0xFF5D4037),
-                                          height: 1.4,
-                                        ),
+                                  const Text(
+                                    '사진을 촬영하거나 선택하면\n'
+                                    'AI가 더 정확한 결과를 만들어드려요.',
+                                    style: TextStyle(
+                                      fontSize: 15,
+                                      color: SpaceShiftColors.textSecondary,
+                                      height: 1.4,
+                                    ),
                                   ),
                                   const SizedBox(height: 24),
                                   // 사진 미리보기 영역
@@ -200,20 +194,20 @@ class _PhotoSelectScreenState extends State<PhotoSelectScreen> {
                                   ),
                                   if (hasSelectedImage) ...[
                                     const SizedBox(height: 12),
-                                    const Row(
+                                    Row(
                                       children: [
-                                        Icon(
+                                        const Icon(
                                           Icons.check_circle_rounded,
                                           size: 18,
-                                          color: Color(0xFF8D6E63),
+                                          color: SpaceShiftColors.selectionAccent,
                                         ),
-                                        SizedBox(width: 6),
-                                        Text(
+                                        const SizedBox(width: 6),
+                                        const Text(
                                           '사진이 선택되었습니다.',
                                           style: TextStyle(
                                             fontSize: 15,
                                             fontWeight: FontWeight.w600,
-                                            color: Color(0xFF5D4037),
+                                            color: SpaceShiftColors.textPrimary,
                                           ),
                                         ),
                                       ],
@@ -224,7 +218,7 @@ class _PhotoSelectScreenState extends State<PhotoSelectScreen> {
                                         _sourceLabel(sourceType),
                                         style: const TextStyle(
                                           fontSize: 13,
-                                          color: Color(0xFF8D6E63),
+                                          color: SpaceShiftColors.textSecondary,
                                         ),
                                       ),
                                     ],
@@ -233,31 +227,47 @@ class _PhotoSelectScreenState extends State<PhotoSelectScreen> {
                                   // 사진 선택 버튼 (카메라 / 갤러리).
                                   // 선택창을 여는 동안에는 중복 실행을 막기 위해
                                   // 두 버튼 모두 비활성화한다.
-                                  PhotoSourceCard(
-                                    icon: Icons.camera_alt_rounded,
-                                    label: '카메라로 촬영',
-                                    onTap: _isPickingImage
-                                        ? null
-                                        : _handleCameraTap,
+                                  Row(
+                                    children: [
+                                      Expanded(
+                                        child: PhotoSourceCard(
+                                          icon: Icons.camera_alt_rounded,
+                                          label: '카메라 촬영',
+                                          onTap: _isPickingImage
+                                              ? null
+                                              : _handleCameraTap,
+                                        ),
+                                      ),
+                                      const SizedBox(width: 14),
+                                      Expanded(
+                                        child: PhotoSourceCard(
+                                          icon: Icons.photo_library_rounded,
+                                          label: '사진 선택',
+                                          onTap: _isPickingImage
+                                              ? null
+                                              : _handleGalleryTap,
+                                        ),
+                                      ),
+                                    ],
                                   ),
-                                  const SizedBox(height: 16),
-                                  PhotoSourceCard(
-                                    icon: Icons.photo_library_rounded,
-                                    label: '갤러리에서 선택',
-                                    onTap: _isPickingImage
-                                        ? null
-                                        : _handleGalleryTap,
+                                  const SizedBox(height: 12),
+                                  const Text(
+                                    '사진 전체가 잘 보이는 사진일수록 좋아요.',
+                                    style: TextStyle(
+                                      fontSize: 13,
+                                      color: SpaceShiftColors.textSecondary,
+                                    ),
                                   ),
                                 ],
                               ),
                             ),
                             const SizedBox(height: 16),
-                            // 화면 하단 영역: 스타일 선택하기 버튼.
+                            // 화면 하단 영역: 사진 미리보기(3번 화면)로 이동.
                             // 사진을 선택해야만 다음 단계로 넘어갈 수 있다.
-                            PrimaryButton(
-                              label: '스타일 선택하기',
+                            GradientCtaButton(
+                              label: '다음',
                               onPressed: hasSelectedImage
-                                  ? _goToStyleSelect
+                                  ? _goToPhotoPreview
                                   : null,
                             ),
                           ],
@@ -300,7 +310,7 @@ class _PhotoPreviewBox extends StatelessWidget {
         decoration: BoxDecoration(
           color: Colors.white,
           borderRadius: BorderRadius.circular(20),
-          border: Border.all(color: const Color(0xFFD7CCC8), width: 1.5),
+          border: Border.all(color: SpaceShiftColors.border, width: 1.5),
           boxShadow: const [
             BoxShadow(
               color: Color(0x14000000),
@@ -320,7 +330,7 @@ class _PhotoPreviewBox extends StatelessWidget {
                         const Icon(
                           Icons.home_rounded,
                           size: 64,
-                          color: Color(0xFFBCAAA4),
+                          color: SpaceShiftColors.border,
                         ),
                         const SizedBox(height: 16),
                         const Text(
@@ -328,7 +338,7 @@ class _PhotoPreviewBox extends StatelessWidget {
                           style: TextStyle(
                             fontSize: 17,
                             fontWeight: FontWeight.bold,
-                            color: Color(0xFF5D4037),
+                            color: SpaceShiftColors.textPrimary,
                           ),
                         ),
                         const SizedBox(height: 6),
@@ -337,7 +347,7 @@ class _PhotoPreviewBox extends StatelessWidget {
                           textAlign: TextAlign.center,
                           style: TextStyle(
                             fontSize: 13,
-                            color: Color(0xFF8D6E63),
+                            color: SpaceShiftColors.textSecondary,
                           ),
                         ),
                       ],
@@ -359,7 +369,7 @@ class _PhotoPreviewBox extends StatelessWidget {
                     height: 32,
                     child: CircularProgressIndicator(
                       strokeWidth: 3,
-                      color: Color(0xFF8D6E63),
+                      color: SpaceShiftColors.selectionAccent,
                     ),
                   ),
                 ),
