@@ -7,16 +7,17 @@ import '../services/image_picker_service.dart';
 import '../theme/space_shift_colors.dart';
 import '../widgets/gradient_cta_button.dart';
 import '../widgets/photo_source_card.dart';
-import 'photo_preview_screen.dart';
+import 'workspace_screen.dart';
 
 /// 선택된 사진이 카메라 촬영인지 갤러리 선택인지 구분하는 값.
 enum _ImageSourceType { camera, gallery }
 
 /// MASTER UI 2번 화면 — 공간 사진 등록.
 ///
-/// 카메라 촬영 또는 갤러리에서 사진 한 장을 선택해 미리보기로 보여주고,
-/// 선택한 사진을 [PhotoPreviewScreen](3번 화면)까지 전달한다. 이전에 있던
-/// 스타일 선택 화면은 MASTER 최종 흐름에 없으므로 더 이상 거치지 않는다.
+/// 카메라 촬영 또는 갤러리에서 사진 한 장을 선택하면 같은 화면에서 바로
+/// 미리보기로 보여주고(삭제/재선택 가능), "다음"을 누르면 곧바로 공간
+/// 작업실([WorkspaceScreen], 4번 화면)로 이동한다. 이전에 있던 별도의
+/// 사진 확인 화면(3번)은 이 화면과 기능이 중복되어 활성 흐름에서 제거했다.
 class PhotoSelectScreen extends StatefulWidget {
   const PhotoSelectScreen({
     super.key,
@@ -104,14 +105,21 @@ class _PhotoSelectScreenState extends State<PhotoSelectScreen> {
     }
   }
 
-  void _goToPhotoPreview() {
+  void _removePhoto() {
+    setState(() {
+      _selectedImageBytes = null;
+      _imageSourceType = null;
+    });
+  }
+
+  void _goToWorkspace() {
     final bytes = _selectedImageBytes;
     // 버튼이 비활성화되어 있어 정상적으로는 호출되지 않지만 안전하게 처리한다.
     if (bytes == null) return;
 
     Navigator.of(context).push(
       MaterialPageRoute(
-        builder: (context) => PhotoPreviewScreen(selectedImageBytes: bytes),
+        builder: (context) => WorkspaceScreen(selectedImageBytes: bytes),
       ),
     );
   }
@@ -187,10 +195,14 @@ class _PhotoSelectScreenState extends State<PhotoSelectScreen> {
                                     ),
                                   ),
                                   const SizedBox(height: 24),
-                                  // 사진 미리보기 영역
+                                  // 사진 미리보기 영역. 사진이 선택되어 있으면
+                                  // 우측 상단에 삭제 버튼을 함께 보여준다.
                                   _PhotoPreviewBox(
                                     imageBytes: _selectedImageBytes,
                                     isLoading: _isPickingImage,
+                                    onRemove: hasSelectedImage
+                                        ? _removePhoto
+                                        : null,
                                   ),
                                   if (hasSelectedImage) ...[
                                     const SizedBox(height: 12),
@@ -241,7 +253,7 @@ class _PhotoSelectScreenState extends State<PhotoSelectScreen> {
                                       const SizedBox(width: 14),
                                       Expanded(
                                         child: PhotoSourceCard(
-                                          icon: Icons.photo_library_rounded,
+                                          icon: Icons.image_rounded,
                                           label: '사진 선택',
                                           onTap: _isPickingImage
                                               ? null
@@ -262,12 +274,12 @@ class _PhotoSelectScreenState extends State<PhotoSelectScreen> {
                               ),
                             ),
                             const SizedBox(height: 16),
-                            // 화면 하단 영역: 사진 미리보기(3번 화면)로 이동.
+                            // 화면 하단 영역: 공간 작업실(4번 화면)로 바로 이동.
                             // 사진을 선택해야만 다음 단계로 넘어갈 수 있다.
                             GradientCtaButton(
                               label: '다음',
                               onPressed: hasSelectedImage
-                                  ? _goToPhotoPreview
+                                  ? _goToWorkspace
                                   : null,
                             ),
                           ],
@@ -291,13 +303,21 @@ class _PhotoSelectScreenState extends State<PhotoSelectScreen> {
 /// 있으면 실제 이미지를 BoxFit.cover로 채워 보여준다.
 /// [isLoading]이 true이면 선택창이 열려 있는 동안 작은 로딩 표시를 겹쳐 보여준다.
 class _PhotoPreviewBox extends StatelessWidget {
-  const _PhotoPreviewBox({this.imageBytes, this.isLoading = false});
+  const _PhotoPreviewBox({
+    this.imageBytes,
+    this.isLoading = false,
+    this.onRemove,
+  });
 
   /// 선택된 사진의 바이트 데이터. null이면 빈 상태를 표시한다.
   final Uint8List? imageBytes;
 
   /// 카메라/갤러리 선택창이 열려 있는 동안인지 여부.
   final bool isLoading;
+
+  /// 선택된 사진을 지울 때 호출된다. null이면(사진이 없으면) 삭제 버튼을
+  /// 표시하지 않는다.
+  final VoidCallback? onRemove;
 
   @override
   Widget build(BuildContext context) {
@@ -359,6 +379,31 @@ class _PhotoPreviewBox extends StatelessWidget {
                     width: double.infinity,
                     height: double.infinity,
                   ),
+            // 사진이 선택되어 있으면 우측 상단에 삭제(재선택) 버튼을 보여준다.
+            if (onRemove != null)
+              Positioned(
+                top: 10,
+                right: 10,
+                child: GestureDetector(
+                  onTap: onRemove,
+                  child: Container(
+                    width: 32,
+                    height: 32,
+                    decoration: const BoxDecoration(
+                      color: Colors.white,
+                      shape: BoxShape.circle,
+                      boxShadow: [
+                        BoxShadow(color: Color(0x33000000), blurRadius: 6),
+                      ],
+                    ),
+                    child: const Icon(
+                      Icons.close_rounded,
+                      size: 18,
+                      color: SpaceShiftColors.textPrimary,
+                    ),
+                  ),
+                ),
+              ),
             // 선택창이 열려 있는 동안 작은 로딩 표시를 겹쳐 보여준다.
             if (isLoading)
               Container(
