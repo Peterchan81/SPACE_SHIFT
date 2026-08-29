@@ -9,10 +9,12 @@
 // 2. 사진이 없을 때 "다음" 버튼이 비활성화되는지 확인한다.
 // 3. 가짜 갤러리/카메라 이미지를 선택하면 미리보기와 출처 안내가 표시되고,
 //    "다음" 버튼이 활성화되는지 확인한다.
-// 4. 사진 등록(2) -> 사진 미리보기(3) -> 공간 작업실(4) -> AI 생성(5) ->
-//    결과 확인(6)으로 이어지는 흐름과, 선택한 사진이 결과 화면까지
-//    전달되는지 확인한다. 스타일 선택 화면은 더 이상 거치지 않는다.
-// 5. 결과 화면(6)의 저장하기/공유하기 SnackBar 동작을 확인한다.
+// 4. 사진 등록(2) -> 공간 작업실(4) -> AI 생성(5) -> 결과 확인(6)으로
+//    이어지는 흐름과, 선택한 사진이 결과 화면까지 전달되는지 확인한다.
+//    별도 사진 확인 화면(구 3번)은 2번 화면과 중복되어 활성 흐름에서
+//    제거했으므로 더 이상 거치지 않는다.
+// 5. 결과 화면(6)의 더보기 메뉴 저장하기/공유하기와, 수정된 결과 확인(8번)의
+//    공유하기/저장하기/추가로 수정하기 버튼 동작을 확인한다.
 // 6. 카메라 촬영 취소 시 기존 사진이 유지되고, 실패 시 SnackBar가
 //    표시되는지 확인한다.
 // 7. 이미지 선택 중에는 카메라/갤러리 버튼이 모두 비활성화되어 중복
@@ -34,7 +36,6 @@ import 'package:ason_space/models/ai_generation_response.dart';
 import 'package:ason_space/screens/final_confirm_screen.dart';
 import 'package:ason_space/screens/generate_screen.dart';
 import 'package:ason_space/screens/login_screen.dart';
-import 'package:ason_space/screens/photo_preview_screen.dart';
 import 'package:ason_space/screens/photo_select_screen.dart';
 import 'package:ason_space/screens/result_screen.dart';
 import 'package:ason_space/screens/revise_result_screen.dart';
@@ -177,9 +178,10 @@ Future<void> _pumpFromPhotoSelect(
   );
 }
 
-/// 사진 등록 화면(2번)에서 갤러리 사진을 고른 뒤 미리보기 및 시작(3번)까지
-/// 이동한다.
-Future<void> _pickGalleryAndGoToPreview(WidgetTester tester) async {
+/// 사진 등록 화면(2번)에서 갤러리 사진을 고른 뒤 "다음"으로 공간
+/// 작업실(4번)까지 바로 이동한다. 중복되던 사진 확인 화면(구 3번)은
+/// 활성 흐름에서 제거되어 더 이상 거치지 않는다.
+Future<void> _pickGalleryAndGoToWorkspace(WidgetTester tester) async {
   await tester.ensureVisible(find.text('사진 선택'));
   await tester.pumpAndSettle();
   await tester.tap(find.text('사진 선택'));
@@ -191,18 +193,9 @@ Future<void> _pickGalleryAndGoToPreview(WidgetTester tester) async {
   await tester.pumpAndSettle();
 }
 
-/// 사진 등록(2) -> 미리보기(3) -> 공간 작업실(4) -> AI 생성(5) -> 결과
-/// 확인(6)까지 진행한다.
+/// 사진 등록(2) -> 공간 작업실(4) -> AI 생성(5) -> 결과 확인(6)까지 진행한다.
 Future<void> _proceedToResultScreen(WidgetTester tester) async {
-  await _pickGalleryAndGoToPreview(tester);
-
-  expect(find.byType(PhotoPreviewScreen), findsOneWidget);
-  expect(find.text('1 / 1'), findsOneWidget);
-
-  await tester.ensureVisible(find.text('공간 변화 시작하기'));
-  await tester.pumpAndSettle();
-  await tester.tap(find.text('공간 변화 시작하기'));
-  await tester.pumpAndSettle();
+  await _pickGalleryAndGoToWorkspace(tester);
 
   expect(find.text('공간 작업실'), findsOneWidget);
 
@@ -387,7 +380,7 @@ void main() {
     expect(find.text('사진이 선택되었습니다.'), findsOneWidget);
   });
 
-  testWidgets('사진을 등록하면 미리보기 화면을 거쳐 공간 작업실로 이동하고 결과 화면까지 이미지가 전달된다', (
+  testWidgets('사진을 등록하면 공간 작업실로 바로 이동하고 결과 화면까지 이미지가 전달된다', (
     WidgetTester tester,
   ) async {
     await _pumpFromPhotoSelect(
@@ -406,11 +399,60 @@ void main() {
     expect(find.byType(Image), findsNWidgets(2));
   });
 
-  testWidgets('결과 화면에서 저장하기를 누르면 생성 이미지를 저장한다', (WidgetTester tester) async {
+  testWidgets('결과 화면의 더보기 메뉴에서 결과 저장하기를 누르면 생성 이미지를 저장한다', (
+    WidgetTester tester,
+  ) async {
     final service = _FakeResultImageService();
     await tester.pumpWidget(
       MaterialApp(
         home: ResultScreen(
+          selectedImageBytes: _fakeImageBytes,
+          generatedImageBytes: _fakeImageBytes,
+          resultImageService: service,
+        ),
+      ),
+    );
+
+    await tester.tap(find.byIcon(Icons.more_vert_rounded));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('결과 저장하기'));
+    await tester.pumpAndSettle();
+
+    expect(service.saveCallCount, 1);
+    expect(service.lastSavedBytes, equals(_fakeImageBytes));
+    expect(find.text('결과 이미지를 저장했습니다.'), findsOneWidget);
+  });
+
+  testWidgets('결과 화면의 더보기 메뉴에서 결과 공유하기를 누르면 생성 이미지를 공유한다', (
+    WidgetTester tester,
+  ) async {
+    final service = _FakeResultImageService();
+    await tester.pumpWidget(
+      MaterialApp(
+        home: ResultScreen(
+          selectedImageBytes: _fakeImageBytes,
+          generatedImageBytes: _fakeImageBytes,
+          resultImageService: service,
+        ),
+      ),
+    );
+
+    await tester.tap(find.byIcon(Icons.more_vert_rounded));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('결과 공유하기'));
+    await tester.pumpAndSettle();
+
+    expect(service.shareCallCount, 1);
+    expect(service.lastSharedBytes, equals(_fakeImageBytes));
+  });
+
+  testWidgets('수정된 결과 확인 화면에서 공유하기/저장하기/추가로 수정하기 버튼이 동작한다', (
+    WidgetTester tester,
+  ) async {
+    final service = _FakeResultImageService();
+    await tester.pumpWidget(
+      MaterialApp(
+        home: ReviseResultScreen(
           selectedImageBytes: _fakeImageBytes,
           generatedImageBytes: _fakeImageBytes,
           resultImageService: service,
@@ -422,31 +464,18 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(find.text('저장하기'));
     await tester.pump();
-
     expect(service.saveCallCount, 1);
-    expect(service.lastSavedBytes, equals(_fakeImageBytes));
-    expect(find.text('결과 이미지를 저장했습니다.'), findsOneWidget);
-  });
 
-  testWidgets('결과 화면에서 공유하기를 누르면 생성 이미지를 공유한다', (WidgetTester tester) async {
-    final service = _FakeResultImageService();
-    await tester.pumpWidget(
-      MaterialApp(
-        home: ResultScreen(
-          selectedImageBytes: _fakeImageBytes,
-          generatedImageBytes: _fakeImageBytes,
-          resultImageService: service,
-        ),
-      ),
-    );
-
-    await tester.ensureVisible(find.text('공유하기'));
-    await tester.pumpAndSettle();
     await tester.tap(find.text('공유하기'));
     await tester.pump();
-
     expect(service.shareCallCount, 1);
-    expect(service.lastSharedBytes, equals(_fakeImageBytes));
+
+    await tester.ensureVisible(find.text('추가로 수정하기'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('추가로 수정하기'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('공간 작업실'), findsOneWidget);
   });
 
   testWidgets('결과 화면의 더보기 메뉴에서 추가 옵션 시트를 열 수 있다', (WidgetTester tester) async {

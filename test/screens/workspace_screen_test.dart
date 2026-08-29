@@ -47,12 +47,24 @@ Future<void> _tapCta(WidgetTester tester) async {
   await tester.tap(find.text('공간의 변화 만들기'));
 }
 
+/// 이 파일의 테스트는 MASTER 휴대폰 세로 레이아웃(작업 부위 목록, 선택 영역
+/// 정보 바 등)을 대상으로 한다. 기본 테스트 화면 크기(800 논리 픽셀)는
+/// 공교롭게도 WorkspaceScreen의 Galaxy Tab 가로 레이아웃 전환 기준(800)과
+/// 겹쳐 의도와 다른 레이아웃이 그려질 수 있으므로, 휴대폰 폭에 해당하는
+/// 화면 크기를 각 테스트 시작 시 명시적으로 고정한다. Tab 가로 레이아웃은
+/// tablet_landscape_test.dart에서 별도로 검증한다.
+Future<void> _setNarrowSurface(WidgetTester tester) async {
+  await tester.binding.setSurfaceSize(const Size(430, 900));
+  addTearDown(() => tester.binding.setSurfaceSize(null));
+}
+
 void main() {
   setUp(() {
     UsagePolicyService.instance.resetForTesting();
   });
 
   testWidgets('작업 부위를 선택하면 강조 상태와 질문 문구가 바뀐다', (tester) async {
+    await _setNarrowSurface(tester);
     await tester.pumpWidget(
       MaterialApp(
         home: WorkspaceScreen(
@@ -74,6 +86,7 @@ void main() {
   });
 
   testWidgets('사진 위에서 드래그하면 선택 영역 정보가 표시된다', (tester) async {
+    await _setNarrowSurface(tester);
     await tester.pumpWidget(
       MaterialApp(
         home: WorkspaceScreen(
@@ -96,6 +109,7 @@ void main() {
   });
 
   testWidgets('작업 지시를 입력하고 다른 부분 작업 추가를 누르면 작업 목록에 추가된다', (tester) async {
+    await _setNarrowSurface(tester);
     await tester.pumpWidget(
       MaterialApp(
         home: WorkspaceScreen(
@@ -130,6 +144,7 @@ void main() {
   });
 
   testWidgets('참고 이미지를 추가하고 제거할 수 있다', (tester) async {
+    await _setNarrowSurface(tester);
     await tester.pumpWidget(
       MaterialApp(
         home: WorkspaceScreen(
@@ -161,6 +176,7 @@ void main() {
   });
 
   testWidgets('필수 정보가 없으면 안내만 표시하고 다음 화면으로 넘어가지 않는다', (tester) async {
+    await _setNarrowSurface(tester);
     await tester.pumpWidget(
       MaterialApp(
         home: WorkspaceScreen(
@@ -191,6 +207,7 @@ void main() {
       UsagePolicyService.instance.recordGeneration();
     }
 
+    await _setNarrowSurface(tester);
     await tester.pumpWidget(
       MaterialApp(
         home: WorkspaceScreen(
@@ -215,6 +232,7 @@ void main() {
   testWidgets('선택 영역과 작업 지시를 채워 제출하면 결과 화면까지 작업 지시가 전달된다', (
     tester,
   ) async {
+    await _setNarrowSurface(tester);
     await tester.pumpWidget(
       MaterialApp(
         home: WorkspaceScreen(

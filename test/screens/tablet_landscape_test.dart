@@ -11,7 +11,6 @@ import 'package:ason_space/screens/estimate_request_screen.dart';
 import 'package:ason_space/screens/final_confirm_screen.dart';
 import 'package:ason_space/screens/generate_screen.dart';
 import 'package:ason_space/screens/login_screen.dart';
-import 'package:ason_space/screens/photo_preview_screen.dart';
 import 'package:ason_space/screens/photo_select_screen.dart';
 import 'package:ason_space/screens/result_screen.dart';
 import 'package:ason_space/screens/revise_result_screen.dart';
@@ -45,7 +44,6 @@ void main() {
       const LoginScreen(),
       const SignupScreen(),
       const PhotoSelectScreen(),
-      PhotoPreviewScreen(selectedImageBytes: imageBytes),
       WorkspaceScreen(selectedImageBytes: imageBytes),
       GenerateScreen(
         selectedStyle: '',

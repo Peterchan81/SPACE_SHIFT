@@ -230,6 +230,294 @@ class _WorkspaceScreenState extends State<WorkspaceScreen> {
     );
   }
 
+  /// "선택 부위 변경 지시" 질문 + 텍스트 입력 영역.
+  /// 좁은 화면/넓은 화면 레이아웃 양쪽에서 공용으로 사용한다.
+  Widget _buildInstructionField() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          _selectedArea.instructionQuestion,
+          style: const TextStyle(
+            fontSize: 17,
+            fontWeight: FontWeight.bold,
+            color: SpaceShiftColors.textPrimary,
+          ),
+        ),
+        const SizedBox(height: 10),
+        TextField(
+          controller: _instructionController,
+          maxLines: 3,
+          maxLength: 300,
+          decoration: InputDecoration(
+            hintText: '예: 좌측 벽 부분만 밝은 아이보리 컬러로 변경하고 텍스처는 매트하게 해주세요.',
+            filled: true,
+            fillColor: Colors.white,
+            border: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(14),
+              borderSide: const BorderSide(color: SpaceShiftColors.border),
+            ),
+            enabledBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(14),
+              borderSide: const BorderSide(color: SpaceShiftColors.border),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  /// "참고 이미지" 라벨 + 썸네일 선택 영역.
+  Widget _buildReferenceImages() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Text(
+          '참고 이미지 (선택)',
+          style: TextStyle(
+            fontSize: 14,
+            fontWeight: FontWeight.bold,
+            color: SpaceShiftColors.textSecondary,
+          ),
+        ),
+        const SizedBox(height: 8),
+        ReferenceImagePicker(
+          images: _referenceImages,
+          onAdd: _addReferenceImage,
+          onRemove: _removeReferenceImage,
+        ),
+      ],
+    );
+  }
+
+  Widget _buildAddInstructionButton() {
+    return Align(
+      alignment: Alignment.centerLeft,
+      child: OutlinedButton.icon(
+        onPressed: _addCurrentAsInstruction,
+        icon: const Icon(Icons.add_rounded),
+        label: const Text('다른 부분 작업 추가'),
+        style: OutlinedButton.styleFrom(
+          foregroundColor: SpaceShiftColors.selectionAccent,
+          side: const BorderSide(color: SpaceShiftColors.selectionAccent),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildWorkList() {
+    if (_instructions.isEmpty) return const SizedBox.shrink();
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Text(
+          '작업 목록',
+          style: TextStyle(
+            fontSize: 15,
+            fontWeight: FontWeight.bold,
+            color: SpaceShiftColors.textPrimary,
+          ),
+        ),
+        const SizedBox(height: 8),
+        for (var i = 0; i < _instructions.length; i++)
+          _WorkInstructionTile(
+            index: i,
+            instruction: _instructions[i],
+            onEdit: () => _editInstruction(i),
+            onRemove: () => _removeInstruction(i),
+          ),
+      ],
+    );
+  }
+
+  Widget _buildAdditionalNotesField() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Text(
+          '다른 부분 작업 지시 (선택)',
+          style: TextStyle(
+            fontSize: 14,
+            fontWeight: FontWeight.bold,
+            color: SpaceShiftColors.textSecondary,
+          ),
+        ),
+        const SizedBox(height: 8),
+        TextField(
+          controller: _additionalNotesController,
+          maxLines: 3,
+          maxLength: 300,
+          decoration: InputDecoration(
+            hintText: '예: 전등은 간접조명, 바닥은 밝은 원목으로.',
+            filled: true,
+            fillColor: Colors.white,
+            border: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(14),
+              borderSide: const BorderSide(color: SpaceShiftColors.border),
+            ),
+            enabledBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(14),
+              borderSide: const BorderSide(color: SpaceShiftColors.border),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildUsageLabel() {
+    return Center(
+      child: Text(
+        '오늘의 무료 생성 ${UsagePolicyService.instance.usedToday}/'
+        '${UsagePolicyService.freeDailyLimit}회 사용',
+        style: const TextStyle(fontSize: 13, color: SpaceShiftColors.textSecondary),
+      ),
+    );
+  }
+
+  /// 휴대폰 세로 레이아웃(MASTER 기준): 사진+메뉴 → 지시 입력 → 참고 이미지
+  /// → 작업 목록 → 기타 지시 → CTA 순서로 위에서 아래로 이어지는 단일
+  /// 스크롤 화면.
+  Widget _buildNarrowLayout() {
+    return SingleChildScrollView(
+      physics: _isSelectingRegion
+          ? const NeverScrollableScrollPhysics()
+          : const AlwaysScrollableScrollPhysics(),
+      padding: const EdgeInsets.all(20),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          SizedBox(
+            height: 320,
+            child: RegionSelector(
+              imageBytes: widget.selectedImageBytes,
+              selection: _currentSelection,
+              onChanged: (selection) =>
+                  setState(() => _currentSelection = selection),
+              onDragActiveChanged: (active) =>
+                  setState(() => _isSelectingRegion = active),
+            ),
+          ),
+          const SizedBox(height: 12),
+          SizedBox(
+            height: 180,
+            child: WorkAreaPanel(
+              selected: _selectedArea,
+              onSelected: (area) => setState(() => _selectedArea = area),
+            ),
+          ),
+          const SizedBox(height: 16),
+          _SelectionInfoBar(selection: _currentSelection),
+          const SizedBox(height: 20),
+          _buildInstructionField(),
+          const SizedBox(height: 14),
+          _buildReferenceImages(),
+          const SizedBox(height: 12),
+          _buildAddInstructionButton(),
+          if (_instructions.isNotEmpty) ...[
+            const SizedBox(height: 20),
+            _buildWorkList(),
+          ],
+          const SizedBox(height: 20),
+          _buildAdditionalNotesField(),
+          const SizedBox(height: 16),
+          _buildUsageLabel(),
+          const SizedBox(height: 10),
+          GradientCtaButton(label: '공간의 변화 만들기', onPressed: _handleSubmit),
+        ],
+      ),
+    );
+  }
+
+  /// Galaxy Tab 가로 레이아웃: 작업 사진을 화면의 가장 중요한 좌측 영역으로
+  /// 고정하고, 작업 부위 메뉴 + 지시 입력 + 참고 이미지 + 작업 목록을 우측
+  /// 컬럼에 모아 한 화면 안에서 함께 확인할 수 있게 한다. 하단 CTA는 항상
+  /// 화면 아래에 고정해, 콘텐츠가 늘어나도 스크롤 없이 바로 누를 수 있다.
+  Widget _buildWideLayout() {
+    return Padding(
+      padding: const EdgeInsets.all(20),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Expanded(
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Expanded(
+                  flex: 3,
+                  child: Stack(
+                    children: [
+                      Positioned.fill(
+                        child: RegionSelector(
+                          imageBytes: widget.selectedImageBytes,
+                          selection: _currentSelection,
+                          onChanged: (selection) =>
+                              setState(() => _currentSelection = selection),
+                          onDragActiveChanged: (active) =>
+                              setState(() => _isSelectingRegion = active),
+                        ),
+                      ),
+                      // 선택 영역 위치/크기(또는 아직 선택 전이라는 안내)는
+                      // 화면을 크게 차지하지 않도록 사진 위에 떠 있는 작은
+                      // 정보 칩으로만 보여준다.
+                      Positioned(
+                        left: 10,
+                        top: 10,
+                        right: 10,
+                        child: _CompactSelectionChip(
+                          selection: _currentSelection,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(width: 16),
+                SizedBox(
+                  width: 360,
+                  child: SingleChildScrollView(
+                    physics: _isSelectingRegion
+                        ? const NeverScrollableScrollPhysics()
+                        : const AlwaysScrollableScrollPhysics(),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        SizedBox(
+                          height: 230,
+                          child: WorkAreaPanel(
+                            selected: _selectedArea,
+                            onSelected: (area) =>
+                                setState(() => _selectedArea = area),
+                          ),
+                        ),
+                        const SizedBox(height: 14),
+                        _buildInstructionField(),
+                        const SizedBox(height: 12),
+                        _buildReferenceImages(),
+                        const SizedBox(height: 10),
+                        _buildAddInstructionButton(),
+                        if (_instructions.isNotEmpty) ...[
+                          const SizedBox(height: 14),
+                          _buildWorkList(),
+                        ],
+                        const SizedBox(height: 14),
+                        _buildAdditionalNotesField(),
+                      ],
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 12),
+          _buildUsageLabel(),
+          const SizedBox(height: 10),
+          GradientCtaButton(label: '공간의 변화 만들기', onPressed: _handleSubmit),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -244,185 +532,62 @@ class _WorkspaceScreenState extends State<WorkspaceScreen> {
       body: SafeArea(
         child: Center(
           child: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 1200),
-            child: SingleChildScrollView(
-              physics: _isSelectingRegion
-                  ? const NeverScrollableScrollPhysics()
-                  : const AlwaysScrollableScrollPhysics(),
-              padding: const EdgeInsets.all(20),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  LayoutBuilder(
-                    builder: (context, constraints) {
-                      final isWide = constraints.maxWidth >= 800;
-                      final imageArea = SizedBox(
-                        height: isWide ? 420 : 320,
-                        child: RegionSelector(
-                          imageBytes: widget.selectedImageBytes,
-                          selection: _currentSelection,
-                          onChanged: (selection) =>
-                              setState(() => _currentSelection = selection),
-                          onDragActiveChanged: (active) =>
-                              setState(() => _isSelectingRegion = active),
-                        ),
-                      );
-                      final panel = SizedBox(
-                        height: isWide ? 420 : 180,
-                        width: isWide ? 210 : double.infinity,
-                        child: WorkAreaPanel(
-                          selected: _selectedArea,
-                          onSelected: (area) =>
-                              setState(() => _selectedArea = area),
-                        ),
-                      );
-
-                      if (isWide) {
-                        return Row(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Expanded(child: imageArea),
-                            const SizedBox(width: 16),
-                            panel,
-                          ],
-                        );
-                      }
-                      return Column(
-                        children: [imageArea, const SizedBox(height: 12), panel],
-                      );
-                    },
-                  ),
-                  const SizedBox(height: 16),
-                  _SelectionInfoBar(selection: _currentSelection),
-                  const SizedBox(height: 20),
-                  Text(
-                    _selectedArea.instructionQuestion,
-                    style: const TextStyle(
-                      fontSize: 17,
-                      fontWeight: FontWeight.bold,
-                      color: SpaceShiftColors.textPrimary,
-                    ),
-                  ),
-                  const SizedBox(height: 10),
-                  TextField(
-                    controller: _instructionController,
-                    maxLines: 3,
-                    maxLength: 300,
-                    decoration: InputDecoration(
-                      hintText: '예: 좌측 벽 부분만 밝은 아이보리 컬러로 변경하고 텍스처는 매트하게 해주세요.',
-                      filled: true,
-                      fillColor: Colors.white,
-                      border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(14),
-                        borderSide: const BorderSide(color: SpaceShiftColors.border),
-                      ),
-                      enabledBorder: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(14),
-                        borderSide: const BorderSide(color: SpaceShiftColors.border),
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: 14),
-                  const Text(
-                    '참고 이미지 (선택)',
-                    style: TextStyle(
-                      fontSize: 14,
-                      fontWeight: FontWeight.bold,
-                      color: SpaceShiftColors.textSecondary,
-                    ),
-                  ),
-                  const SizedBox(height: 8),
-                  ReferenceImagePicker(
-                    images: _referenceImages,
-                    onAdd: _addReferenceImage,
-                    onRemove: _removeReferenceImage,
-                  ),
-                  const SizedBox(height: 12),
-                  Align(
-                    alignment: Alignment.centerLeft,
-                    child: OutlinedButton.icon(
-                      onPressed: _addCurrentAsInstruction,
-                      icon: const Icon(Icons.add_rounded),
-                      label: const Text('다른 부분 작업 추가'),
-                      style: OutlinedButton.styleFrom(
-                        foregroundColor: SpaceShiftColors.selectionAccent,
-                        side: const BorderSide(
-                          color: SpaceShiftColors.selectionAccent,
-                        ),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                      ),
-                    ),
-                  ),
-                  if (_instructions.isNotEmpty) ...[
-                    const SizedBox(height: 20),
-                    const Text(
-                      '작업 목록',
-                      style: TextStyle(
-                        fontSize: 15,
-                        fontWeight: FontWeight.bold,
-                        color: SpaceShiftColors.textPrimary,
-                      ),
-                    ),
-                    const SizedBox(height: 8),
-                    for (var i = 0; i < _instructions.length; i++)
-                      _WorkInstructionTile(
-                        index: i,
-                        instruction: _instructions[i],
-                        onEdit: () => _editInstruction(i),
-                        onRemove: () => _removeInstruction(i),
-                      ),
-                  ],
-                  const SizedBox(height: 20),
-                  const Text(
-                    '다른 부분 작업 지시 (선택)',
-                    style: TextStyle(
-                      fontSize: 14,
-                      fontWeight: FontWeight.bold,
-                      color: SpaceShiftColors.textSecondary,
-                    ),
-                  ),
-                  const SizedBox(height: 8),
-                  TextField(
-                    controller: _additionalNotesController,
-                    maxLines: 3,
-                    maxLength: 300,
-                    decoration: InputDecoration(
-                      hintText: '예: 전등은 간접조명, 바닥은 밝은 원목으로.',
-                      filled: true,
-                      fillColor: Colors.white,
-                      border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(14),
-                        borderSide: const BorderSide(color: SpaceShiftColors.border),
-                      ),
-                      enabledBorder: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(14),
-                        borderSide: const BorderSide(color: SpaceShiftColors.border),
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: 16),
-                  Center(
-                    child: Text(
-                      '오늘의 무료 생성 ${UsagePolicyService.instance.usedToday}/'
-                      '${UsagePolicyService.freeDailyLimit}회 사용',
-                      style: const TextStyle(
-                        fontSize: 13,
-                        color: SpaceShiftColors.textSecondary,
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: 10),
-                  GradientCtaButton(
-                    label: '공간의 변화 만들기',
-                    onPressed: _handleSubmit,
-                  ),
-                ],
-              ),
+            constraints: const BoxConstraints(maxWidth: 1400),
+            child: LayoutBuilder(
+              builder: (context, constraints) {
+                final isWide = constraints.maxWidth >= 800;
+                return isWide ? _buildWideLayout() : _buildNarrowLayout();
+              },
             ),
           ),
         ),
+      ),
+    );
+  }
+}
+
+/// Galaxy Tab 가로 레이아웃에서 선택 영역의 위치/크기(또는 아직 선택하지
+/// 않았다는 안내)를 사진 위에 작게 떠 있는 칩 형태로 보여준다. 별도 줄을
+/// 차지하던 기존 정보 바([_SelectionInfoBar])를 좁은 화면(휴대폰)에서만
+/// 계속 사용하고, 넓은 화면에서는 이 칩으로 대체한다.
+class _CompactSelectionChip extends StatelessWidget {
+  const _CompactSelectionChip({required this.selection});
+
+  /// 아직 선택 영역이 없으면 null이며, 이때는 안내 문구를 대신 보여준다.
+  final RegionSelection? selection;
+
+  @override
+  Widget build(BuildContext context) {
+    final selection = this.selection;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      decoration: BoxDecoration(
+        color: const Color(0xE6FFFFFF),
+        borderRadius: BorderRadius.circular(10),
+        boxShadow: const [
+          BoxShadow(color: Color(0x33000000), blurRadius: 6, offset: Offset(0, 2)),
+        ],
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const Icon(Icons.crop_rounded, size: 14, color: SpaceShiftColors.selectionAccent),
+          const SizedBox(width: 6),
+          Flexible(
+            child: Text(
+              selection == null
+                  ? '사진 위에서 손가락(또는 마우스)으로 드래그해 변경하고 싶은 부분을 선택해주세요.'
+                  : '${selection.xPercent}%, ${selection.yPercent}% · '
+                        '${selection.widthPercent}%×${selection.heightPercent}%',
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(
+                fontSize: 11,
+                fontWeight: FontWeight.w600,
+                color: SpaceShiftColors.textPrimary,
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }

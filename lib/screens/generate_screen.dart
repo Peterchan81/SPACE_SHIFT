@@ -173,9 +173,11 @@ class _GenerateScreenState extends State<GenerateScreen> {
         Navigator.of(context).pushReplacement(
           MaterialPageRoute(
             builder: (context) => ReviseResultScreen(
+              selectedStyle: widget.selectedStyle,
               selectedImageBytes: widget.selectedImageBytes,
               generatedImageBytes: response.generatedImageBytes,
               workInstructions: widget.workInstructions,
+              additionalNotes: widget.additionalNotes,
             ),
           ),
         );
@@ -216,95 +218,176 @@ class _GenerateScreenState extends State<GenerateScreen> {
         automaticallyImplyLeading: false,
       ),
       body: SafeArea(
-        child: SingleChildScrollView(
-          padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 24),
-          child: Center(
-            child: ConstrainedBox(
-              constraints: const BoxConstraints(maxWidth: 900),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  if (_isLoading) ...[
-                    Text(
-                      widget.isRevision
-                          ? '수정 내용을 반영하고 있어요'
-                          : 'AI가 공간을 변화시키는 중입니다',
-                      textAlign: TextAlign.center,
-                      style: Theme.of(context).textTheme.headlineSmall
-                          ?.copyWith(
-                            fontWeight: FontWeight.bold,
-                            color: SpaceShiftColors.textPrimary,
-                          ),
+        child: _isLoading
+            ? LayoutBuilder(
+                builder: (context, constraints) {
+                  final isWide = constraints.maxWidth >= 800;
+                  return SingleChildScrollView(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 32,
+                      vertical: 24,
                     ),
-                    if (widget.isRevision) ...[
-                      const SizedBox(height: 8),
-                      const Text(
-                        '더 만족스러운 결과를 만들어드릴게요.',
-                        textAlign: TextAlign.center,
-                        style: TextStyle(color: SpaceShiftColors.textSecondary),
-                      ),
-                    ],
-                    const SizedBox(height: 28),
-                    GradientProgressRing(progress: _percentProgress),
-                    const SizedBox(height: 16),
-                    Text(
-                      '예상 완료 시간 $_remainingSeconds초',
-                      style: const TextStyle(
-                        fontSize: 14,
-                        color: SpaceShiftColors.textSecondary,
+                    child: Center(
+                      child: ConstrainedBox(
+                        constraints: BoxConstraints(
+                          maxWidth: isWide ? 1100 : 900,
+                        ),
+                        child: isWide
+                            ? _buildWideProgress(context)
+                            : _buildNarrowProgress(context),
                       ),
                     ),
-                    const SizedBox(height: 20),
-                    AnimatedSwitcher(
-                      duration: const Duration(milliseconds: 300),
-                      child: Text(
-                        _progressMessages[_progressIndex],
-                        key: ValueKey<int>(_progressIndex),
-                        textAlign: TextAlign.center,
-                        style: Theme.of(context).textTheme.titleMedium
-                            ?.copyWith(
-                              fontWeight: FontWeight.bold,
-                              color: SpaceShiftColors.textPrimary,
-                            ),
-                      ),
-                    ),
-                    const SizedBox(height: 36),
-                    _SpaceShiftIntroSection(),
-                  ] else ...[
-                    const Icon(
-                      Icons.error_outline_rounded,
-                      size: 72,
-                      color: SpaceShiftColors.textSecondary,
-                    ),
-                    const SizedBox(height: 20),
-                    Text(
-                      '이미지를 생성하지 못했습니다',
-                      style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                        fontWeight: FontWeight.bold,
-                        color: SpaceShiftColors.textPrimary,
-                      ),
-                    ),
-                    const SizedBox(height: 10),
-                    Text(
-                      _errorMessage ?? '잠시 후 다시 시도해주세요.',
-                      textAlign: TextAlign.center,
-                      style: const TextStyle(color: SpaceShiftColors.textSecondary),
-                    ),
-                    const SizedBox(height: 24),
-                    ConstrainedBox(
-                      constraints: const BoxConstraints(maxWidth: 360),
-                      child: PrimaryButton(
-                        label: '다시 시도하기',
-                        onPressed: _startGeneration,
-                      ),
-                    ),
-                  ],
-                ],
+                  );
+                },
+              )
+            : Center(
+                child: SingleChildScrollView(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 32,
+                    vertical: 24,
+                  ),
+                  child: ConstrainedBox(
+                    constraints: const BoxConstraints(maxWidth: 900),
+                    child: _buildErrorState(context),
+                  ),
+                ),
               ),
-            ),
+      ),
+    );
+  }
+
+  Widget _buildHeadline(BuildContext context, {required TextAlign align}) {
+    return Column(
+      crossAxisAlignment: align == TextAlign.center
+          ? CrossAxisAlignment.center
+          : CrossAxisAlignment.start,
+      children: [
+        Text(
+          widget.isRevision ? '수정 내용을 반영하고 있어요' : 'AI가 공간을 변화시키는 중입니다',
+          textAlign: align,
+          style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+            fontWeight: FontWeight.bold,
+            color: SpaceShiftColors.textPrimary,
           ),
         ),
+        if (widget.isRevision) ...[
+          const SizedBox(height: 8),
+          Text(
+            '더 만족스러운 결과를 만들어드릴게요.',
+            textAlign: align,
+            style: const TextStyle(color: SpaceShiftColors.textSecondary),
+          ),
+        ],
+      ],
+    );
+  }
+
+  /// 휴대폰 세로 레이아웃(MASTER 기준): 안내 문구 → progress ring → 예상
+  /// 시간 → 진행 메시지 → 서비스 소개 카드 순서로 위에서 아래로 이어진다.
+  Widget _buildNarrowProgress(BuildContext context) {
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        _buildHeadline(context, align: TextAlign.center),
+        const SizedBox(height: 28),
+        GradientProgressRing(progress: _percentProgress),
+        const SizedBox(height: 16),
+        Text(
+          '예상 완료 시간 $_remainingSeconds초',
+          style: const TextStyle(fontSize: 14, color: SpaceShiftColors.textSecondary),
+        ),
+        const SizedBox(height: 20),
+        _buildProgressMessage(context),
+        const SizedBox(height: 36),
+        _SpaceShiftIntroSection(),
+      ],
+    );
+  }
+
+  /// Galaxy Tab 가로 레이아웃: progress ring/진행 메시지(좌)와 SPACE SHIFT
+  /// 소개 카드(우)를 나란히 배치해, 세로로 남는 빈 공간 없이 한 화면 안에
+  /// 전체 콘텐츠가 자연스럽게 들어오게 한다.
+  Widget _buildWideProgress(BuildContext context) {
+    return IntrinsicHeight(
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Expanded(
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                _buildHeadline(context, align: TextAlign.center),
+                const SizedBox(height: 28),
+                GradientProgressRing(progress: _percentProgress, size: 190),
+                const SizedBox(height: 16),
+                Text(
+                  '예상 완료 시간 $_remainingSeconds초',
+                  style: const TextStyle(
+                    fontSize: 14,
+                    color: SpaceShiftColors.textSecondary,
+                  ),
+                ),
+                const SizedBox(height: 20),
+                _buildProgressMessage(context),
+              ],
+            ),
+          ),
+          const SizedBox(width: 28),
+          Expanded(
+            child: Align(
+              alignment: Alignment.center,
+              child: _SpaceShiftIntroSection(),
+            ),
+          ),
+        ],
       ),
+    );
+  }
+
+  Widget _buildProgressMessage(BuildContext context) {
+    return AnimatedSwitcher(
+      duration: const Duration(milliseconds: 300),
+      child: Text(
+        _progressMessages[_progressIndex],
+        key: ValueKey<int>(_progressIndex),
+        textAlign: TextAlign.center,
+        style: Theme.of(context).textTheme.titleMedium?.copyWith(
+          fontWeight: FontWeight.bold,
+          color: SpaceShiftColors.textPrimary,
+        ),
+      ),
+    );
+  }
+
+  Widget _buildErrorState(BuildContext context) {
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        const Icon(
+          Icons.error_outline_rounded,
+          size: 72,
+          color: SpaceShiftColors.textSecondary,
+        ),
+        const SizedBox(height: 20),
+        Text(
+          '이미지를 생성하지 못했습니다',
+          style: Theme.of(context).textTheme.titleLarge?.copyWith(
+            fontWeight: FontWeight.bold,
+            color: SpaceShiftColors.textPrimary,
+          ),
+        ),
+        const SizedBox(height: 10),
+        Text(
+          _errorMessage ?? '잠시 후 다시 시도해주세요.',
+          textAlign: TextAlign.center,
+          style: const TextStyle(color: SpaceShiftColors.textSecondary),
+        ),
+        const SizedBox(height: 24),
+        ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 360),
+          child: PrimaryButton(label: '다시 시도하기', onPressed: _startGeneration),
+        ),
+      ],
     );
   }
 }

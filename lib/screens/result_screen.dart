@@ -6,7 +6,6 @@ import '../models/work_area.dart';
 import '../models/work_instruction.dart';
 import '../services/result_image_service.dart';
 import '../theme/space_shift_colors.dart';
-import '../widgets/action_button.dart';
 import '../widgets/gradient_cta_button.dart';
 import '../widgets/more_options_sheet.dart';
 import '../widgets/result_image_card.dart';
@@ -17,8 +16,9 @@ import 'workspace_screen.dart';
 ///
 /// 원본과 AI 결과 이미지를 비교하고, 변경된 내용을 확인하며, 그 자리에서
 /// 수정을 재요청하거나 "완료"로 최종 확인(9번 화면)으로 넘어갈 수 있다.
-/// 예상견적/현장미팅 문의 등 다음 단계 액션은 수정된 결과 확인(8번 화면)에서
-/// 제공하므로 이 화면에서는 결과 확인과 수정 재요청에만 집중한다.
+/// 저장하기/공유하기는 이 단계에서 크게 강조하지 않고(우측 상단 "더보기"
+/// 메뉴에서만 제공), 예상견적/현장미팅 문의 등 다음 단계 액션과 함께
+/// 저장/공유 버튼은 수정된 결과 확인(8번 화면)에서 제공한다.
 class ResultScreen extends StatelessWidget {
   const ResultScreen({
     super.key,
@@ -52,41 +52,6 @@ class ResultScreen extends StatelessWidget {
 
   /// WorkspaceScreen에서 입력한 추가 작업 지시.
   final String additionalNotes;
-
-  Future<void> _handleSave(BuildContext context) async {
-    final imageBytes = generatedImageBytes;
-    if (imageBytes == null) {
-      _showMessage(context, '저장할 결과 이미지가 없습니다.');
-      return;
-    }
-
-    try {
-      await resultImageService.save(imageBytes);
-      if (context.mounted) _showMessage(context, '결과 이미지를 저장했습니다.');
-    } catch (_) {
-      if (context.mounted) _showMessage(context, '이미지를 저장하지 못했습니다. 다시 시도해주세요.');
-    }
-  }
-
-  Future<void> _handleShare(BuildContext context) async {
-    final imageBytes = generatedImageBytes;
-    if (imageBytes == null) {
-      _showMessage(context, '공유할 결과 이미지가 없습니다.');
-      return;
-    }
-
-    try {
-      await resultImageService.share(imageBytes);
-    } catch (_) {
-      if (context.mounted) _showMessage(context, '이미지를 공유하지 못했습니다. 다시 시도해주세요.');
-    }
-  }
-
-  void _showMessage(BuildContext context, String message) {
-    ScaffoldMessenger.of(
-      context,
-    ).showSnackBar(SnackBar(content: Text(message)));
-  }
 
   // 기존 작업 지시(선택 영역 + 지시문)를 그대로 이어받아 공간 작업실로
   // 돌아가 수정할 수 있게 한다. 수정 후 다시 생성하면 GenerateScreen이
@@ -286,40 +251,6 @@ class ResultScreen extends StatelessWidget {
                     ),
                     const SizedBox(height: 20),
                   ],
-
-                  // 저장하기 / 공유하기 버튼.
-                  LayoutBuilder(
-                    builder: (context, constraints) {
-                      final saveButton = ActionButton(
-                        icon: Icons.download_rounded,
-                        label: '저장하기',
-                        onPressed: () => _handleSave(context),
-                      );
-                      final shareButton = ActionButton(
-                        icon: Icons.share_rounded,
-                        label: '공유하기',
-                        onPressed: () => _handleShare(context),
-                      );
-
-                      if (constraints.maxWidth < 340) {
-                        return Column(
-                          children: [
-                            saveButton,
-                            const SizedBox(height: 12),
-                            shareButton,
-                          ],
-                        );
-                      }
-                      return Row(
-                        children: [
-                          Expanded(child: saveButton),
-                          const SizedBox(width: 12),
-                          Expanded(child: shareButton),
-                        ],
-                      );
-                    },
-                  ),
-                  const SizedBox(height: 24),
 
                   // 수정 재요청(작업실로 돌아가 다시 지시) / 완료(최종 확인으로 이동)
                   Row(

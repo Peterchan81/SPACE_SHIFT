@@ -69,6 +69,17 @@ afterEvaluate {
                 into(sourceApk.parentFile)
                 rename { outputName }
             }
+
+            // Galaxy Tab FINAL UI E2E 검증용 고정 파일명. versionCode가 바뀔
+            // 때마다 WorkOrder에서 지정하는 이름이므로, 위 자동 명명 규칙과는
+            // 별도로 versionCode를 직접 붙여 함께 생성한다.
+            val e2eOutputName =
+                "SPACE_SHIFT_V1_FINAL_UI_E2E_vc${android.defaultConfig.versionCode}.apk"
+            copy {
+                from(sourceApk)
+                into(sourceApk.parentFile)
+                rename { e2eOutputName }
+            }
         }
     }
 }

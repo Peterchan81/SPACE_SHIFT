@@ -5,18 +5,20 @@ import 'package:flutter/material.dart';
 import '../models/work_instruction.dart';
 import '../services/result_image_service.dart';
 import '../theme/space_shift_colors.dart';
+import '../widgets/action_button.dart';
 import '../widgets/more_options_sheet.dart';
 import '../widgets/primary_button.dart';
 import '../widgets/result_image_card.dart';
 import 'estimate_request_screen.dart';
 import 'site_meeting_request_screen.dart';
+import 'workspace_screen.dart';
 
 /// MASTER UI 8번 화면 — 수정된 결과 확인.
 ///
 /// GenerateScreen(7번, 수정 요청 처리 중)이 성공적으로 끝나면 도착하는
-/// 화면으로, 수정된 공간을 보여주고 무료 예상견적/현장 미팅 문의로 이어지는
-/// 다음 행동을 안내한다. "추가 옵션"(10번 화면)은 이 화면의 더보기 메뉴에서
-/// 진입한다.
+/// 화면으로, 수정된 공간을 보여주고 공유하기/저장하기/추가로 수정하기와
+/// 무료 예상견적/현장 미팅 문의로 이어지는 다음 행동을 안내한다. "추가
+/// 옵션"(10번 화면, 고화질 다운로드 등)은 이 화면의 더보기 메뉴에서 진입한다.
 class ReviseResultScreen extends StatelessWidget {
   const ReviseResultScreen({
     super.key,
@@ -24,9 +26,11 @@ class ReviseResultScreen extends StatelessWidget {
     this.generatedImageBytes,
     this.resultImageService = const ResultImageService(),
     this.workInstructions = const [],
+    this.selectedStyle = '',
+    this.additionalNotes = '',
   });
 
-  /// 원본 공간 사진(참고용으로 보관, 이 화면에서는 결과 이미지 위주로 보여준다).
+  /// 원본 공간 사진. "추가로 수정하기"에서 공간 작업실로 되돌아갈 때도 사용한다.
   final Uint8List selectedImageBytes;
 
   /// 수정 반영 후 AI가 새로 생성한 이미지.
@@ -35,9 +39,66 @@ class ReviseResultScreen extends StatelessWidget {
   /// 저장/공유를 담당하며 테스트에서는 가짜 구현으로 교체할 수 있다.
   final ResultImageService resultImageService;
 
-  /// 이 결과를 만든 작업 지시 목록. "다른 사진으로 새로운 공간 만들기"를 누르면
-  /// 새 프로젝트로 초기화되므로 이 화면 자체에서는 참고 정보로만 사용한다.
+  /// 이 결과를 만든 작업 지시 목록. "추가로 수정하기"에서 공간 작업실로
+  /// 이어받고, "다른 사진으로 새로운 공간 만들기"를 누르면 새 프로젝트로
+  /// 초기화되므로 그 경우에는 참고 정보로만 사용한다.
   final List<WorkInstruction> workInstructions;
+
+  /// 선택된 스타일 이름(있는 경우). "추가로 수정하기"에서 공간 작업실로 이어받는다.
+  final String selectedStyle;
+
+  /// 부위에 묶이지 않는 추가 작업 지시. "추가로 수정하기"에서 이어받는다.
+  final String additionalNotes;
+
+  Future<void> _handleSave(BuildContext context) async {
+    final bytes = generatedImageBytes;
+    if (bytes == null) {
+      _showMessage(context, '저장할 결과 이미지가 없습니다.');
+      return;
+    }
+    try {
+      await resultImageService.save(bytes);
+      if (context.mounted) _showMessage(context, '결과 이미지를 저장했습니다.');
+    } catch (_) {
+      if (context.mounted) _showMessage(context, '이미지를 저장하지 못했습니다. 다시 시도해주세요.');
+    }
+  }
+
+  Future<void> _handleShare(BuildContext context) async {
+    final bytes = generatedImageBytes;
+    if (bytes == null) {
+      _showMessage(context, '공유할 결과 이미지가 없습니다.');
+      return;
+    }
+    try {
+      await resultImageService.share(bytes);
+    } catch (_) {
+      if (context.mounted) _showMessage(context, '이미지를 공유하지 못했습니다. 다시 시도해주세요.');
+    }
+  }
+
+  void _showMessage(BuildContext context, String message) {
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text(message)));
+  }
+
+  // 지금까지의 작업 지시를 그대로 이어받아 공간 작업실로 돌아가 추가로
+  // 수정할 수 있게 한다. 다시 생성하면 GenerateScreen이 isRevision 흐름을
+  // 타 이 화면으로 다시 돌아온다.
+  void _goToAdditionalRevision(BuildContext context) {
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (context) => WorkspaceScreen(
+          selectedStyle: selectedStyle,
+          selectedImageBytes: selectedImageBytes,
+          initialWorkInstructions: workInstructions,
+          initialAdditionalNotes: additionalNotes,
+          isRevision: true,
+        ),
+      ),
+    );
+  }
 
   void _goToEstimateRequest(BuildContext context) {
     Navigator.of(context).push(
@@ -108,6 +169,50 @@ class ReviseResultScreen extends StatelessWidget {
                     placeholderIcon: Icons.auto_awesome_rounded,
                     placeholderText: '생성된 이미지',
                     imageBytes: generatedImageBytes,
+                  ),
+                  const SizedBox(height: 20),
+                  // 공유하기 / 저장하기 / 추가로 수정하기.
+                  // Galaxy Tab 가로 화면처럼 넓은 화면에서는 3개를 한 줄에,
+                  // 좁은 화면(휴대폰)에서는 세로로 쌓아 보여준다.
+                  LayoutBuilder(
+                    builder: (context, constraints) {
+                      final shareButton = ActionButton(
+                        icon: Icons.share_rounded,
+                        label: '공유하기',
+                        onPressed: () => _handleShare(context),
+                      );
+                      final saveButton = ActionButton(
+                        icon: Icons.download_rounded,
+                        label: '저장하기',
+                        onPressed: () => _handleSave(context),
+                      );
+                      final reviseButton = ActionButton(
+                        icon: Icons.edit_rounded,
+                        label: '추가로 수정하기',
+                        onPressed: () => _goToAdditionalRevision(context),
+                      );
+
+                      if (constraints.maxWidth < 560) {
+                        return Column(
+                          children: [
+                            shareButton,
+                            const SizedBox(height: 12),
+                            saveButton,
+                            const SizedBox(height: 12),
+                            reviseButton,
+                          ],
+                        );
+                      }
+                      return Row(
+                        children: [
+                          Expanded(child: shareButton),
+                          const SizedBox(width: 12),
+                          Expanded(child: saveButton),
+                          const SizedBox(width: 12),
+                          Expanded(child: reviseButton),
+                        ],
+                      );
+                    },
                   ),
                   const SizedBox(height: 28),
                   _ActionCard(
