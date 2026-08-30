@@ -1,5 +1,7 @@
 import 'package:flutter/foundation.dart';
 
+import '../config/app_environment.dart';
+
 /// 하루 무료 이용 정책(현재 V1 기준 하루 3회)을 관리하는 서비스.
 ///
 /// 결제 금액이 아직 확정되지 않았으므로 이 클래스는 "무료 횟수를 세고,
@@ -46,7 +48,13 @@ class UsagePolicyService {
   }
 
   /// 오늘 무료로 생성/수정을 한 번 더 진행할 수 있는지 여부.
+  ///
+  /// `--dart-define=E2E_UNLIMITED_GENERATION=true`로 빌드한 경우에는
+  /// V1 FINAL E2E 실기 확인을 끝까지 진행할 수 있도록 이 제한을 우회한다.
+  /// [usedToday]/[recordGeneration]은 그대로 동작하므로 화면에 표시되는
+  /// 사용 횟수 카운트와 정책 로직 자체는 변경되지 않는다.
   bool get canGenerate {
+    if (AppEnvironment.unlimitedGenerationForE2eTest) return true;
     _rolloverIfNeeded();
     return _usedToday < freeDailyLimit;
   }

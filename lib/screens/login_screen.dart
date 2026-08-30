@@ -232,7 +232,6 @@ class _SpaceShiftLogoMark extends StatelessWidget {
       width: 72,
       height: 72,
       decoration: BoxDecoration(
-        gradient: SpaceShiftColors.spectrum,
         borderRadius: BorderRadius.circular(20),
         boxShadow: [
           BoxShadow(
@@ -242,7 +241,13 @@ class _SpaceShiftLogoMark extends StatelessWidget {
           ),
         ],
       ),
-      child: const Icon(Icons.auto_awesome_rounded, color: Colors.white, size: 34),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(20),
+        child: Image.asset(
+          'assets/icons/space_shift_icon.png',
+          fit: BoxFit.cover,
+        ),
+      ),
     );
   }
 }

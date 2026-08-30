@@ -11,7 +11,6 @@ import 'package:ason_space/screens/estimate_request_screen.dart';
 import 'package:ason_space/screens/final_confirm_screen.dart';
 import 'package:ason_space/screens/generate_screen.dart';
 import 'package:ason_space/screens/login_screen.dart';
-import 'package:ason_space/screens/photo_preview_screen.dart';
 import 'package:ason_space/screens/photo_select_screen.dart';
 import 'package:ason_space/screens/result_screen.dart';
 import 'package:ason_space/screens/revise_result_screen.dart';
@@ -19,6 +18,9 @@ import 'package:ason_space/screens/signup_screen.dart';
 import 'package:ason_space/screens/site_meeting_request_screen.dart';
 import 'package:ason_space/screens/workspace_screen.dart';
 import 'package:ason_space/services/ai_generation_service.dart';
+import 'package:ason_space/widgets/gradient_cta_button.dart';
+import 'package:ason_space/widgets/region_selector.dart';
+import 'package:ason_space/widgets/work_area_panel.dart';
 
 class _PendingAiGenerationService extends AiGenerationService {
   @override
@@ -45,7 +47,6 @@ void main() {
       const LoginScreen(),
       const SignupScreen(),
       const PhotoSelectScreen(),
-      PhotoPreviewScreen(selectedImageBytes: imageBytes),
       WorkspaceScreen(selectedImageBytes: imageBytes),
       GenerateScreen(
         selectedStyle: '',
@@ -80,4 +81,29 @@ void main() {
 
     await tester.pumpWidget(const SizedBox.shrink());
   });
+
+  testWidgets(
+    'Galaxy Tab 가로 화면의 공간 작업실은 사진/작업 부위/지시 입력/CTA가 스크롤 없이 동시에 보인다',
+    (tester) async {
+      await tester.binding.setSurfaceSize(const Size(1280, 800));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+
+      await tester.pumpWidget(
+        MaterialApp(home: WorkspaceScreen(selectedImageBytes: imageBytes)),
+      );
+      await tester.pump();
+
+      expect(find.byType(RegionSelector), findsOneWidget);
+      expect(find.byType(WorkAreaPanel), findsOneWidget);
+      expect(find.byType(GradientCtaButton), findsOneWidget);
+
+      // CTA가 화면(800px 높이) 안쪽에 그대로 보여야 한다. 스크롤이 필요하면
+      // 이 좌표가 800을 넘어가므로, 넘어가지 않는지로 "스크롤 없이 핵심
+      // 버튼이 보인다"를 검증한다.
+      final ctaBottom = tester.getBottomLeft(find.byType(GradientCtaButton)).dy;
+      expect(ctaBottom, lessThanOrEqualTo(800));
+
+      await tester.pumpWidget(const SizedBox.shrink());
+    },
+  );
 }

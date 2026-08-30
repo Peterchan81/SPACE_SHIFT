@@ -104,4 +104,15 @@ class AppEnvironment {
   /// Provider가 mock이거나 Edge Function URL이 없으면 true다.
   static bool get useMockAi =>
       aiProvider == AiProviderType.mock || edgeFunctionUrl.trim().isEmpty;
+
+  /// `--dart-define=E2E_UNLIMITED_GENERATION=true`.
+  ///
+  /// Galaxy Tab V1 FINAL E2E 실기 확인 중 하루 무료 생성 3회 제한 때문에
+  /// 후속 화면(수정 재요청 → 완료까지) 검증이 막히지 않도록, 이 플래그가
+  /// true인 빌드에서만 [UsagePolicyService.canGenerate] 제한을 우회한다.
+  /// 지정하지 않으면 항상 false이므로 기존 3회 정책은 그대로 유지된다.
+  static const bool unlimitedGenerationForE2eTest = bool.fromEnvironment(
+    'E2E_UNLIMITED_GENERATION',
+    defaultValue: false,
+  );
 }

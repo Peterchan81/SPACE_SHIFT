@@ -9,9 +9,10 @@
 // 2. 사진이 없을 때 "다음" 버튼이 비활성화되는지 확인한다.
 // 3. 가짜 갤러리/카메라 이미지를 선택하면 미리보기와 출처 안내가 표시되고,
 //    "다음" 버튼이 활성화되는지 확인한다.
-// 4. 사진 등록(2) -> 사진 미리보기(3) -> 공간 작업실(4) -> AI 생성(5) ->
-//    결과 확인(6)으로 이어지는 흐름과, 선택한 사진이 결과 화면까지
-//    전달되는지 확인한다. 스타일 선택 화면은 더 이상 거치지 않는다.
+// 4. 사진 등록(2, 선택 즉시 화면 내 미리보기 포함) -> 공간 작업실(4) ->
+//    AI 생성(5) -> 결과 확인(6)으로 이어지는 흐름과, 선택한 사진이 결과
+//    화면까지 전달되는지 확인한다. 별도의 사진 미리보기(3번) 화면은
+//    PhotoSelectScreen과 기능이 중복되어 활성 흐름에 없다.
 // 5. 결과 화면(6)의 저장하기/공유하기 SnackBar 동작을 확인한다.
 // 6. 카메라 촬영 취소 시 기존 사진이 유지되고, 실패 시 SnackBar가
 //    표시되는지 확인한다.
@@ -34,7 +35,6 @@ import 'package:ason_space/models/ai_generation_response.dart';
 import 'package:ason_space/screens/final_confirm_screen.dart';
 import 'package:ason_space/screens/generate_screen.dart';
 import 'package:ason_space/screens/login_screen.dart';
-import 'package:ason_space/screens/photo_preview_screen.dart';
 import 'package:ason_space/screens/photo_select_screen.dart';
 import 'package:ason_space/screens/result_screen.dart';
 import 'package:ason_space/screens/revise_result_screen.dart';
@@ -177,31 +177,23 @@ Future<void> _pumpFromPhotoSelect(
   );
 }
 
-/// 사진 등록 화면(2번)에서 갤러리 사진을 고른 뒤 미리보기 및 시작(3번)까지
-/// 이동한다.
+/// 사진 등록 화면(2번)에서 갤러리 사진을 고른 뒤 화면 내 미리보기가
+/// 표시된 상태로 "다음"을 누를 수 있게 만든다.
 Future<void> _pickGalleryAndGoToPreview(WidgetTester tester) async {
   await tester.ensureVisible(find.text('사진 선택'));
   await tester.pumpAndSettle();
   await tester.tap(find.text('사진 선택'));
   await tester.pumpAndSettle();
+}
+
+/// 사진 등록(2, 선택 즉시 화면 내 미리보기) -> 공간 작업실(4) -> AI
+/// 생성(5) -> 결과 확인(6)까지 진행한다.
+Future<void> _proceedToResultScreen(WidgetTester tester) async {
+  await _pickGalleryAndGoToPreview(tester);
 
   await tester.ensureVisible(find.byType(GradientCtaButton).first);
   await tester.pumpAndSettle();
   await tester.tap(find.text('다음'));
-  await tester.pumpAndSettle();
-}
-
-/// 사진 등록(2) -> 미리보기(3) -> 공간 작업실(4) -> AI 생성(5) -> 결과
-/// 확인(6)까지 진행한다.
-Future<void> _proceedToResultScreen(WidgetTester tester) async {
-  await _pickGalleryAndGoToPreview(tester);
-
-  expect(find.byType(PhotoPreviewScreen), findsOneWidget);
-  expect(find.text('1 / 1'), findsOneWidget);
-
-  await tester.ensureVisible(find.text('공간 변화 시작하기'));
-  await tester.pumpAndSettle();
-  await tester.tap(find.text('공간 변화 시작하기'));
   await tester.pumpAndSettle();
 
   expect(find.text('공간 작업실'), findsOneWidget);
