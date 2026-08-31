@@ -33,6 +33,10 @@ class _PhotoSelectScreenState extends State<PhotoSelectScreen> {
   /// Splash 화면과 동일한 밝은 아이보리 계열 배경색
   static const Color _ivoryBackground = Color(0xFFFFF8E7);
 
+  /// 이 너비 이상이면서 가로가 세로보다 넓을 때 Tablet Landscape 2단 레이아웃을 사용한다.
+  /// (Galaxy Tab 1280x800 기준, 모바일 세로 화면은 항상 이 조건을 만족하지 않는다.)
+  static const double _tabletLandscapeMinWidth = 700;
+
   /// 사용자가 선택(촬영)한 사진의 바이트 데이터.
   /// 웹/모바일 모두에서 동일하게 Image.memory로 미리보기를 표시할 수 있다.
   Uint8List? _selectedImageBytes;
@@ -129,6 +133,42 @@ class _PhotoSelectScreenState extends State<PhotoSelectScreen> {
     }
   }
 
+  /// 사진이 선택된 뒤 보여주는 안내 문구(체크 아이콘 + 상태 + 출처).
+  /// 모바일/Tablet Landscape 레이아웃 모두에서 동일하게 재사용한다.
+  Widget _buildSelectionStatus(_ImageSourceType? sourceType) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        const Row(
+          children: [
+            Icon(
+              Icons.check_circle_rounded,
+              size: 18,
+              color: Color(0xFF8D6E63),
+            ),
+            SizedBox(width: 6),
+            Text(
+              '사진이 선택되었습니다.',
+              style: TextStyle(
+                fontSize: 15,
+                fontWeight: FontWeight.w600,
+                color: Color(0xFF5D4037),
+              ),
+            ),
+          ],
+        ),
+        if (sourceType != null) ...[
+          const SizedBox(height: 4),
+          Text(
+            _sourceLabel(sourceType),
+            style: const TextStyle(fontSize: 13, color: Color(0xFF8D6E63)),
+          ),
+        ],
+      ],
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final hasSelectedImage = _selectedImageBytes != null;
@@ -149,128 +189,240 @@ class _PhotoSelectScreenState extends State<PhotoSelectScreen> {
             constraints: const BoxConstraints(maxWidth: 900),
             child: LayoutBuilder(
               builder: (context, constraints) {
-                return SingleChildScrollView(
-                  child: ConstrainedBox(
-                    // 화면 높이만큼은 최소로 차지하도록 하여
-                    // '스타일 선택하기' 버튼이 항상 하단에 위치하도록 한다.
-                    constraints: BoxConstraints(
-                      minHeight: constraints.maxHeight,
-                    ),
-                    child: IntrinsicHeight(
-                      child: Padding(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 24,
-                          vertical: 24,
-                        ),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.stretch,
-                          children: [
-                            Expanded(
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.stretch,
-                                children: [
-                                  // 상단 안내 영역
-                                  Text(
-                                    '우리 집 사진을 선택해주세요',
-                                    style: Theme.of(context)
-                                        .textTheme
-                                        .headlineSmall
-                                        ?.copyWith(
-                                          fontWeight: FontWeight.bold,
-                                          color: const Color(0xFF3E2723),
-                                        ),
-                                  ),
-                                  const SizedBox(height: 12),
-                                  Text(
-                                    '거실, 침실, 주방 등\n'
-                                    '인테리어를 바꾸고 싶은 공간의 사진을 준비해주세요.',
-                                    style: Theme.of(context)
-                                        .textTheme
-                                        .titleMedium
-                                        ?.copyWith(
-                                          color: const Color(0xFF5D4037),
-                                          height: 1.4,
-                                        ),
-                                  ),
-                                  const SizedBox(height: 24),
-                                  // 사진 미리보기 영역
-                                  _PhotoPreviewBox(
-                                    imageBytes: _selectedImageBytes,
-                                    isLoading: _isPickingImage,
-                                  ),
-                                  if (hasSelectedImage) ...[
-                                    const SizedBox(height: 12),
-                                    const Row(
-                                      children: [
-                                        Icon(
-                                          Icons.check_circle_rounded,
-                                          size: 18,
-                                          color: Color(0xFF8D6E63),
-                                        ),
-                                        SizedBox(width: 6),
-                                        Text(
-                                          '사진이 선택되었습니다.',
-                                          style: TextStyle(
-                                            fontSize: 15,
-                                            fontWeight: FontWeight.w600,
-                                            color: Color(0xFF5D4037),
-                                          ),
-                                        ),
-                                      ],
-                                    ),
-                                    if (sourceType != null) ...[
-                                      const SizedBox(height: 4),
-                                      Text(
-                                        _sourceLabel(sourceType),
-                                        style: const TextStyle(
-                                          fontSize: 13,
-                                          color: Color(0xFF8D6E63),
-                                        ),
-                                      ),
-                                    ],
-                                  ],
-                                  const SizedBox(height: 24),
-                                  // 사진 선택 버튼 (카메라 / 갤러리).
-                                  // 선택창을 여는 동안에는 중복 실행을 막기 위해
-                                  // 두 버튼 모두 비활성화한다.
-                                  PhotoSourceCard(
-                                    icon: Icons.camera_alt_rounded,
-                                    label: '카메라로 촬영',
-                                    onTap: _isPickingImage
-                                        ? null
-                                        : _handleCameraTap,
-                                  ),
-                                  const SizedBox(height: 16),
-                                  PhotoSourceCard(
-                                    icon: Icons.photo_library_rounded,
-                                    label: '갤러리에서 선택',
-                                    onTap: _isPickingImage
-                                        ? null
-                                        : _handleGalleryTap,
-                                  ),
-                                ],
-                              ),
-                            ),
-                            const SizedBox(height: 16),
-                            // 화면 하단 영역: 스타일 선택하기 버튼.
-                            // 사진을 선택해야만 다음 단계로 넘어갈 수 있다.
-                            PrimaryButton(
-                              label: '스타일 선택하기',
-                              onPressed: hasSelectedImage
-                                  ? _goToStyleSelect
-                                  : null,
-                            ),
-                          ],
-                        ),
-                      ),
-                    ),
-                  ),
+                final isTabletLandscape =
+                    constraints.maxWidth >= _tabletLandscapeMinWidth &&
+                    constraints.maxWidth > constraints.maxHeight;
+
+                if (isTabletLandscape) {
+                  return _buildTabletLandscapeLayout(
+                    hasSelectedImage: hasSelectedImage,
+                    sourceType: sourceType,
+                  );
+                }
+                return _buildMobileLayout(
+                  constraints: constraints,
+                  hasSelectedImage: hasSelectedImage,
+                  sourceType: sourceType,
                 );
               },
             ),
           ),
         ),
       ),
+    );
+  }
+
+  /// MASTER #2의 세로 구성을 그대로 유지하는 모바일 레이아웃.
+  Widget _buildMobileLayout({
+    required BoxConstraints constraints,
+    required bool hasSelectedImage,
+    required _ImageSourceType? sourceType,
+  }) {
+    return SingleChildScrollView(
+      child: ConstrainedBox(
+        // 화면 높이만큼은 최소로 차지하도록 하여
+        // '스타일 선택하기' 버튼이 항상 하단에 위치하도록 한다.
+        constraints: BoxConstraints(minHeight: constraints.maxHeight),
+        child: IntrinsicHeight(
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 24),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      // 상단 안내 영역
+                      Text(
+                        '우리 집 사진을 선택해주세요',
+                        style: Theme.of(context).textTheme.headlineSmall
+                            ?.copyWith(
+                              fontWeight: FontWeight.bold,
+                              color: const Color(0xFF3E2723),
+                            ),
+                      ),
+                      const SizedBox(height: 12),
+                      Text(
+                        '거실, 침실, 주방 등\n'
+                        '인테리어를 바꾸고 싶은 공간의 사진을 준비해주세요.',
+                        style: Theme.of(context).textTheme.titleMedium
+                            ?.copyWith(
+                              color: const Color(0xFF5D4037),
+                              height: 1.4,
+                            ),
+                      ),
+                      const SizedBox(height: 24),
+                      // 사진 미리보기 영역
+                      _PhotoPreviewBox(
+                        imageBytes: _selectedImageBytes,
+                        isLoading: _isPickingImage,
+                      ),
+                      if (hasSelectedImage) ...[
+                        const SizedBox(height: 12),
+                        _buildSelectionStatus(sourceType),
+                      ],
+                      const SizedBox(height: 24),
+                      // 사진 선택 버튼 (카메라 / 갤러리).
+                      // 선택창을 여는 동안에는 중복 실행을 막기 위해
+                      // 두 버튼 모두 비활성화한다.
+                      PhotoSourceCard(
+                        icon: Icons.camera_alt_rounded,
+                        label: '카메라로 촬영',
+                        onTap: _isPickingImage ? null : _handleCameraTap,
+                      ),
+                      const SizedBox(height: 16),
+                      PhotoSourceCard(
+                        icon: Icons.photo_library_rounded,
+                        label: '갤러리에서 선택',
+                        onTap: _isPickingImage ? null : _handleGalleryTap,
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 16),
+                // 화면 하단 영역: 스타일 선택하기 버튼.
+                // 사진을 선택해야만 다음 단계로 넘어갈 수 있다.
+                PrimaryButton(
+                  label: '스타일 선택하기',
+                  onPressed: hasSelectedImage ? _goToStyleSelect : null,
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  /// Galaxy Tab 가로(1280x800) 화면 전용 2단 레이아웃.
+  /// 왼쪽에 안내 문구, 오른쪽에 사진 미리보기와 촬영/선택 버튼을 배치해
+  /// 스크롤 없이 한 화면 안에서 모든 내용을 보여준다.
+  Widget _buildTabletLandscapeLayout({
+    required bool hasSelectedImage,
+    required _ImageSourceType? sourceType,
+  }) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 24),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Expanded(
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Expanded(flex: 4, child: _buildIntro()),
+                const SizedBox(width: 32),
+                Expanded(
+                  flex: 5,
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      Expanded(
+                        child: _PhotoPreviewBox(
+                          imageBytes: _selectedImageBytes,
+                          isLoading: _isPickingImage,
+                          expand: true,
+                        ),
+                      ),
+                      if (hasSelectedImage) ...[
+                        const SizedBox(height: 10),
+                        _buildSelectionStatus(sourceType),
+                      ],
+                      const SizedBox(height: 14),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: PhotoSourceCard(
+                              icon: Icons.camera_alt_rounded,
+                              label: '카메라로 촬영',
+                              onTap: _isPickingImage
+                                  ? null
+                                  : _handleCameraTap,
+                              compact: true,
+                            ),
+                          ),
+                          const SizedBox(width: 16),
+                          Expanded(
+                            child: PhotoSourceCard(
+                              icon: Icons.photo_library_rounded,
+                              label: '갤러리에서 선택',
+                              onTap: _isPickingImage
+                                  ? null
+                                  : _handleGalleryTap,
+                              compact: true,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 16),
+          PrimaryButton(
+            label: '스타일 선택하기',
+            onPressed: hasSelectedImage ? _goToStyleSelect : null,
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// Tablet Landscape 왼쪽 영역: 제목 / 설명 / 촬영 안내 팁.
+  Widget _buildIntro() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Text(
+          '우리 집 사진을 선택해주세요',
+          style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+            fontWeight: FontWeight.bold,
+            color: const Color(0xFF3E2723),
+          ),
+        ),
+        const SizedBox(height: 12),
+        Text(
+          '거실, 침실, 주방 등\n'
+          '인테리어를 바꾸고 싶은 공간의 사진을 준비해주세요.',
+          style: Theme.of(
+            context,
+          ).textTheme.titleMedium?.copyWith(color: const Color(0xFF5D4037), height: 1.4),
+        ),
+        const SizedBox(height: 24),
+        Container(
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(color: const Color(0xFFD7CCC8), width: 1.5),
+          ),
+          child: const Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Icon(
+                Icons.tips_and_updates_rounded,
+                size: 22,
+                color: Color(0xFF8D6E63),
+              ),
+              SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  '밝고 공간 전체가 잘 보이는 사진이 좋아요.',
+                  style: TextStyle(
+                    fontSize: 14,
+                    color: Color(0xFF5D4037),
+                    height: 1.4,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
     );
   }
 }
@@ -280,8 +432,14 @@ class _PhotoSelectScreenState extends State<PhotoSelectScreen> {
 /// [imageBytes]가 없으면 빈 상태 Placeholder를 표시하고,
 /// 있으면 실제 이미지를 BoxFit.cover로 채워 보여준다.
 /// [isLoading]이 true이면 선택창이 열려 있는 동안 작은 로딩 표시를 겹쳐 보여준다.
+/// [expand]가 true이면 4:3 비율 대신 부모(Expanded 등)가 제공하는 공간을
+/// 그대로 채운다. Tablet Landscape처럼 세로 공간이 넉넉할 때 사용한다.
 class _PhotoPreviewBox extends StatelessWidget {
-  const _PhotoPreviewBox({this.imageBytes, this.isLoading = false});
+  const _PhotoPreviewBox({
+    this.imageBytes,
+    this.isLoading = false,
+    this.expand = false,
+  });
 
   /// 선택된 사진의 바이트 데이터. null이면 빈 상태를 표시한다.
   final Uint8List? imageBytes;
@@ -289,83 +447,91 @@ class _PhotoPreviewBox extends StatelessWidget {
   /// 카메라/갤러리 선택창이 열려 있는 동안인지 여부.
   final bool isLoading;
 
+  /// true이면 4:3 비율 대신 부모가 제공하는 공간을 그대로 채운다.
+  final bool expand;
+
   @override
   Widget build(BuildContext context) {
+    final card = _buildCard();
+    if (expand) {
+      return SizedBox.expand(child: card);
+    }
+    return AspectRatio(aspectRatio: 4 / 3, child: card);
+  }
+
+  Widget _buildCard() {
     final bytes = imageBytes;
 
-    return AspectRatio(
-      aspectRatio: 4 / 3,
-      child: Container(
-        clipBehavior: Clip.antiAlias,
-        decoration: BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.circular(20),
-          border: Border.all(color: const Color(0xFFD7CCC8), width: 1.5),
-          boxShadow: const [
-            BoxShadow(
-              color: Color(0x14000000),
-              blurRadius: 8,
-              offset: Offset(0, 4),
-            ),
-          ],
-        ),
-        child: Stack(
-          fit: StackFit.expand,
-          children: [
-            bytes == null
-                ? Center(
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        const Icon(
-                          Icons.home_rounded,
-                          size: 64,
-                          color: Color(0xFFBCAAA4),
+    return Container(
+      clipBehavior: Clip.antiAlias,
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: const Color(0xFFD7CCC8), width: 1.5),
+        boxShadow: const [
+          BoxShadow(
+            color: Color(0x14000000),
+            blurRadius: 8,
+            offset: Offset(0, 4),
+          ),
+        ],
+      ),
+      child: Stack(
+        fit: StackFit.expand,
+        children: [
+          bytes == null
+              ? Center(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const Icon(
+                        Icons.home_rounded,
+                        size: 64,
+                        color: Color(0xFFBCAAA4),
+                      ),
+                      const SizedBox(height: 16),
+                      const Text(
+                        '선택된 사진이 없습니다',
+                        style: TextStyle(
+                          fontSize: 17,
+                          fontWeight: FontWeight.bold,
+                          color: Color(0xFF5D4037),
                         ),
-                        const SizedBox(height: 16),
-                        const Text(
-                          '선택된 사진이 없습니다',
-                          style: TextStyle(
-                            fontSize: 17,
-                            fontWeight: FontWeight.bold,
-                            color: Color(0xFF5D4037),
-                          ),
+                      ),
+                      const SizedBox(height: 6),
+                      const Text(
+                        '밝고 공간 전체가 잘 보이는 사진이 좋아요.',
+                        textAlign: TextAlign.center,
+                        style: TextStyle(
+                          fontSize: 13,
+                          color: Color(0xFF8D6E63),
                         ),
-                        const SizedBox(height: 6),
-                        const Text(
-                          '밝고 공간 전체가 잘 보이는 사진이 좋아요.',
-                          textAlign: TextAlign.center,
-                          style: TextStyle(
-                            fontSize: 13,
-                            color: Color(0xFF8D6E63),
-                          ),
-                        ),
-                      ],
-                    ),
-                  )
-                : Image.memory(
-                    bytes,
-                    fit: BoxFit.cover,
-                    width: double.infinity,
-                    height: double.infinity,
+                      ),
+                    ],
                   ),
-            // 선택창이 열려 있는 동안 작은 로딩 표시를 겹쳐 보여준다.
-            if (isLoading)
-              Container(
-                color: const Color(0x99FFFFFF),
-                child: const Center(
-                  child: SizedBox(
-                    width: 32,
-                    height: 32,
-                    child: CircularProgressIndicator(
-                      strokeWidth: 3,
-                      color: Color(0xFF8D6E63),
-                    ),
+                )
+              : Image.memory(
+                  bytes,
+                  fit: BoxFit.cover,
+                  width: double.infinity,
+                  height: double.infinity,
+                ),
+          // 선택창이 열려 있는 동안 작은 로딩 표시를 겹쳐 보여준다.
+          if (isLoading)
+            Container(
+              color: const Color(0x99FFFFFF),
+              child: const Center(
+                child: SizedBox(
+                  width: 32,
+                  height: 32,
+                  child: CircularProgressIndicator(
+                    strokeWidth: 3,
+                    color: Color(0xFF8D6E63),
                   ),
                 ),
               ),
-          ],
-        ),
+            ),
+        ],
       ),
     );
   }

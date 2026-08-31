@@ -11,6 +11,7 @@ class PhotoSourceCard extends StatelessWidget {
     required this.icon,
     required this.label,
     required this.onTap,
+    this.compact = false,
   });
 
   /// 버튼 왼쪽에 표시할 아이콘
@@ -22,6 +23,11 @@ class PhotoSourceCard extends StatelessWidget {
   /// 버튼을 눌렀을 때 실행할 동작.
   /// null을 전달하면 버튼이 비활성화된다(예: 사진 선택창을 여는 동안).
   final VoidCallback? onTap;
+
+  /// true이면 좁은 폭(Tablet Landscape에서 카메라/갤러리 버튼을 나란히 배치할 때)에
+  /// 맞춰 여백·아이콘·글자 크기를 줄이고 화살표 아이콘을 생략한다.
+  /// 어떤 폭에서도 줄바꿈 없이 한 줄로 표시되도록 말줄임 처리한다.
+  final bool compact;
 
   @override
   Widget build(BuildContext context) {
@@ -36,8 +42,8 @@ class PhotoSourceCard extends StatelessWidget {
           onTap: onTap,
           borderRadius: BorderRadius.circular(16),
           child: Container(
-            height: 72,
-            padding: const EdgeInsets.symmetric(horizontal: 20),
+            height: compact ? 64 : 72,
+            padding: EdgeInsets.symmetric(horizontal: compact ? 14 : 20),
             decoration: BoxDecoration(
               borderRadius: BorderRadius.circular(16),
               border: Border.all(color: const Color(0xFFD7CCC8), width: 1.5),
@@ -46,24 +52,29 @@ class PhotoSourceCard extends StatelessWidget {
               children: [
                 Icon(
                   icon,
-                  size: 30,
+                  size: compact ? 24 : 30,
                   color: const Color(0xFF8D6E63),
                 ),
-                const SizedBox(width: 16),
+                SizedBox(width: compact ? 10 : 16),
                 Expanded(
                   child: Text(
                     label,
-                    style: const TextStyle(
-                      fontSize: 18,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      fontSize: compact ? 16 : 18,
                       fontWeight: FontWeight.bold,
-                      color: Color(0xFF3E2723),
+                      color: const Color(0xFF3E2723),
                     ),
                   ),
                 ),
-                const Icon(
-                  Icons.chevron_right_rounded,
-                  color: Color(0xFFBCAAA4),
-                ),
+                if (!compact) ...[
+                  const SizedBox(width: 4),
+                  const Icon(
+                    Icons.chevron_right_rounded,
+                    color: Color(0xFFBCAAA4),
+                  ),
+                ],
               ],
             ),
           ),
