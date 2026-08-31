@@ -269,7 +269,9 @@ class _GenerateScreenState extends State<GenerateScreen> {
                       ),
                     ),
                     const SizedBox(height: 36),
-                    _SpaceShiftIntroSection(),
+                    widget.isRevision
+                        ? const _TodayUpdateSection()
+                        : const _SpaceShiftIntroSection(),
                   ] else ...[
                     const Icon(
                       Icons.error_outline_rounded,
@@ -407,6 +409,178 @@ class _SpaceShiftIntroSection extends StatelessWidget {
             ),
         ],
       ),
+    );
+  }
+}
+
+/// MASTER UI 7번 화면(수정 요청 처리 중) 전용 "오늘의 업데이트" 카드.
+///
+/// 최초 생성(5번)의 서비스 소개 대신, 수정 재생성 대기 중에는 최근 개선
+/// 사항을 짧은 팁 형태로 스와이프해서 볼 수 있게 보여준다. 첫 번째 팁에만
+/// "NEW" 배지와 썸네일 이미지를 붙여 MASTER의 강조 상태를 그대로 따른다.
+class _TodayUpdateSection extends StatefulWidget {
+  const _TodayUpdateSection();
+
+  @override
+  State<_TodayUpdateSection> createState() => _TodayUpdateSectionState();
+}
+
+class _TodayUpdateSectionState extends State<_TodayUpdateSection> {
+  final _pageController = PageController();
+  int _page = 0;
+
+  static const List<(String, String, String?)> _tips = [
+    (
+      '조명 표현력이 향상되었어요',
+      '더 자연스러운 빛 표현과 그림자가 적용되었습니다.',
+      'assets/images/mock_ai_result.png',
+    ),
+    ('벽 텍스처가 더 정교해졌어요', '패브릭과 마감재의 질감을 더 사실적으로 표현해요.', null),
+    ('색상 매칭 정확도가 좋아졌어요', '요청한 컬러 톤을 더 정밀하게 반영해드려요.', null),
+  ];
+
+  @override
+  void dispose() {
+    _pageController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: SpaceShiftColors.border),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Row(
+            children: [
+              const Text(
+                '오늘의 업데이트',
+                style: TextStyle(
+                  fontSize: 15,
+                  fontWeight: FontWeight.bold,
+                  color: SpaceShiftColors.textPrimary,
+                ),
+              ),
+              const SizedBox(width: 8),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFDCFCE7),
+                  borderRadius: BorderRadius.circular(20),
+                ),
+                child: const Text(
+                  'NEW',
+                  style: TextStyle(
+                    fontSize: 10,
+                    fontWeight: FontWeight.bold,
+                    color: Color(0xFF15803D),
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 14),
+          SizedBox(
+            height: 76,
+            child: PageView(
+              controller: _pageController,
+              onPageChanged: (index) => setState(() => _page = index),
+              children: [
+                for (final tip in _tips)
+                  _TodayUpdateTip(
+                    headline: tip.$1,
+                    body: tip.$2,
+                    imageAsset: tip.$3,
+                  ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 12),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              for (var i = 0; i < _tips.length; i++)
+                Container(
+                  margin: const EdgeInsets.symmetric(horizontal: 3),
+                  width: 6,
+                  height: 6,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    color: i == _page
+                        ? SpaceShiftColors.selectionAccent
+                        : SpaceShiftColors.border,
+                  ),
+                ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// "오늘의 업데이트" 카드 안에서 스와이프로 넘겨보는 팁 한 장.
+/// [imageAsset]이 있으면 우측에 작은 썸네일을 함께 보여준다.
+class _TodayUpdateTip extends StatelessWidget {
+  const _TodayUpdateTip({
+    required this.headline,
+    required this.body,
+    this.imageAsset,
+  });
+
+  final String headline;
+  final String body;
+  final String? imageAsset;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                headline,
+                style: const TextStyle(
+                  fontSize: 14,
+                  fontWeight: FontWeight.bold,
+                  color: SpaceShiftColors.textPrimary,
+                ),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                body,
+                style: const TextStyle(
+                  fontSize: 12,
+                  color: SpaceShiftColors.textSecondary,
+                  height: 1.35,
+                ),
+              ),
+            ],
+          ),
+        ),
+        if (imageAsset != null) ...[
+          const SizedBox(width: 12),
+          ClipRRect(
+            borderRadius: BorderRadius.circular(12),
+            child: Image.asset(
+              imageAsset!,
+              width: 64,
+              height: 64,
+              fit: BoxFit.cover,
+            ),
+          ),
+        ],
+      ],
     );
   }
 }

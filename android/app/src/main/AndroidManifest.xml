@@ -1,5 +1,10 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
     <uses-permission android:name="android.permission.INTERNET"/>
+    <!-- 인터넷 기반 무선 업데이트: 내려받은 APK를 OS 기본 설치 화면으로
+         열려면 필요하다(Android 8+). 이 권한 자체는 자동 설치를 허용하지
+         않는다 — 사용자가 설정에서 "이 출처 허용"을 켜고, 설치 화면에서
+         직접 "설치"를 눌러야만 실제로 설치된다. -->
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES"/>
     <application
         android:label="SPACE SHIFT"
         android:name="${applicationName}"

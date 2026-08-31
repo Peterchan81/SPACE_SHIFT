@@ -85,6 +85,17 @@ class AppEnvironment {
     defaultValue: '',
   );
 
+  /// `--dart-define=SUPABASE_URL=...`.
+  ///
+  /// Galaxy Tab 인터넷 기반 무선 업데이트(AppUpdateService)가 공개 배포
+  /// 채널(Supabase Storage 공개 버킷)의 위치를 계산하는 데만 사용한다.
+  /// 이 값 자체는 Secret이 아니라 공개 프로젝트 URL이며, 지정하지 않으면
+  /// [AppUpdateService]가 안전하게 "업데이트 확인 불가"로 처리한다.
+  static const String supabaseUrl = String.fromEnvironment(
+    'SUPABASE_URL',
+    defaultValue: '',
+  );
+
   /// 현재 실행 환경.
   static AppEnvironmentType get current {
     switch (_rawEnvironment.trim().toLowerCase()) {

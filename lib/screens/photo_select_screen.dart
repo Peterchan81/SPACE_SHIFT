@@ -3,8 +3,11 @@ import 'dart:typed_data';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 
+import '../models/app_update_view.dart';
+import '../services/app_update_store.dart';
 import '../services/image_picker_service.dart';
 import '../theme/space_shift_colors.dart';
+import '../widgets/app_update_banner.dart';
 import '../widgets/gradient_cta_button.dart';
 import '../widgets/photo_source_card.dart';
 import 'workspace_screen.dart';
@@ -133,6 +136,26 @@ class _PhotoSelectScreenState extends State<PhotoSelectScreen> {
     }
   }
 
+  /// 인터넷 기반 무선 업데이트 배너. main.dart가 앱 시작 시 이미 실행해 둔
+  /// AppUpdateStore.instance의 상태를 그대로 구독만 한다(새 확인 로직 없음).
+  Widget _buildUpdateBanner(BuildContext context) {
+    return AnimatedBuilder(
+      animation: AppUpdateStore.instance,
+      builder: (context, _) {
+        final store = AppUpdateStore.instance;
+        final view = AppUpdateViewState.of(
+          state: store.state,
+          versionName: store.latestInfo?.versionName,
+        );
+        if (!view.isVisible) return const SizedBox.shrink();
+        return AppUpdateBanner(
+          view: view,
+          onInstall: store.downloadAndOpenInstaller,
+        );
+      },
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final hasSelectedImage = _selectedImageBytes != null;
@@ -173,6 +196,7 @@ class _PhotoSelectScreenState extends State<PhotoSelectScreen> {
                               child: Column(
                                 crossAxisAlignment: CrossAxisAlignment.stretch,
                                 children: [
+                                  _buildUpdateBanner(context),
                                   // 상단 안내 영역
                                   Text(
                                     '변화시킬 공간을 보여주세요',
