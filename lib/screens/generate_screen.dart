@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 
 import '../config/app_environment.dart';
 import '../models/ai_generation_request.dart';
+import '../models/space_task.dart';
 import '../services/ai_generation_provider.dart';
 import '../services/ai_generation_service.dart';
 import '../widgets/primary_button.dart';
@@ -22,15 +23,21 @@ class GenerateScreen extends StatefulWidget {
     required this.selectedStyle,
     required this.selectedImageBytes,
     this.aiGenerationService,
+    this.tasks,
   });
 
-  /// StyleSelectScreen에서 사용자가 선택한 스타일 이름.
+  /// StyleSelectScreen에서 사용자가 선택한 스타일 이름, 또는 공간
+  /// 작업실에서 등록한 작업들을 합쳐 만든 요약 지시 문구.
   /// 결과 화면으로 그대로 전달한다.
   final String selectedStyle;
 
-  /// PhotoSelectScreen에서 사용자가 선택한 사진 데이터.
+  /// PhotoSelectScreen(또는 공간 작업실)에서 선택한 사진 데이터.
   /// 결과 화면의 원본 카드에 표시하기 위해 그대로 전달한다.
   final Uint8List selectedImageBytes;
+
+  /// 공간 작업실에서 등록한 영역별 작업 목록.
+  /// null이면 스타일 선택 등 이전 방식의 요청이다.
+  final List<SpaceTask>? tasks;
 
   /// AI 생성 요청을 담당하는 서비스.
   ///
@@ -106,6 +113,7 @@ class _GenerateScreenState extends State<GenerateScreen> {
       selectedStyle: widget.selectedStyle,
       createdAt: DateTime.now(),
       appVersion: AppEnvironment.appVersion,
+      tasks: widget.tasks ?? const [],
     );
 
     final response = await _aiGenerationService.generate(request);
@@ -118,6 +126,7 @@ class _GenerateScreenState extends State<GenerateScreen> {
             selectedStyle: widget.selectedStyle,
             selectedImageBytes: widget.selectedImageBytes,
             generatedImageBytes: response.generatedImageBytes,
+            tasks: widget.tasks,
           ),
         ),
       );

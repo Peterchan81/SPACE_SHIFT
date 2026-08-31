@@ -12,8 +12,8 @@ import 'package:ason_space/screens/generate_screen.dart';
 import 'package:ason_space/screens/photo_select_screen.dart';
 import 'package:ason_space/screens/result_screen.dart';
 import 'package:ason_space/screens/site_meeting_request_screen.dart';
+import 'package:ason_space/screens/space_workshop_screen.dart';
 import 'package:ason_space/screens/splash_screen.dart';
-import 'package:ason_space/screens/style_select_screen.dart';
 import 'package:ason_space/services/ai_generation_service.dart';
 
 class _PendingAiGenerationService extends AiGenerationService {
@@ -38,7 +38,7 @@ void main() {
     final screens = <Widget>[
       const SplashScreen(),
       const PhotoSelectScreen(),
-      StyleSelectScreen(selectedImageBytes: imageBytes),
+      SpaceWorkshopScreen(imageBytes: imageBytes),
       GenerateScreen(
         selectedStyle: '모던',
         selectedImageBytes: imageBytes,

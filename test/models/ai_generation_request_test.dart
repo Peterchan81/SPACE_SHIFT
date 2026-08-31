@@ -10,6 +10,7 @@ import 'dart:typed_data';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:ason_space/models/ai_generation_request.dart';
+import 'package:ason_space/models/space_task.dart';
 
 void main() {
   final imageBytes = Uint8List.fromList([1, 2, 3, 4]);
@@ -74,5 +75,33 @@ void main() {
 
     expect(request.toString(), contains('모던'));
     expect(request.toString(), contains('1.0.0'));
+  });
+
+  test('tasks를 지정하지 않으면 빈 목록이 기본값이다', () {
+    final request = buildRequest();
+
+    expect(request.tasks, isEmpty);
+  });
+
+  test('공간 작업실에서 등록한 작업 목록을 tasks로 전달할 수 있다', () {
+    const tasks = [
+      SpaceTask(
+        id: 'task_1',
+        category: SpaceCategory.wall,
+        rect: NormalizedRect(left: 0.1, top: 0.1, width: 0.3, height: 0.4),
+        instruction: '벽을 아이보리로 변경해줘',
+      ),
+    ];
+
+    final request = AiGenerationRequest(
+      imageBytes: imageBytes,
+      selectedStyle: '벽: 벽을 아이보리로 변경해줘',
+      createdAt: createdAt,
+      appVersion: '1.0.0',
+      tasks: tasks,
+    );
+
+    expect(request.tasks, tasks);
+    expect(request.copyWith().tasks, tasks);
   });
 }

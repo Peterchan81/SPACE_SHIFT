@@ -6,7 +6,7 @@ import 'package:flutter/material.dart';
 import '../services/image_picker_service.dart';
 import '../widgets/photo_source_card.dart';
 import '../widgets/primary_button.dart';
-import 'style_select_screen.dart';
+import 'space_workshop_screen.dart';
 
 /// 선택된 사진이 카메라 촬영인지 갤러리 선택인지 구분하는 값.
 enum _ImageSourceType { camera, gallery }
@@ -105,17 +105,17 @@ class _PhotoSelectScreenState extends State<PhotoSelectScreen> {
     }
   }
 
-  void _goToStyleSelect() {
+  void _goToSpaceWorkshop() {
     final bytes = _selectedImageBytes;
     // 버튼이 비활성화되어 있어 정상적으로는 호출되지 않지만 안전하게 처리한다.
     if (bytes == null) return;
 
     Navigator.of(context).push(
       MaterialPageRoute(
-        builder: (context) => StyleSelectScreen(selectedImageBytes: bytes),
+        builder: (context) => SpaceWorkshopScreen(imageBytes: bytes),
         // 결과 화면에서 popUntil로 돌아올 때 사용하는 이름
         // (result_screen.dart 참고)
-        settings: const RouteSettings(name: 'style_select'),
+        settings: const RouteSettings(name: 'space_workshop'),
       ),
     );
   }
@@ -255,9 +255,9 @@ class _PhotoSelectScreenState extends State<PhotoSelectScreen> {
                             // 화면 하단 영역: 스타일 선택하기 버튼.
                             // 사진을 선택해야만 다음 단계로 넘어갈 수 있다.
                             PrimaryButton(
-                              label: '스타일 선택하기',
+                              label: '공간 작업실로 이동',
                               onPressed: hasSelectedImage
-                                  ? _goToStyleSelect
+                                  ? _goToSpaceWorkshop
                                   : null,
                             ),
                           ],

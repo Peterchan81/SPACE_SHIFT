@@ -5,13 +5,14 @@
 // 주입해 테스트한다.
 //
 // 1. 스플래시 화면 -> 사진 선택 화면 이동을 확인한다.
-// 2. 사진이 없을 때 스타일 선택하기 버튼이 비활성화되는지 확인한다.
+// 2. 사진이 없을 때 공간 작업실로 이동 버튼이 비활성화되는지 확인한다.
 // 3. 가짜 갤러리/카메라 이미지를 선택하면 미리보기와 출처 안내가 표시되고,
-//    스타일 선택하기 버튼이 활성화되는지 확인한다.
-// 4. 사진 선택 -> 스타일 선택 -> AI 생성(대기) -> 결과 화면으로 이어지는
-//    흐름과, 선택한 사진/스타일이 결과 화면까지 전달되는지 확인한다.
-// 5. 결과 화면의 저장하기/공유하기 SnackBar와 '다른 스타일로 다시 만들기'
-//    이동이 정상 동작하는지 확인한다.
+//    공간 작업실로 이동 버튼이 활성화되는지 확인한다.
+// 4. 사진 선택 -> 공간 작업실(영역 선택 + 작업 등록) -> AI 생성(대기) ->
+//    결과 화면으로 이어지는 흐름과, 선택한 사진/변경 내용이 결과 화면까지
+//    전달되는지 확인한다.
+// 5. 결과 화면의 저장하기/공유하기 SnackBar와 '수정 재요청'으로 공간
+//    작업실에 작업 목록을 이어서 편집하러 돌아가는 동작을 확인한다.
 // 6. 카메라 촬영 취소 시 기존 사진이 유지되고, 실패 시 SnackBar가
 //    표시되는지 확인한다.
 // 7. 이미지 선택 중에는 카메라/갤러리 버튼이 모두 비활성화되어 중복
@@ -37,6 +38,7 @@ import 'package:ason_space/screens/result_screen.dart';
 import 'package:ason_space/services/ai_generation_service.dart';
 import 'package:ason_space/services/image_picker_service.dart';
 import 'package:ason_space/services/result_image_service.dart';
+import 'package:ason_space/widgets/space_canvas.dart';
 
 /// 테스트에서 사용하는 1x1 픽셀 PNG 이미지 바이트.
 /// Image.memory가 실제로 디코딩 가능한 유효한 이미지 데이터가 필요하다.
@@ -197,22 +199,35 @@ Future<void> _pumpPhotoSelectScreenWithFakeCameraImage(
   await tester.pumpAndSettle();
 }
 
-/// PhotoSelectScreen에서 이미 사진이 선택된 상태를 가정하고,
-/// 스타일 선택 -> AI 생성 대기 -> 결과 화면 도착까지 진행한다.
+/// PhotoSelectScreen에서 이미 사진이 선택된 상태를 가정하고, 공간 작업실에서
+/// 영역을 하나 선택해 작업을 등록한 뒤 -> AI 생성 대기 -> 결과 화면
+/// 도착까지 진행한다.
 Future<void> _proceedToResultScreen(WidgetTester tester) async {
-  await tester.ensureVisible(find.text('스타일 선택하기'));
+  await tester.ensureVisible(find.text('공간 작업실로 이동'));
   await tester.pumpAndSettle();
-  await tester.tap(find.text('스타일 선택하기'));
+  await tester.tap(find.text('공간 작업실로 이동'));
   await tester.pumpAndSettle();
 
-  // 스타일 카드 하나를 선택한다.
-  await tester.tap(find.text('모던'));
+  expect(find.text('공간 작업실'), findsOneWidget);
+
+  // 사진 Canvas 위에서 영역을 하나 드래그해 선택한다.
+  await tester.drag(find.byType(SpaceCanvas), const Offset(120, 100));
   await tester.pump();
 
-  // AI로 공간 만들기 버튼을 누르면 AI 생성(대기) 화면으로 이동
-  await tester.ensureVisible(find.text('AI로 공간 만들기'));
+  // 그려둔 영역으로 작업을 등록한다.
+  await tester.ensureVisible(find.text('이 영역으로 작업 추가'));
   await tester.pumpAndSettle();
-  await tester.tap(find.text('AI로 공간 만들기'));
+  await tester.tap(find.text('이 영역으로 작업 추가'));
+  await tester.pump();
+
+  // 변경 지시 텍스트를 입력한다.
+  await tester.enterText(find.byType(TextField), '벽을 아이보리로 변경해줘');
+  await tester.pump();
+
+  // 공간의 변화 만들기 버튼을 누르면 AI 생성(대기) 화면으로 이동
+  await tester.ensureVisible(find.text('공간의 변화 만들기'));
+  await tester.pumpAndSettle();
+  await tester.tap(find.text('공간의 변화 만들기'));
   // CircularProgressIndicator는 무한 반복 애니메이션이므로 pumpAndSettle 대신
   // 화면 전환 애니메이션만큼만 진행한다.
   await tester.pump();
@@ -228,8 +243,8 @@ Future<void> _proceedToResultScreen(WidgetTester tester) async {
   await tester.pump(const Duration(milliseconds: 300));
 }
 
-/// 갤러리에서 사진을 선택하고 스타일까지 고른 뒤 결과 화면에 도착하기까지의
-/// 공통 절차. Splash 화면은 사진 선택과 무관하므로 거치지 않는다.
+/// 갤러리에서 사진을 선택하고 공간 작업실에서 작업을 등록한 뒤 결과 화면에
+/// 도착하기까지의 공통 절차. Splash 화면은 사진 선택과 무관하므로 거치지 않는다.
 Future<void> _pumpToResultScreen(WidgetTester tester) async {
   await _pumpPhotoSelectScreenWithFakeGalleryImage(tester);
   await _proceedToResultScreen(tester);
@@ -250,7 +265,7 @@ void main() {
     expect(find.text('선택된 사진이 없습니다'), findsOneWidget);
   });
 
-  testWidgets('사진이 없을 때 스타일 선택하기 버튼이 비활성화된다', (WidgetTester tester) async {
+  testWidgets('사진이 없을 때 공간 작업실로 이동 버튼이 비활성화된다', (WidgetTester tester) async {
     await tester.pumpWidget(const MaterialApp(home: PhotoSelectScreen()));
 
     final button = tester.widget<ElevatedButton>(find.byType(ElevatedButton));
@@ -266,7 +281,7 @@ void main() {
     expect(find.byType(Image), findsOneWidget);
   });
 
-  testWidgets('갤러리 사진 선택 후 스타일 선택하기 버튼이 활성화된다', (WidgetTester tester) async {
+  testWidgets('갤러리 사진 선택 후 공간 작업실로 이동 버튼이 활성화된다', (WidgetTester tester) async {
     await _pumpPhotoSelectScreenWithFakeGalleryImage(tester);
 
     final button = tester.widget<ElevatedButton>(find.byType(ElevatedButton));
@@ -282,7 +297,7 @@ void main() {
     expect(find.byType(Image), findsOneWidget);
   });
 
-  testWidgets('카메라 사진 선택 후 스타일 선택하기 버튼이 활성화된다', (WidgetTester tester) async {
+  testWidgets('카메라 사진 선택 후 공간 작업실로 이동 버튼이 활성화된다', (WidgetTester tester) async {
     await _pumpPhotoSelectScreenWithFakeCameraImage(tester);
 
     final button = tester.widget<ElevatedButton>(find.byType(ElevatedButton));
@@ -383,33 +398,33 @@ void main() {
     expect(find.text('사진이 선택되었습니다.'), findsOneWidget);
   });
 
-  testWidgets('사진을 선택하고 스타일 선택하기를 누르면 스타일 선택 화면으로 이동한다', (
+  testWidgets('사진을 선택하고 공간 작업실로 이동을 누르면 공간 작업실 화면으로 이동한다', (
     WidgetTester tester,
   ) async {
     await _pumpPhotoSelectScreenWithFakeGalleryImage(tester);
 
-    await tester.ensureVisible(find.text('스타일 선택하기'));
+    await tester.ensureVisible(find.text('공간 작업실로 이동'));
     await tester.pumpAndSettle();
-    await tester.tap(find.text('스타일 선택하기'));
+    await tester.tap(find.text('공간 작업실로 이동'));
     await tester.pumpAndSettle();
 
-    expect(find.text('인테리어 스타일'), findsOneWidget);
-    expect(find.text('원하는 스타일을 선택해주세요'), findsOneWidget);
-    expect(find.text('모던'), findsOneWidget);
-
-    // 목록을 끝까지 스크롤하여 마지막 스타일 카드도 렌더링되는지 확인한다.
-    await tester.scrollUntilVisible(find.text('따뜻한 우드'), 200);
-    expect(find.text('따뜻한 우드'), findsOneWidget);
+    expect(find.text('공간 작업실'), findsOneWidget);
+    expect(find.text('사진에서 바꾸고 싶은 부분을 선택해주세요'), findsOneWidget);
+    // 오른쪽 Tool Panel에 카테고리 항목들이 표시된다.
+    expect(find.text('전체'), findsOneWidget);
+    expect(find.text('벽'), findsOneWidget);
+    expect(find.text('바닥'), findsOneWidget);
   });
 
-  testWidgets('스타일을 선택하고 AI로 공간 만들기를 누르면 생성 화면을 거쳐 결과 화면으로 이동하고 '
-      '선택한 스타일과 사진이 표시된다', (WidgetTester tester) async {
+  testWidgets('공간 작업실에서 영역을 선택해 작업을 등록하고 공간의 변화 만들기를 누르면 생성 화면을 '
+      '거쳐 결과 화면으로 이동하고 변경 내용과 사진이 표시된다', (WidgetTester tester) async {
     await _pumpToResultScreen(tester);
 
     expect(find.text('생성 결과'), findsOneWidget);
     expect(find.text('새로운 공간이 완성되었어요'), findsOneWidget);
-    // 선택한 스타일 정보 카드에 '모던'이 표시되는지 확인한다.
-    expect(find.text('모던'), findsOneWidget);
+    // 변경 내용 목록에 등록했던 작업이 표시되는지 확인한다.
+    expect(find.text('변경 내용'), findsOneWidget);
+    expect(find.text('벽을 아이보리로 변경해줘'), findsOneWidget);
     // 원본 카드에는 실제 선택한 사진이, AI 결과 카드에는 실제 AiGenerationService가
     // 반환한 Mock 이미지가 표시되어 두 Placeholder 문구 모두 사라진다.
     expect(find.text('원본 사진'), findsNothing);
@@ -494,20 +509,18 @@ void main() {
     expect(service.lastSharedBytes, equals(_fakeImageBytes));
   });
 
-  testWidgets('결과 화면에서 다른 스타일로 다시 만들기를 누르면 스타일 선택 화면으로 돌아간다', (
-    WidgetTester tester,
-  ) async {
+  testWidgets('결과 화면에서 수정 재요청을 누르면 기존 작업을 이어서 편집할 수 있는 '
+      '공간 작업실로 이동한다', (WidgetTester tester) async {
     await _pumpToResultScreen(tester);
 
-    await tester.ensureVisible(find.text('다른 스타일로 다시 만들기'));
+    await tester.ensureVisible(find.text('수정 재요청'));
     await tester.pumpAndSettle();
-    await tester.tap(find.text('다른 스타일로 다시 만들기'));
+    await tester.tap(find.text('수정 재요청'));
     await tester.pumpAndSettle();
 
-    expect(find.text('인테리어 스타일'), findsOneWidget);
-    expect(find.text('원하는 스타일을 선택해주세요'), findsOneWidget);
-    // 결과 화면과 생성 화면은 스택에서 정리되어 더 이상 존재하지 않는다.
-    expect(find.text('생성 결과'), findsNothing);
+    expect(find.text('공간 작업실'), findsOneWidget);
+    // 기존에 입력해 두었던 작업 내용이 그대로 유지된다.
+    expect(find.text('벽을 아이보리로 변경해줘'), findsOneWidget);
   });
 
   testWidgets('선택한 이미지가 ResultScreen 원본 카드에 표시된다', (WidgetTester tester) async {

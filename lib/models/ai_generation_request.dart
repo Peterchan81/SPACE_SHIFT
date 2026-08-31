@@ -1,5 +1,7 @@
 import 'package:flutter/foundation.dart';
 
+import 'space_task.dart';
+
 /// AI 인테리어 이미지 생성을 요청할 때 필요한 데이터를 담는 불변 모델.
 ///
 /// 이 구조는 실제로 어떤 AI 서비스(OpenAI, Gemini, Fal.ai 등)를 사용하든
@@ -12,12 +14,15 @@ class AiGenerationRequest {
     required this.selectedStyle,
     required this.createdAt,
     required this.appVersion,
+    this.tasks = const [],
   });
 
   /// 사용자가 선택(촬영)한 원본 사진 데이터.
+  /// 수정 재요청 흐름에서는 이전 AI 생성 결과 이미지가 전달될 수 있다.
   final Uint8List imageBytes;
 
-  /// 사용자가 선택한 인테리어 스타일 이름 (예: 모던, 미니멀).
+  /// AI Provider에 전달하는 요약 지시 문구.
+  /// 공간 작업실 흐름에서는 [tasks]의 내용을 합쳐 생성한다.
   final String selectedStyle;
 
   /// 요청이 생성된 시각.
@@ -26,18 +31,24 @@ class AiGenerationRequest {
   /// 요청을 보낸 앱의 버전. 추후 서버/AI 응답 호환성 추적 등에 활용할 수 있다.
   final String appVersion;
 
+  /// 공간 작업실에서 등록한 영역별 작업 목록(카테고리/좌표/지시 텍스트/참고
+  /// 이미지). 스타일 선택 등 이전 방식의 요청에서는 비어 있을 수 있다.
+  final List<SpaceTask> tasks;
+
   /// 지정한 필드만 바꾼 새 인스턴스를 반환한다.
   AiGenerationRequest copyWith({
     Uint8List? imageBytes,
     String? selectedStyle,
     DateTime? createdAt,
     String? appVersion,
+    List<SpaceTask>? tasks,
   }) {
     return AiGenerationRequest(
       imageBytes: imageBytes ?? this.imageBytes,
       selectedStyle: selectedStyle ?? this.selectedStyle,
       createdAt: createdAt ?? this.createdAt,
       appVersion: appVersion ?? this.appVersion,
+      tasks: tasks ?? this.tasks,
     );
   }
 
