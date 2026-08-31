@@ -88,7 +88,7 @@ class _LoginScreenState extends State<LoginScreen> {
                     keyboardType: TextInputType.emailAddress,
                     decoration: const InputDecoration(
                       hintText: '이메일',
-                      prefixIcon: Icon(Icons.mail_outline_rounded),
+                      prefixIcon: Icon(Icons.person_outline_rounded),
                     ),
                   ),
                   const SizedBox(height: 14),
@@ -223,26 +223,22 @@ class _LoginScreenState extends State<LoginScreen> {
   }
 }
 
+/// SPACE SHIFT 공식 심볼(assets/icons/space_shift_symbol.png)을 그대로
+/// 보여준다. 원본은 공식 로고 전체 이미지(assets/icons/
+/// space_shift_official_logo.png, "SPACE SHIFT" 워드마크 포함)에서 심볼
+/// 영역만 잘라낸 것 — 원본 파일 자체는 수정하지 않고 보존한다.
 class _SpaceShiftLogoMark extends StatelessWidget {
   const _SpaceShiftLogoMark();
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      width: 72,
-      height: 72,
-      decoration: BoxDecoration(
-        gradient: SpaceShiftColors.spectrum,
-        borderRadius: BorderRadius.circular(20),
-        boxShadow: [
-          BoxShadow(
-            color: SpaceShiftColors.purple.withValues(alpha: 0.28),
-            blurRadius: 20,
-            offset: const Offset(0, 8),
-          ),
-        ],
+    return SizedBox(
+      width: 78,
+      height: 80,
+      child: Image.asset(
+        'assets/icons/space_shift_symbol.png',
+        fit: BoxFit.contain,
       ),
-      child: const Icon(Icons.auto_awesome_rounded, color: Colors.white, size: 34),
     );
   }
 }

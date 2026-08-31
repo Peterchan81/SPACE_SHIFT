@@ -106,4 +106,25 @@ void main() {
       await tester.pumpWidget(const SizedBox.shrink());
     },
   );
+
+  testWidgets(
+    'Galaxy Tab 가로 화면의 회원가입은 프로필 사진/입력 폼/가입 버튼이 스크롤 없이 한 화면에 보인다',
+    (tester) async {
+      await tester.binding.setSurfaceSize(const Size(1280, 800));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+
+      await tester.pumpWidget(const MaterialApp(home: SignupScreen()));
+      await tester.pump();
+
+      // 왼쪽 열(프로필 사진 선택)과 오른쪽 열(입력 폼)이 동시에 보인다.
+      expect(find.text('프로필 사진 (선택)'), findsOneWidget);
+      expect(find.byType(TextFormField), findsNWidgets(4));
+      expect(find.byType(GradientCtaButton), findsOneWidget);
+
+      final ctaBottom = tester.getBottomLeft(find.byType(GradientCtaButton)).dy;
+      expect(ctaBottom, lessThanOrEqualTo(800));
+
+      await tester.pumpWidget(const SizedBox.shrink());
+    },
+  );
 }

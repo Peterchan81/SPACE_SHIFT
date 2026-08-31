@@ -71,13 +71,17 @@ flutter:
   #   - images/a_dot_ham.jpeg
   assets:
     - assets/images/mock_ai_result.png
+    - assets/icons/space_shift_symbol.png
 
 flutter_launcher_icons:
   android: true
-  image_path_android: assets/icons/space_shift_icon.png
+  # 이전에는 before/after 방 사진이 들어간 앱스토어용 배지(space_shift_icon.png)를
+  # 그대로 런처 아이콘에도 재사용해, 홈 화면에 방 사진처럼 보이는 아이콘이
+  # 표시됐다. 공식 "SS" 심볼만 담은 전용 foreground 이미지로 교체한다.
+  image_path_android: assets/icons/space_shift_launcher_foreground.png
   adaptive_icon_background: "#071A2D"
-  adaptive_icon_foreground: assets/icons/space_shift_icon.png
-  adaptive_icon_foreground_inset: 16
+  adaptive_icon_foreground: assets/icons/space_shift_launcher_foreground.png
+  adaptive_icon_foreground_inset: 10
   min_sdk_android: 21
 
   # An image asset can refer to one or more resolution-specific "variants", see
