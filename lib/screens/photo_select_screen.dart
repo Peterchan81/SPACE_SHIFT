@@ -156,6 +156,10 @@ class _PhotoSelectScreenState extends State<PhotoSelectScreen> {
     );
   }
 
+  /// WorkspaceScreen/SignupScreen과 같은 관례 — 이 너비 이상이면 Galaxy Tab
+  /// 가로 화면으로 보고 2단 레이아웃을 사용한다.
+  static const double _wideMinWidth = 800;
+
   @override
   Widget build(BuildContext context) {
     final hasSelectedImage = _selectedImageBytes != null;
@@ -173,150 +177,239 @@ class _PhotoSelectScreenState extends State<PhotoSelectScreen> {
       body: SafeArea(
         child: Center(
           child: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 900),
-            child: LayoutBuilder(
-              builder: (context, constraints) {
-                return SingleChildScrollView(
-                  child: ConstrainedBox(
-                    // 화면 높이만큼은 최소로 차지하도록 하여
-                    // 하단 CTA가 항상 하단에 위치하도록 한다.
-                    constraints: BoxConstraints(
-                      minHeight: constraints.maxHeight,
-                    ),
-                    child: IntrinsicHeight(
-                      child: Padding(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 24,
-                          vertical: 24,
-                        ),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.stretch,
-                          children: [
-                            Expanded(
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.stretch,
-                                children: [
-                                  _buildUpdateBanner(context),
-                                  // 상단 안내 영역
-                                  Text(
-                                    '변화시킬 공간을 보여주세요',
-                                    style: Theme.of(context)
-                                        .textTheme
-                                        .headlineSmall
-                                        ?.copyWith(
-                                          fontWeight: FontWeight.bold,
-                                          color: SpaceShiftColors.textPrimary,
-                                        ),
-                                  ),
-                                  const SizedBox(height: 12),
-                                  const Text(
-                                    '사진을 촬영하거나 선택하면\n'
-                                    'AI가 더 정확한 결과를 만들어드려요.',
-                                    style: TextStyle(
-                                      fontSize: 15,
-                                      color: SpaceShiftColors.textSecondary,
-                                      height: 1.4,
-                                    ),
-                                  ),
-                                  const SizedBox(height: 24),
-                                  // 사진 미리보기 영역. 사진이 선택되어 있으면
-                                  // 우측 상단에 삭제 버튼을 함께 보여준다.
-                                  _PhotoPreviewBox(
-                                    imageBytes: _selectedImageBytes,
-                                    isLoading: _isPickingImage,
-                                    onRemove: hasSelectedImage
-                                        ? _removePhoto
-                                        : null,
-                                  ),
-                                  if (hasSelectedImage) ...[
-                                    const SizedBox(height: 12),
-                                    Row(
-                                      children: [
-                                        const Icon(
-                                          Icons.check_circle_rounded,
-                                          size: 18,
-                                          color: SpaceShiftColors.selectionAccent,
-                                        ),
-                                        const SizedBox(width: 6),
-                                        const Text(
-                                          '사진이 선택되었습니다.',
-                                          style: TextStyle(
-                                            fontSize: 15,
-                                            fontWeight: FontWeight.w600,
-                                            color: SpaceShiftColors.textPrimary,
-                                          ),
-                                        ),
-                                      ],
-                                    ),
-                                    if (sourceType != null) ...[
-                                      const SizedBox(height: 4),
-                                      Text(
-                                        _sourceLabel(sourceType),
-                                        style: const TextStyle(
-                                          fontSize: 13,
-                                          color: SpaceShiftColors.textSecondary,
-                                        ),
-                                      ),
-                                    ],
-                                  ],
-                                  const SizedBox(height: 24),
-                                  // 사진 선택 버튼 (카메라 / 갤러리).
-                                  // 선택창을 여는 동안에는 중복 실행을 막기 위해
-                                  // 두 버튼 모두 비활성화한다.
-                                  Row(
-                                    children: [
-                                      Expanded(
-                                        child: PhotoSourceCard(
-                                          icon: Icons.camera_alt_rounded,
-                                          label: '카메라 촬영',
-                                          onTap: _isPickingImage
-                                              ? null
-                                              : _handleCameraTap,
-                                        ),
-                                      ),
-                                      const SizedBox(width: 14),
-                                      Expanded(
-                                        child: PhotoSourceCard(
-                                          icon: Icons.image_rounded,
-                                          label: '사진 선택',
-                                          onTap: _isPickingImage
-                                              ? null
-                                              : _handleGalleryTap,
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                  const SizedBox(height: 12),
-                                  const Text(
-                                    '사진 전체가 잘 보이는 사진일수록 좋아요.',
-                                    style: TextStyle(
-                                      fontSize: 13,
-                                      color: SpaceShiftColors.textSecondary,
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                            const SizedBox(height: 16),
-                            // 화면 하단 영역: 공간 작업실(4번 화면)로 바로 이동.
-                            // 사진을 선택해야만 다음 단계로 넘어갈 수 있다.
-                            GradientCtaButton(
-                              label: '다음',
-                              onPressed: hasSelectedImage
-                                  ? _goToWorkspace
-                                  : null,
-                            ),
-                          ],
-                        ),
-                      ),
-                    ),
-                  ),
-                );
-              },
+            constraints: const BoxConstraints(maxWidth: 1100),
+            child: Padding(
+              padding: const EdgeInsets.all(24),
+              child: LayoutBuilder(
+                builder: (context, constraints) {
+                  final isWide = constraints.maxWidth >= _wideMinWidth;
+                  return isWide
+                      ? _buildWideBody(
+                          context,
+                          hasSelectedImage: hasSelectedImage,
+                          sourceType: sourceType,
+                        )
+                      : _buildNarrowBody(
+                          context,
+                          constraints: constraints,
+                          hasSelectedImage: hasSelectedImage,
+                          sourceType: sourceType,
+                        );
+                },
+              ),
             ),
           ),
         ),
       ),
+    );
+  }
+
+  /// 휴대폰 등 좁은 화면 — MASTER의 세로형 구성을 그대로 유지한다.
+  Widget _buildNarrowBody(
+    BuildContext context, {
+    required BoxConstraints constraints,
+    required bool hasSelectedImage,
+    required _ImageSourceType? sourceType,
+  }) {
+    return SingleChildScrollView(
+      child: ConstrainedBox(
+        // 화면 높이만큼은 최소로 차지하도록 하여
+        // 하단 CTA가 항상 하단에 위치하도록 한다.
+        constraints: BoxConstraints(minHeight: constraints.maxHeight - 48),
+        child: IntrinsicHeight(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    _buildUpdateBanner(context),
+                    _buildIntro(context),
+                    const SizedBox(height: 24),
+                    // 사진 미리보기 영역. 사진이 선택되어 있으면
+                    // 우측 상단에 삭제 버튼을 함께 보여준다.
+                    _PhotoPreviewBox(
+                      imageBytes: _selectedImageBytes,
+                      isLoading: _isPickingImage,
+                      onRemove: hasSelectedImage ? _removePhoto : null,
+                    ),
+                    if (hasSelectedImage) ...[
+                      const SizedBox(height: 12),
+                      _buildSelectionStatus(sourceType),
+                    ],
+                    const SizedBox(height: 24),
+                    _buildSourceButtons(),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 16),
+              _buildCta(hasSelectedImage),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  /// Galaxy Tab 가로 화면 — 왼쪽(안내 문구)/오른쪽(사진 미리보기+촬영·선택
+  /// 버튼) 2단으로 배치해 세로 스크롤 없이 한 화면 안에 들어오게 한다.
+  Widget _buildWideBody(
+    BuildContext context, {
+    required bool hasSelectedImage,
+    required _ImageSourceType? sourceType,
+  }) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        _buildUpdateBanner(context),
+        Expanded(
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Expanded(flex: 4, child: _buildIntro(context)),
+              const SizedBox(width: 32),
+              Expanded(
+                flex: 5,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    Expanded(
+                      child: _PhotoPreviewBox(
+                        imageBytes: _selectedImageBytes,
+                        isLoading: _isPickingImage,
+                        onRemove: hasSelectedImage ? _removePhoto : null,
+                        expand: true,
+                      ),
+                    ),
+                    if (hasSelectedImage) ...[
+                      const SizedBox(height: 10),
+                      _buildSelectionStatus(sourceType),
+                    ],
+                    const SizedBox(height: 14),
+                    _buildSourceButtons(compact: true),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 16),
+        _buildCta(hasSelectedImage),
+      ],
+    );
+  }
+
+  /// 상단 안내 영역(제목 + 설명). 좁은 화면 상단, 넓은 화면 왼쪽 열에서
+  /// 공통으로 재사용한다.
+  Widget _buildIntro(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Text(
+          '변화시킬 공간을 보여주세요',
+          style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+            fontWeight: FontWeight.bold,
+            color: SpaceShiftColors.textPrimary,
+          ),
+        ),
+        const SizedBox(height: 12),
+        const Text(
+          '사진을 촬영하거나 선택하면\n'
+          'AI가 더 정확한 결과를 만들어드려요.',
+          style: TextStyle(
+            fontSize: 15,
+            color: SpaceShiftColors.textSecondary,
+            height: 1.4,
+          ),
+        ),
+      ],
+    );
+  }
+
+  /// 사진 선택 완료 안내(체크 아이콘 + 상태 + 출처). 좁은/넓은 화면 모두
+  /// 동일하게 재사용한다.
+  Widget _buildSelectionStatus(_ImageSourceType? sourceType) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        const Row(
+          children: [
+            Icon(
+              Icons.check_circle_rounded,
+              size: 18,
+              color: SpaceShiftColors.selectionAccent,
+            ),
+            SizedBox(width: 6),
+            Text(
+              '사진이 선택되었습니다.',
+              style: TextStyle(
+                fontSize: 15,
+                fontWeight: FontWeight.w600,
+                color: SpaceShiftColors.textPrimary,
+              ),
+            ),
+          ],
+        ),
+        if (sourceType != null) ...[
+          const SizedBox(height: 4),
+          Text(
+            _sourceLabel(sourceType),
+            style: const TextStyle(
+              fontSize: 13,
+              color: SpaceShiftColors.textSecondary,
+            ),
+          ),
+        ],
+      ],
+    );
+  }
+
+  /// 사진 선택 버튼(카메라 / 갤러리). 선택창을 여는 동안에는 중복 실행을
+  /// 막기 위해 두 버튼 모두 비활성화한다. [compact]가 true이면 Tablet
+  /// Landscape의 좁은 세로 공간에 맞춰 카드 크기를 줄인다.
+  Widget _buildSourceButtons({bool compact = false}) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Row(
+          children: [
+            Expanded(
+              child: PhotoSourceCard(
+                icon: Icons.camera_alt_rounded,
+                label: '카메라 촬영',
+                onTap: _isPickingImage ? null : _handleCameraTap,
+                compact: compact,
+              ),
+            ),
+            const SizedBox(width: 14),
+            Expanded(
+              child: PhotoSourceCard(
+                icon: Icons.image_rounded,
+                label: '사진 선택',
+                onTap: _isPickingImage ? null : _handleGalleryTap,
+                compact: compact,
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 12),
+        const Text(
+          '사진 전체가 잘 보이는 사진일수록 좋아요.',
+          style: TextStyle(fontSize: 13, color: SpaceShiftColors.textSecondary),
+        ),
+      ],
+    );
+  }
+
+  /// 화면 하단 CTA — 공간 작업실(4번 화면)로 바로 이동한다.
+  /// 사진을 선택해야만 다음 단계로 넘어갈 수 있다.
+  Widget _buildCta(bool hasSelectedImage) {
+    return GradientCtaButton(
+      label: '다음',
+      onPressed: hasSelectedImage ? _goToWorkspace : null,
     );
   }
 }
@@ -326,11 +419,14 @@ class _PhotoSelectScreenState extends State<PhotoSelectScreen> {
 /// [imageBytes]가 없으면 빈 상태 Placeholder를 표시하고,
 /// 있으면 실제 이미지를 BoxFit.cover로 채워 보여준다.
 /// [isLoading]이 true이면 선택창이 열려 있는 동안 작은 로딩 표시를 겹쳐 보여준다.
+/// [expand]가 true이면 4:3 비율 대신 부모(Expanded 등)가 제공하는 공간을
+/// 그대로 채운다. Tablet Landscape처럼 세로 공간이 넉넉할 때 사용한다.
 class _PhotoPreviewBox extends StatelessWidget {
   const _PhotoPreviewBox({
     this.imageBytes,
     this.isLoading = false,
     this.onRemove,
+    this.expand = false,
   });
 
   /// 선택된 사진의 바이트 데이터. null이면 빈 상태를 표시한다.
@@ -343,13 +439,22 @@ class _PhotoPreviewBox extends StatelessWidget {
   /// 표시하지 않는다.
   final VoidCallback? onRemove;
 
+  /// true이면 4:3 비율 대신 부모가 제공하는 공간을 그대로 채운다.
+  final bool expand;
+
   @override
   Widget build(BuildContext context) {
+    final card = _buildCard();
+    if (expand) {
+      return SizedBox.expand(child: card);
+    }
+    return AspectRatio(aspectRatio: 4 / 3, child: card);
+  }
+
+  Widget _buildCard() {
     final bytes = imageBytes;
 
-    return AspectRatio(
-      aspectRatio: 4 / 3,
-      child: Container(
+    return Container(
         clipBehavior: Clip.antiAlias,
         decoration: BoxDecoration(
           color: Colors.white,
@@ -445,7 +550,9 @@ class _PhotoPreviewBox extends StatelessWidget {
               ),
           ],
         ),
-      ),
-    );
+      );
   }
 }
+
+
+
