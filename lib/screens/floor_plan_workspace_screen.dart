@@ -5,12 +5,14 @@ import '../models/workspace_task_item.dart';
 import '../services/floor_plan_analysis_service.dart';
 import '../services/floor_plan_upload_service.dart';
 import '../theme/space_shift_colors.dart';
+import '../widgets/workspace/settings_entry_button.dart';
 import '../widgets/workspace/start_method_panel.dart';
 import '../widgets/workspace/user_workspace_panel.dart';
 import '../widgets/workspace/workspace_canvas.dart';
 import '../widgets/workspace/workspace_task_list.dart';
 import '../widgets/workspace/workspace_view_switcher.dart';
 import 'photo_select_screen.dart';
+import 'settings_screen.dart';
 
 /// 신규 MASTER 1번 — "평면도 업로드" 작업실이자, 로그인/회원가입 이후
 /// 진입하는 신규 MASTER 메인 작업 화면.
@@ -233,6 +235,16 @@ class _FloorPlanWorkspaceScreenState extends State<FloorPlanWorkspaceScreen> {
     );
   }
 
+  /// 좌측 하단 "설정" — MASTER 공통 기능이라 시작 방식과 무관하게 항상
+  /// 같은 자리에서 진입한다. push로 열어 뒤로가기 시 이 화면의 State가
+  /// 그대로 남아있게 해, 업로드한 평면도/View/선택 상태가 초기화되지
+  /// 않는다.
+  Future<void> _openSettings() async {
+    await Navigator.of(
+      context,
+    ).push(MaterialPageRoute(builder: (context) => SettingsScreen()));
+  }
+
   void _onAiAssistantTap() {
     showModalBottomSheet<void>(
       context: context,
@@ -304,13 +316,22 @@ class _FloorPlanWorkspaceScreenState extends State<FloorPlanWorkspaceScreen> {
       children: [
         SizedBox(
           width: 240,
-          child: SingleChildScrollView(
-            child: StartMethodPanel(
-              selected: _startMethod,
-              onSelected: _onStartMethodSelected,
-              floorPlanFile: _floorPlanFile,
-              onPickFloorPlanFile: _pickFloorPlan,
-            ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Expanded(
+                child: SingleChildScrollView(
+                  child: StartMethodPanel(
+                    selected: _startMethod,
+                    onSelected: _onStartMethodSelected,
+                    floorPlanFile: _floorPlanFile,
+                    onPickFloorPlanFile: _pickFloorPlan,
+                  ),
+                ),
+              ),
+              const SizedBox(height: 12),
+              SettingsEntryButton(onTap: _openSettings),
+            ],
           ),
         ),
         const SizedBox(width: 16),
@@ -364,6 +385,8 @@ class _FloorPlanWorkspaceScreenState extends State<FloorPlanWorkspaceScreen> {
             floorPlanFile: _floorPlanFile,
             onPickFloorPlanFile: _pickFloorPlan,
           ),
+          const SizedBox(height: 12),
+          SettingsEntryButton(onTap: _openSettings),
           const SizedBox(height: 16),
           Center(
             child: WorkspaceViewSwitcher(

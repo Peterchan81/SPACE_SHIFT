@@ -17,16 +17,21 @@
 // 9. 2D → 3D → 2D 전환에도 선택한 파일 상태가 유지되고, 3D에서는 정직한
 //    준비 안내만 보여준다.
 // 10. 파일 선택을 취소해도(null 반환) crash 없이 업로드 이전 상태를 유지한다.
+// 11. 좌측 하단 "설정" 버튼이 노출되고, 탭하면 SettingsScreen으로
+//     진입하며, 뒤로가기로 이 화면으로 돌아오면 업로드한 평면도/View
+//     선택 상태가 유지된다(MASTER 공통 기능, WO 2/12/13).
 
 import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:package_info_plus/package_info_plus.dart';
 
 import 'package:ason_space/models/floor_plan_file.dart';
 import 'package:ason_space/screens/floor_plan_workspace_screen.dart';
 import 'package:ason_space/screens/photo_select_screen.dart';
+import 'package:ason_space/screens/settings_screen.dart';
 import 'package:ason_space/services/floor_plan_upload_service.dart';
 
 /// 실제 플랫폼 파일 선택창 대신, 미리 정해진 결과를 순서대로 반환하는
@@ -60,6 +65,20 @@ FloorPlanFile _fakeImageFile(String name) => FloorPlanFile(
 );
 
 void main() {
+  TestWidgetsFlutterBinding.ensureInitialized();
+
+  setUp(() {
+    // SettingsScreen이 내부에서 PackageInfo.fromPlatform()을 호출하므로,
+    // 좌측 하단 "설정" 진입 테스트를 위해 미리 mock 값을 채워 둔다.
+    PackageInfo.setMockInitialValues(
+      appName: 'SPACE SHIFT',
+      packageName: 'com.example.ason_space',
+      version: '1.0.0',
+      buildNumber: '2016',
+      buildSignature: '',
+    );
+  });
+
   Future<void> pumpScreen(
     WidgetTester tester, {
     FloorPlanUploadService uploadService = const FloorPlanUploadService(),
@@ -192,5 +211,53 @@ void main() {
 
     expect(tester.takeException(), isNull);
     expect(find.text('평면도를 업로드해주세요'), findsOneWidget);
+  });
+
+  testWidgets('좌측 하단 "설정" 버튼이 노출된다', (tester) async {
+    await pumpScreen(tester);
+
+    expect(find.text('설정'), findsOneWidget);
+  });
+
+  testWidgets('"설정"을 탭하면 SettingsScreen으로 진입하고, 뒤로가기로 이 화면으로 돌아온다', (
+    tester,
+  ) async {
+    await pumpScreen(tester);
+
+    await tester.tap(find.text('설정'));
+    await tester.pumpAndSettle();
+
+    expect(find.byType(SettingsScreen), findsOneWidget);
+
+    await tester.pageBack();
+    await tester.pumpAndSettle();
+
+    expect(find.byType(SettingsScreen), findsNothing);
+    expect(find.byType(FloorPlanWorkspaceScreen), findsOneWidget);
+  });
+
+  testWidgets('설정 진입 후 돌아와도 업로드한 평면도와 선택한 View 상태가 유지된다', (tester) async {
+    final service = _FakeFloorPlanUploadService([
+      _fakeImageFile('floor_plan_1.png'),
+    ]);
+    await pumpScreen(tester, uploadService: service);
+
+    await tester.tap(find.widgetWithText(OutlinedButton, '파일 선택'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('3D 아이소'));
+    await tester.pump();
+    expect(find.text('3D 공간이 아직 생성되지 않았습니다'), findsOneWidget);
+
+    await tester.tap(find.text('설정'));
+    await tester.pumpAndSettle();
+    await tester.pageBack();
+    await tester.pumpAndSettle();
+
+    // 설정 화면을 다녀와도 workspace의 State가 그대로 유지되어, 업로드한
+    // 파일과 선택했던 View(3D 아이소)가 초기화되지 않는다.
+    expect(find.text('3D 공간이 아직 생성되지 않았습니다'), findsOneWidget);
+    await tester.tap(find.text('2D 평면도'));
+    await tester.pump();
+    expect(find.textContaining('floor_plan_1.png'), findsWidgets);
   });
 }
