@@ -256,7 +256,7 @@ class _EmptySelectionNotice extends StatelessWidget {
       padding: EdgeInsets.all(24),
       child: Center(
         child: Text(
-          '캔버스나 작업 목록에서\n항목을 선택해주세요.',
+          '선택된 항목이 없습니다.\n평면도에서 작업할 영역을 선택해주세요.',
           textAlign: TextAlign.center,
           style: TextStyle(
             fontSize: 13,

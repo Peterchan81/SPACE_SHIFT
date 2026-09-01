@@ -45,6 +45,10 @@ dependencies:
   # 2D color field + hue spectrum + HEX/RGB 입력을 직접 구현하지 않고,
   # Flutter 생태계에서 가장 널리 쓰이는 순수 Dart 컬러 피커를 재사용한다.
   flutter_colorpicker: ^1.1.0
+  # "① 평면도 업로드" 실제 기능 연결에 필요한 시스템 파일 선택창(JPG/PNG/
+  # PDF). image_picker는 이미지/동영상만 지원해 PDF를 고를 수 없어 별도로
+  # 추가한다 — Flutter 생태계에서 가장 널리 쓰이는 범용 파일 선택 패키지.
+  file_picker: ^12.1.2
 
 dev_dependencies:
   flutter_test:

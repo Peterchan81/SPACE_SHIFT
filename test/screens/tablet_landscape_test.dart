@@ -160,13 +160,17 @@ void main() {
   );
 
   testWidgets(
-    'Galaxy Tab 가로 화면의 평면도 업로드 작업실은 좌/중앙/우측 패널이 스크롤 없이 동시에 보이고 선택이 동기화된다',
+    'Galaxy Tab 가로 화면의 평면도 업로드 작업실(demo)은 좌/중앙/우측 패널이 스크롤 없이 동시에 보이고 선택이 동기화된다',
     (tester) async {
       await tester.binding.setSurfaceSize(const Size(1280, 800));
       addTearDown(() => tester.binding.setSurfaceSize(null));
 
+      // 이 테스트는 마커/작업 목록/우측 패널의 3-way 동기화를 검증하는
+      // MASTER UI 미리보기 목적이므로 demoMode로 데모 6개 항목을 채운다.
+      // 실사용(demoMode: false, 기본값) 흐름의 빈 초기 상태 검증은
+      // floor_plan_workspace_screen_test.dart에서 다룬다.
       await tester.pumpWidget(
-        const MaterialApp(home: FloorPlanWorkspaceScreen()),
+        const MaterialApp(home: FloorPlanWorkspaceScreen(demoMode: true)),
       );
       await tester.pump();
 

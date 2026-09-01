@@ -57,24 +57,38 @@ class WorkspaceTaskList extends StatelessWidget {
             ),
           ),
           const Divider(height: 1, color: SpaceShiftColors.border),
-          ConstrainedBox(
-            constraints: const BoxConstraints(maxHeight: 220),
-            child: ListView.separated(
-              padding: const EdgeInsets.symmetric(vertical: 4),
-              itemCount: tasks.length,
-              separatorBuilder: (context, index) =>
-                  const Divider(height: 1, color: SpaceShiftColors.border),
-              itemBuilder: (context, index) {
-                final task = tasks[index];
-                return _TaskRow(
-                  task: task,
-                  selected: task.id == selectedId,
-                  onTap: () => onSelect(task.id),
-                  onToggleVisible: () => onToggleVisible(task.id),
-                );
-              },
+          if (tasks.isEmpty)
+            const Padding(
+              padding: EdgeInsets.symmetric(vertical: 20),
+              child: Center(
+                child: Text(
+                  '아직 등록된 작업이 없습니다.',
+                  style: TextStyle(
+                    fontSize: 13,
+                    color: SpaceShiftColors.textSecondary,
+                  ),
+                ),
+              ),
+            )
+          else
+            ConstrainedBox(
+              constraints: const BoxConstraints(maxHeight: 220),
+              child: ListView.separated(
+                padding: const EdgeInsets.symmetric(vertical: 4),
+                itemCount: tasks.length,
+                separatorBuilder: (context, index) =>
+                    const Divider(height: 1, color: SpaceShiftColors.border),
+                itemBuilder: (context, index) {
+                  final task = tasks[index];
+                  return _TaskRow(
+                    task: task,
+                    selected: task.id == selectedId,
+                    onTap: () => onSelect(task.id),
+                    onToggleVisible: () => onToggleVisible(task.id),
+                  );
+                },
+              ),
             ),
-          ),
         ],
       ),
     );

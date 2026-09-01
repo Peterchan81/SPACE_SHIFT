@@ -1,22 +1,32 @@
 import 'package:flutter/material.dart';
 
+import '../../models/floor_plan_file.dart';
 import '../../models/workspace_task_item.dart';
 import '../../theme/space_shift_colors.dart';
+import 'floor_plan_upload_card.dart';
 
 /// 좌측 "시작 방식 선택" 패널 — 항상 3가지 방식을 카드로 보여준다.
 ///
-/// 이번 작업 범위는 [WorkspaceStartMethod.floorPlanUpload] 화면의 실제
-/// 구현이다. 나머지 두 방식은 진입 선택 UI만 유지하고(카드 클릭 시 안내만
-/// 표시), 전체 기능은 후속 작업(WO)에서 진행한다.
+/// 이번 작업 범위는 [WorkspaceStartMethod.floorPlanUpload]가 실제로
+/// 동작하는 것이다 — 이 카드만 [FloorPlanUploadCard]로 그려 파일 선택
+/// 상태/버튼을 함께 보여준다. 나머지 두 방식은 진입 선택 UI만 유지하고
+/// (카드 클릭 시 안내만 표시), 전체 기능은 후속 작업(WO)에서 진행한다.
 class StartMethodPanel extends StatelessWidget {
   const StartMethodPanel({
     super.key,
     required this.selected,
     required this.onSelected,
+    required this.floorPlanFile,
+    required this.onPickFloorPlanFile,
   });
 
   final WorkspaceStartMethod selected;
   final ValueChanged<WorkspaceStartMethod> onSelected;
+
+  /// 현재까지 선택된 평면도 파일(없으면 null) — "① 평면도 업로드" 카드의
+  /// 상태 표시에 쓰인다.
+  final FloorPlanFile? floorPlanFile;
+  final VoidCallback onPickFloorPlanFile;
 
   @override
   Widget build(BuildContext context) {
@@ -36,11 +46,19 @@ class StartMethodPanel extends StatelessWidget {
         ),
         const SizedBox(height: 12),
         for (final method in WorkspaceStartMethod.values) ...[
-          _StartMethodCard(
-            method: method,
-            selected: method == selected,
-            onTap: () => onSelected(method),
-          ),
+          if (method == WorkspaceStartMethod.floorPlanUpload)
+            FloorPlanUploadCard(
+              selected: method == selected,
+              file: floorPlanFile,
+              onSelectCard: () => onSelected(method),
+              onPickFile: onPickFloorPlanFile,
+            )
+          else
+            _StartMethodCard(
+              method: method,
+              selected: method == selected,
+              onTap: () => onSelected(method),
+            ),
           if (method != WorkspaceStartMethod.values.last)
             const SizedBox(height: 12),
         ],

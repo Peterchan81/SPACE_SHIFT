@@ -1,6 +1,9 @@
 import 'package:flutter/material.dart';
 
+import '../models/floor_plan_file.dart';
 import '../models/workspace_task_item.dart';
+import '../services/floor_plan_analysis_service.dart';
+import '../services/floor_plan_upload_service.dart';
 import '../theme/space_shift_colors.dart';
 import '../widgets/workspace/start_method_panel.dart';
 import '../widgets/workspace/user_workspace_panel.dart';
@@ -26,9 +29,24 @@ import 'photo_select_screen.dart';
 /// 다만 로그인 직후 자동으로 진입하는 기본 화면에서는 제외되고, 이 화면의
 /// "사진으로 변환" 경로를 통해서만 진입한다.
 class FloorPlanWorkspaceScreen extends StatefulWidget {
-  const FloorPlanWorkspaceScreen({super.key, this.projectName = '새 프로젝트'});
+  const FloorPlanWorkspaceScreen({
+    super.key,
+    this.projectName = '새 프로젝트',
+    this.demoMode = false,
+    this.uploadService = const FloorPlanUploadService(),
+    this.analysisService = const FloorPlanAnalysisService(),
+  });
 
   final String projectName;
+
+  /// MASTER UI 디자인 검수/미리보기용으로만 데모 마커 6개와 첫 항목 선택을
+  /// 미리 채워 넣는다(WO 8/9번). 로그인/회원가입에서 진입하는 실사용
+  /// 경로는 이 값을 지정하지 않으므로 항상 false — 실제 사용자가 평면도를
+  /// 올리기 전까지 작업 목록/마커는 비어 있어야 한다.
+  final bool demoMode;
+
+  final FloorPlanUploadService uploadService;
+  final FloorPlanAnalysisService analysisService;
 
   @override
   State<FloorPlanWorkspaceScreen> createState() =>
@@ -43,14 +61,37 @@ class _FloorPlanWorkspaceScreenState extends State<FloorPlanWorkspaceScreen> {
   late List<WorkspaceTaskItem> _tasks;
   int? _selectedTaskId;
 
+  FloorPlanFile? _floorPlanFile;
+  FloorPlanAnalysisPhase _analysisPhase = FloorPlanAnalysisPhase.notStarted;
+
   final List<List<WorkspaceTaskItem>> _undoStack = [];
   final List<List<WorkspaceTaskItem>> _redoStack = [];
 
   @override
   void initState() {
     super.initState();
-    _tasks = _demoTasks();
-    _selectedTaskId = _tasks.first.id;
+    _tasks = widget.demoMode ? _demoTasks() : const [];
+    _selectedTaskId = _tasks.isEmpty ? null : _tasks.first.id;
+  }
+
+  /// "① 평면도 업로드" 카드/캔버스의 업로드 버튼 공용 핸들러.
+  Future<void> _pickFloorPlan() async {
+    final file = await widget.uploadService.pickFloorPlanFile();
+    if (file == null || !mounted) return;
+    setState(() {
+      _floorPlanFile = file;
+      _analysisPhase = FloorPlanAnalysisPhase.notStarted;
+    });
+  }
+
+  /// "평면도 분석 시작" — 실제 분석 백엔드가 없으므로 항상 "준비 중"으로
+  /// 끝난다(가짜 분석 완료 결과를 만들지 않는다, WO 7-B).
+  Future<void> _startAnalysis() async {
+    if (_floorPlanFile == null) return;
+    setState(() => _analysisPhase = FloorPlanAnalysisPhase.analyzing);
+    final phase = await widget.analysisService.analyze(_floorPlanFile!);
+    if (!mounted) return;
+    setState(() => _analysisPhase = phase);
   }
 
   static List<WorkspaceTaskItem> _demoTasks() => [
@@ -267,6 +308,8 @@ class _FloorPlanWorkspaceScreenState extends State<FloorPlanWorkspaceScreen> {
             child: StartMethodPanel(
               selected: _startMethod,
               onSelected: _onStartMethodSelected,
+              floorPlanFile: _floorPlanFile,
+              onPickFloorPlanFile: _pickFloorPlan,
             ),
           ),
         ),
@@ -318,6 +361,8 @@ class _FloorPlanWorkspaceScreenState extends State<FloorPlanWorkspaceScreen> {
           StartMethodPanel(
             selected: _startMethod,
             onSelected: _onStartMethodSelected,
+            floorPlanFile: _floorPlanFile,
+            onPickFloorPlanFile: _pickFloorPlan,
           ),
           const SizedBox(height: 16),
           Center(
@@ -333,6 +378,11 @@ class _FloorPlanWorkspaceScreenState extends State<FloorPlanWorkspaceScreen> {
               tasks: _tasks,
               selectedId: _selectedTaskId,
               onSelect: (id) => setState(() => _selectedTaskId = id),
+              viewMode: _viewMode,
+              floorPlanFile: _floorPlanFile,
+              analysisPhase: _analysisPhase,
+              onPickFloorPlanFile: _pickFloorPlan,
+              onStartAnalysis: _startAnalysis,
             ),
           ),
           const SizedBox(height: 12),
@@ -402,6 +452,11 @@ class _FloorPlanWorkspaceScreenState extends State<FloorPlanWorkspaceScreen> {
             tasks: _tasks,
             selectedId: _selectedTaskId,
             onSelect: (id) => setState(() => _selectedTaskId = id),
+            viewMode: _viewMode,
+            floorPlanFile: _floorPlanFile,
+            analysisPhase: _analysisPhase,
+            onPickFloorPlanFile: _pickFloorPlan,
+            onStartAnalysis: _startAnalysis,
           ),
         ),
         const SizedBox(height: 12),
