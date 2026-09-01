@@ -41,6 +41,10 @@ dependencies:
   package_info_plus: ^10.2.1
   path_provider: ^2.1.6
   open_filex: ^4.7.0
+  # 신규 MASTER 1번(평면도 업로드 작업실) — 작업 Tab "색상 선택"에 필요한
+  # 2D color field + hue spectrum + HEX/RGB 입력을 직접 구현하지 않고,
+  # Flutter 생태계에서 가장 널리 쓰이는 순수 Dart 컬러 피커를 재사용한다.
+  flutter_colorpicker: ^1.1.0
 
 dev_dependencies:
   flutter_test:
