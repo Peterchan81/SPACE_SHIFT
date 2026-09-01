@@ -22,12 +22,17 @@
 //     선택 상태가 유지된다(MASTER 공통 기능, WO 2/12/13).
 // 12. "평면도 분석 시작"을 누르면 실제 단계 문구와 함께 로딩 상태가
 //     표시된다(가짜 timer가 아니라 서비스 단계 콜백을 그대로 반영).
-// 13. 분석이 성공하면 오버레이가 나타나고, 벽/공간/문 후보가 상위 객체
-//     기준 작업 목록으로 만들어지며, 선택 항목은 비어 있는 채로 시작한다.
-// 14. 오버레이에서 벽을 탭하면 그 벽이 속한 작업이 선택되어 작업
-//     목록/우측 패널과 동기화된다.
+// 13. 분석이 성공하면 CAD geometry 오버레이가 나타나지만, 번호 marker와
+//     작업 목록은 그대로 비어 있다 — 분석 객체는 사용자 작업이 아니다.
+// 14. CAD 오버레이에서 벽을 탭하면 그 geometry가 선택되어 우측 패널에
+//     "도면 요소" 정보가 표시된다(사용자 작업 선택과는 별개 상태).
 // 15. 분석이 실패하면 안전한 실패 메시지를 보여주고, 원본 이미지와
 //     빈 작업 목록은 그대로 유지된다(가짜 완료로 둔갑하지 않는다).
+// 16. 선택된 CAD 벽을 삭제하면 사라지고, 실행 취소하면 되돌아온다.
+// 17. 선택된 CAD 벽을 "작업으로 추가"하면 그때 처음으로 작업 번호 ①이
+//     부여되고, marker/작업 목록/우측 패널이 동일 작업으로 동기화된다.
+// 18. 축척/천장고가 없으면 [3D 공간 생성] 버튼이 비활성화되고 이유가
+//     표시되며, 둘 다 입력하면 활성화된다.
 
 import 'dart:async';
 import 'dart:convert';
@@ -44,7 +49,10 @@ import 'package:ason_space/screens/photo_select_screen.dart';
 import 'package:ason_space/screens/settings_screen.dart';
 import 'package:ason_space/services/floor_plan_analysis_service.dart';
 import 'package:ason_space/services/floor_plan_upload_service.dart';
-import 'package:ason_space/widgets/workspace/floor_plan_analysis_overlay.dart';
+import 'package:ason_space/widgets/workspace/cad_floor_plan_overlay.dart';
+import 'package:ason_space/widgets/workspace/cad_structure_tab.dart';
+import 'package:ason_space/widgets/workspace/floor_plan_analysis_overlay.dart'
+    show ContainFitTransform, FloorPlanAnalysisOverlay;
 import 'package:ason_space/widgets/workspace/selected_item_header.dart';
 
 /// 실제 플랫폼 파일 선택창 대신, 미리 정해진 결과를 순서대로 반환하는
@@ -405,7 +413,11 @@ void main() {
     await tester.pumpAndSettle();
   });
 
-  testWidgets('분석이 성공하면 오버레이가 나타나고 상위 객체 기준 작업 목록이 생성된다', (tester) async {
+  /// 여러 새 테스트가 공통으로 필요로 하는 "평면도 선택 → 분석 완료"
+  /// 상태까지 진행한다.
+  Future<_FakeFloorPlanAnalysisService> pumpAnalyzed(
+    WidgetTester tester,
+  ) async {
     final analysisService = _FakeFloorPlanAnalysisService(
       const FloorPlanAnalysisOutcome.success(_fakeAnalysisResult),
     );
@@ -424,55 +436,62 @@ void main() {
     analysisService.proceedToSecondStep();
     analysisService.finish();
     await tester.pumpAndSettle();
+    return analysisService;
+  }
 
-    expect(find.byType(FloorPlanAnalysisOverlay), findsOneWidget);
-    expect(find.text('외벽'), findsOneWidget);
-    expect(find.text('내벽'), findsOneWidget);
-    expect(find.text('공간 1'), findsOneWidget);
-    expect(find.text('문 후보'), findsOneWidget);
-    // 분석 직후에는 아무 것도 선택되지 않은 채로 시작한다(WO 10번).
-    expect(find.text('선택된 항목이 없습니다.\n평면도에서 작업할 영역을 선택해주세요.'), findsOneWidget);
-  });
-
-  testWidgets('오버레이에서 벽을 탭하면 그 작업이 선택되어 우측 패널과 동기화된다', (tester) async {
-    final analysisService = _FakeFloorPlanAnalysisService(
-      const FloorPlanAnalysisOutcome.success(_fakeAnalysisResult),
-    );
-    await pumpScreen(
-      tester,
-      uploadService: _FakeFloorPlanUploadService([
-        _fakeImageFile('floor_plan.png'),
-      ]),
-      analysisService: analysisService,
-    );
-
-    await tester.tap(find.widgetWithText(OutlinedButton, '파일 선택'));
-    await tester.pumpAndSettle();
-    await tester.tap(find.text('평면도 분석 시작'));
-    await tester.pump();
-    analysisService.proceedToSecondStep();
-    analysisService.finish();
-    await tester.pumpAndSettle();
-
-    final overlayRect = tester.getRect(find.byType(FloorPlanAnalysisOverlay));
+  Future<void> tapWall(WidgetTester tester, Point2 normalized) async {
+    final overlayRect = tester.getRect(find.byType(CadFloorPlanOverlay));
     final transform = ContainFitTransform.compute(
       overlayRect.size,
       const Size(800, 600),
     );
-    // 외벽(wall-ext-1)의 중점: start(0.05,0.05) ~ end(0.95,0.05) → (0.5,0.05).
-    final wallMidpoint = transform.mapNormalized(const Point2(0.5, 0.05));
-    final tapPosition = overlayRect.topLeft + wallMidpoint;
-
-    await tester.tapAt(tapPosition);
+    final screenPoint = transform.mapNormalized(normalized);
+    await tester.tapAt(overlayRect.topLeft + screenPoint);
     await tester.pumpAndSettle();
+  }
 
+  testWidgets('분석이 성공해도 번호 marker/작업 목록은 비어 있고 CAD geometry만 표시된다', (
+    tester,
+  ) async {
+    await pumpAnalyzed(tester);
+
+    // 기본(non-debug) 상태에서는 CAD 오버레이만 보이고, confidence color
+    // 분석 확인 오버레이는 보이지 않는다(WO 5번).
+    expect(find.byType(CadFloorPlanOverlay), findsOneWidget);
+    expect(find.byType(FloorPlanAnalysisOverlay), findsNothing);
+
+    // 분석 geometry는 사용자 작업이 아니므로, 분석 직후에도 작업 목록은
+    // 여전히 0개다(WO 1/2번) — "외벽"/"내벽"/"공간 1"/"문 후보" 같은
+    // 이름은 사용자가 실제로 작업을 만들기 전까지 어디에도 나타나지
+    // 않는다.
+    expect(find.text('아직 등록된 작업이 없습니다.'), findsOneWidget);
+    expect(find.text('외벽'), findsNothing);
+    expect(find.text('공간 1'), findsNothing);
+    expect(find.text('선택된 항목이 없습니다.\n평면도에서 작업할 영역을 선택해주세요.'), findsOneWidget);
+  });
+
+  testWidgets('CAD 오버레이에서 벽을 탭하면 도면 요소 정보가 우측 패널에 표시된다(작업 생성 아님)', (
+    tester,
+  ) async {
+    await pumpAnalyzed(tester);
+
+    // 외벽(wall-ext-1) 위의 한 점. wall-ext-1의 중점(0.5,0.05)은 내벽
+    // wall-int-1의 시작점과 정확히 겹치는 T자 교차점이라 삭제 후
+    // 재선택 테스트에서 다른 벽이 선택되는 혼선이 생길 수 있어, 교차점을
+    // 피한 (0.2, 0.05)를 쓴다.
+    await tapWall(tester, const Point2(0.2, 0.05));
+
+    expect(find.byType(CadStructureTab), findsOneWidget);
+    expect(find.text('wall-ext-1'), findsOneWidget);
     expect(
       find.descendant(
-        of: find.byType(SelectedItemHeader),
+        of: find.byType(CadStructureTab),
         matching: find.text('외벽'),
       ),
       findsOneWidget,
     );
+    // 벽을 선택한 것만으로는 사용자 작업이 생기지 않는다.
+    expect(find.text('아직 등록된 작업이 없습니다.'), findsOneWidget);
   });
 
   testWidgets('분석이 실패하면 안전한 메시지를 보여주고 원본 이미지/빈 작업 목록을 유지한다', (tester) async {
@@ -503,5 +522,103 @@ void main() {
     expect(find.textContaining('floor_plan.png'), findsWidgets);
     expect(find.text('아직 등록된 작업이 없습니다.'), findsOneWidget);
     expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('선택된 CAD 벽을 삭제하면 사라지고, 실행 취소하면 되돌아온다', (tester) async {
+    await pumpAnalyzed(tester);
+    await tapWall(tester, const Point2(0.2, 0.05));
+    expect(find.byType(CadStructureTab), findsOneWidget);
+
+    await tester.tap(find.widgetWithText(OutlinedButton, '삭제'));
+    await tester.pumpAndSettle();
+
+    // 삭제되면 선택도 함께 풀려 빈 선택 안내로 돌아간다.
+    expect(find.text('선택된 항목이 없습니다.\n평면도에서 작업할 영역을 선택해주세요.'), findsOneWidget);
+    // 삭제된 벽이 있던 자리를 다시 눌러도 더 이상 선택되지 않는다.
+    await tapWall(tester, const Point2(0.2, 0.05));
+    expect(find.byType(CadStructureTab), findsNothing);
+
+    await tester.tap(find.widgetWithText(OutlinedButton, '실행 취소'));
+    await tester.pumpAndSettle();
+
+    // 되돌린 뒤 같은 자리를 다시 누르면 벽이 실제로 복원되어 있어야 한다.
+    await tapWall(tester, const Point2(0.2, 0.05));
+    expect(find.byType(CadStructureTab), findsOneWidget);
+    expect(find.text('wall-ext-1'), findsOneWidget);
+  });
+
+  testWidgets('CAD 벽을 "작업으로 추가"하면 그때 처음 작업 번호가 부여되고 3곳이 동기화된다', (tester) async {
+    await pumpAnalyzed(tester);
+    await tapWall(tester, const Point2(0.2, 0.05));
+
+    // CadStructureTab은 ListView라 "작업으로 추가" 버튼이 화면 밖으로
+    // 스크롤되어 있을 수 있다.
+    final addButton = find.widgetWithText(FilledButton, '작업으로 추가');
+    await tester.ensureVisible(addButton);
+    await tester.pumpAndSettle();
+    await tester.tap(addButton);
+    await tester.pumpAndSettle();
+
+    // geometry 선택은 풀리고, 새로 만들어진 사용자 작업이 선택된 채로
+    // 우측 패널(SelectedItemHeader)에 번호 1과 함께 나타난다.
+    expect(find.byType(CadStructureTab), findsNothing);
+    expect(
+      find.descendant(
+        of: find.byType(SelectedItemHeader),
+        matching: find.text('1'),
+      ),
+      findsOneWidget,
+    );
+    expect(
+      find.descendant(
+        of: find.byType(SelectedItemHeader),
+        matching: find.text('외벽 작업'),
+      ),
+      findsOneWidget,
+    );
+    // 작업 목록에도 같은 작업이 반영된다 — 더 이상 0개가 아니다.
+    expect(find.text('아직 등록된 작업이 없습니다.'), findsNothing);
+    expect(find.text('외벽 작업'), findsWidgets);
+  });
+
+  testWidgets('축척/천장고가 없으면 3D 생성이 막히고, 둘 다 입력하면 활성화된다', (tester) async {
+    await pumpAnalyzed(tester);
+
+    await tester.tap(find.text('3D 아이소'));
+    await tester.pump();
+
+    ElevatedButton generateButton() => tester.widget<ElevatedButton>(
+      find.widgetWithText(ElevatedButton, '3D 공간 생성'),
+    );
+
+    expect(generateButton().onPressed, isNull);
+    expect(find.textContaining('기준 치수(축척)를 설정해주세요'), findsOneWidget);
+    expect(find.textContaining('천장고를 입력해주세요'), findsOneWidget);
+
+    await tester.tap(find.text('2D 평면도'));
+    await tester.pump();
+
+    await tester.tap(find.text('기준 치수 설정'));
+    await tester.pumpAndSettle();
+
+    await tapWall(tester, const Point2(0.1, 0.1));
+    await tapWall(tester, const Point2(0.9, 0.1));
+    await tester.pumpAndSettle();
+
+    await tester.enterText(find.byType(TextField).last, '3200');
+    await tester.tap(find.widgetWithText(FilledButton, '축척 적용'));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('천장고 입력'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('2700mm'));
+    await tester.tap(find.widgetWithText(FilledButton, '적용'));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('3D 아이소'));
+    await tester.pump();
+
+    expect(generateButton().onPressed, isNotNull);
+    expect(find.textContaining('3D 생성 준비가 완료'), findsOneWidget);
   });
 }

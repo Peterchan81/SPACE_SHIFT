@@ -1,11 +1,17 @@
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 
+import '../models/cad_floor_plan.dart';
+import '../models/cad_workspace_state.dart';
 import '../models/floor_plan_file.dart';
 import '../models/floor_plan_geometry.dart';
 import '../models/workspace_task_item.dart';
 import '../services/floor_plan_analysis_service.dart';
 import '../services/floor_plan_upload_service.dart';
 import '../theme/space_shift_colors.dart';
+import '../widgets/workspace/ceiling_height_sheet.dart';
+import '../widgets/workspace/scale_calibration_sheet.dart';
 import '../widgets/workspace/settings_entry_button.dart';
 import '../widgets/workspace/start_method_panel.dart';
 import '../widgets/workspace/user_workspace_panel.dart';
@@ -70,14 +76,20 @@ class _FloorPlanWorkspaceScreenState extends State<FloorPlanWorkspaceScreen> {
   FloorPlanAnalysisResult? _analysisResult;
   String? _analysisFailureMessage;
 
-  /// 작업(task) id → 그 작업에 속한 분석 geometry id들. "외벽"/"내벽"/
-  /// "문 후보"/"창 후보"는 여러 geometry를 한 작업으로 묶고, 공간은
-  /// geometry 하나당 작업 하나다(WO 12번).
-  Map<int, Set<String>> _analysisGroupMembers = {};
+  /// 분석 결과를 편집 가능한 CAD geometry로 옮긴 것 — 분석 geometry는
+  /// 사용자 작업이 아니므로 [_tasks]와는 완전히 분리된 상태로 관리한다
+  /// (WO 1/2/12번).
+  CadFloorPlan? _cadFloorPlan;
+  String? _selectedCadObjectId;
+  final List<CadFloorPlan> _cadUndoStack = [];
 
-  /// geometry id → 그 geometry가 속한 작업 id. 오버레이에서 벽/공간/문·창
-  /// 을 탭했을 때 어떤 작업을 선택할지 찾는 역방향 조회용.
-  Map<String, int> _geometryOwnerTask = {};
+  FloorPlanDisplayMode _displayMode = FloorPlanDisplayMode.cad;
+  bool _debugOverlay = false;
+
+  bool _calibrating = false;
+  final List<Point2> _calibrationPoints = [];
+  FloorPlanScale? _scale;
+  double? _ceilingHeightMm;
 
   final List<List<WorkspaceTaskItem>> _undoStack = [];
   final List<List<WorkspaceTaskItem>> _redoStack = [];
@@ -90,8 +102,10 @@ class _FloorPlanWorkspaceScreenState extends State<FloorPlanWorkspaceScreen> {
   }
 
   /// "① 평면도 업로드" 카드/캔버스의 업로드 버튼 공용 핸들러. 새 파일을
-  /// 고르면 이전 파일에 대한 분석 결과/작업 목록은 더 이상 유효하지
-  /// 않으므로 함께 초기화한다.
+  /// 고르면 이전 파일에 대한 분석/CAD/축척/천장고 상태는 더 이상 유효하지
+  /// 않으므로 함께 초기화한다. 사용자가 이미 만들어 둔 실제 작업
+  /// ([_tasks])은 파일 재선택만으로는 지우지 않는다(도면 보정과 사용자
+  /// 작업은 서로 다른 개념이므로, WO 8번).
   Future<void> _pickFloorPlan() async {
     final file = await widget.uploadService.pickFloorPlanFile();
     if (file == null || !mounted) return;
@@ -101,19 +115,24 @@ class _FloorPlanWorkspaceScreenState extends State<FloorPlanWorkspaceScreen> {
       _analysisStep = null;
       _analysisResult = null;
       _analysisFailureMessage = null;
-      _analysisGroupMembers = {};
-      _geometryOwnerTask = {};
-      _tasks = widget.demoMode ? _demoTasks() : const [];
-      _selectedTaskId = _tasks.isEmpty ? null : _tasks.first.id;
-      _undoStack.clear();
-      _redoStack.clear();
+      _cadFloorPlan = null;
+      _selectedCadObjectId = null;
+      _cadUndoStack.clear();
+      _displayMode = FloorPlanDisplayMode.cad;
+      _debugOverlay = false;
+      _calibrating = false;
+      _calibrationPoints.clear();
+      _scale = null;
+      _ceilingHeightMm = null;
     });
   }
 
   /// "평면도 분석 시작" — 실제 CV 파이프라인(FloorPlanAnalysisService)을
-  /// 호출해 벽/공간/문·창 후보를 계산하고, 그 결과로 작업 목록을 새로
-  /// 만든다. 실패하면 원본 이미지는 그대로 두고 실패 이유만 보여준다
-  /// (가짜 분석 완료를 만들지 않는다).
+  /// 호출해 벽/공간/문·창 후보를 계산하고, 편집 가능한 CAD geometry로
+  /// 변환한다. 분석 직후에는 작업 목록에 아무 것도 추가하지 않는다 —
+  /// 작업은 사용자가 실제로 만들 때만 생긴다(WO 2번). 실패하면 원본
+  /// 이미지는 그대로 두고 실패 이유만 보여준다(가짜 분석 완료를 만들지
+  /// 않는다).
   Future<void> _startAnalysis() async {
     final file = _floorPlanFile;
     if (file == null) return;
@@ -134,17 +153,13 @@ class _FloorPlanWorkspaceScreenState extends State<FloorPlanWorkspaceScreen> {
 
     if (outcome.isSuccess) {
       final result = outcome.result!;
-      final generated = _buildAnalysisTasks(result);
       setState(() {
         _analysisPhase = FloorPlanAnalysisPhase.completed;
         _analysisResult = result;
         _analysisStep = null;
-        _tasks = generated.tasks;
-        _analysisGroupMembers = generated.groupMembers;
-        _geometryOwnerTask = generated.geometryOwnerTask;
-        _selectedTaskId = null;
-        _undoStack.clear();
-        _redoStack.clear();
+        _cadFloorPlan = buildCadFloorPlan(result);
+        _selectedCadObjectId = null;
+        _cadUndoStack.clear();
       });
     } else {
       setState(() {
@@ -155,152 +170,253 @@ class _FloorPlanWorkspaceScreenState extends State<FloorPlanWorkspaceScreen> {
     }
   }
 
-  /// 분석 결과를 "상위 객체 기준" 작업 목록으로 묶는다 — line segment
-  /// 하나하나가 아니라 외벽/내벽/공간/문 후보/창 후보 단위로 만든다
-  /// (WO 12번). 실제 mm 치수는 아직 모르므로 heightMm/widthMm/thicknessMm은
-  /// 채우지 않고 null(미설정)로 둔다(WO 17/18번).
-  ({
-    List<WorkspaceTaskItem> tasks,
-    Map<int, Set<String>> groupMembers,
-    Map<String, int> geometryOwnerTask,
-  })
-  _buildAnalysisTasks(FloorPlanAnalysisResult result) {
-    final tasks = <WorkspaceTaskItem>[];
-    final groupMembers = <int, Set<String>>{};
-    final geometryOwnerTask = <String, int>{};
-    var nextId = 1;
-    var number = 1;
+  CadWall? get _selectedCadWall {
+    final plan = _cadFloorPlan;
+    final id = _selectedCadObjectId;
+    if (plan == null || id == null) return null;
+    for (final wall in plan.walls) {
+      if (wall.id == id) return wall;
+    }
+    return null;
+  }
 
-    void addGroup({
-      required String name,
-      required WorkspaceTaskCategory category,
-      required String finishLabel,
-      required Color color,
-      required Set<String> geometryIds,
-      required Offset markerPosition,
-    }) {
-      if (geometryIds.isEmpty) return;
-      final id = nextId++;
-      tasks.add(
+  CadOpening? get _selectedCadOpening {
+    final plan = _cadFloorPlan;
+    final id = _selectedCadObjectId;
+    if (plan == null || id == null) return null;
+    for (final opening in plan.openings) {
+      if (opening.id == id) return opening;
+    }
+    return null;
+  }
+
+  CadRoom? get _selectedCadRoom {
+    final plan = _cadFloorPlan;
+    final id = _selectedCadObjectId;
+    if (plan == null || id == null) return null;
+    for (final room in plan.rooms) {
+      if (room.id == id) return room;
+    }
+    return null;
+  }
+
+  /// CAD geometry(벽/공간/문·창) 선택 — 사용자 작업 선택과는 별개의
+  /// 상태이므로, 하나가 선택되면 다른 하나는 비운다(WO 12번, 우측 패널이
+  /// 둘 중 하나만 보여줄 수 있게).
+  void _onSelectCadObject(String? id) {
+    setState(() {
+      _selectedCadObjectId = id;
+      if (id != null) _selectedTaskId = null;
+    });
+  }
+
+  void _mutateCad(CadFloorPlan Function(CadFloorPlan) mutator) {
+    final plan = _cadFloorPlan;
+    if (plan == null) return;
+    setState(() {
+      _cadUndoStack.add(plan);
+      _cadFloorPlan = mutator(plan);
+    });
+  }
+
+  void _undoCad() {
+    if (_cadUndoStack.isEmpty) return;
+    setState(() => _cadFloorPlan = _cadUndoStack.removeLast());
+  }
+
+  void _onWallEndpointChanged(String wallId, bool isStart, Point2 newPosition) {
+    _mutateCad(
+      (plan) => plan.copyWithWalls([
+        for (final wall in plan.walls)
+          if (wall.id == wallId)
+            wall.copyWith(
+              start: isStart ? newPosition : null,
+              end: isStart ? null : newPosition,
+              edited: true,
+              source: CadElementSource.userEdited,
+            )
+          else
+            wall,
+      ]),
+    );
+  }
+
+  void _deleteSelectedCadObject() {
+    final id = _selectedCadObjectId;
+    final plan = _cadFloorPlan;
+    if (id == null || plan == null) return;
+    setState(() {
+      _cadUndoStack.add(plan);
+      _cadFloorPlan = CadFloorPlan(
+        sourceWidthPx: plan.sourceWidthPx,
+        sourceHeightPx: plan.sourceHeightPx,
+        walls: plan.walls.where((w) => w.id != id).toList(),
+        openings: plan.openings.where((o) => o.id != id).toList(),
+        rooms: plan.rooms.where((r) => r.id != id).toList(),
+        warnings: plan.warnings,
+      );
+      _selectedCadObjectId = null;
+    });
+  }
+
+  /// 선택된 CAD geometry로부터 실제 사용자 작업을 하나 만든다 — 이때
+  /// 비로소 작업 번호(①②③...)가 부여된다(WO 12번). geometry id와 새로
+  /// 만들어지는 작업 id/번호는 서로 다른 식별자로 완전히 분리된다.
+  void _createWorkItemFromCad() {
+    final wall = _selectedCadWall;
+    final opening = _selectedCadOpening;
+    final room = _selectedCadRoom;
+    if (wall == null && opening == null && room == null) return;
+
+    late final String name;
+    late final WorkspaceTaskCategory category;
+    late final Offset markerPosition;
+    Color color = SpaceShiftColors.selectionAccent;
+
+    if (wall != null) {
+      name = wall.wallType == CadWallType.exterior ? '외벽 작업' : '내벽 작업';
+      category = WorkspaceTaskCategory.wall;
+      markerPosition = Offset(
+        (wall.start.x + wall.end.x) / 2,
+        (wall.start.y + wall.end.y) / 2,
+      );
+      color = const Color(0xFFB98A5C);
+    } else if (opening != null) {
+      name = opening.type == OpeningType.door ? '문 작업' : '창 작업';
+      category = opening.type == OpeningType.door
+          ? WorkspaceTaskCategory.door
+          : WorkspaceTaskCategory.window;
+      markerPosition = Offset(opening.center.x, opening.center.y);
+      color = const Color(0xFFD8C3A5);
+    } else {
+      name = '공간 작업';
+      category = WorkspaceTaskCategory.floor;
+      var sx = 0.0, sy = 0.0;
+      for (final p in room!.polygon) {
+        sx += p.x;
+        sy += p.y;
+      }
+      markerPosition = Offset(
+        sx / room.polygon.length,
+        sy / room.polygon.length,
+      );
+      color = const Color(0xFFE3E7E9);
+    }
+
+    final nextId = _tasks.isEmpty
+        ? 1
+        : _tasks.map((t) => t.id).reduce((a, b) => a > b ? a : b) + 1;
+    final nextNumber = _tasks.length + 1;
+
+    _mutate(
+      (tasks) => [
+        ...tasks,
         WorkspaceTaskItem(
-          id: id,
-          number: number++,
+          id: nextId,
+          number: nextNumber,
           name: name,
           category: category,
-          finishLabel: finishLabel,
+          finishLabel: category.finishOptions.first,
           color: color,
           markerPosition: markerPosition,
         ),
-      );
-      groupMembers[id] = geometryIds;
-      for (final geometryId in geometryIds) {
-        geometryOwnerTask[geometryId] = id;
-      }
+      ],
+    );
+    setState(() {
+      _selectedTaskId = nextId;
+      _selectedCadObjectId = null;
+    });
+  }
+
+  void _onDisplayModeChanged(FloorPlanDisplayMode mode) {
+    setState(() => _displayMode = mode);
+  }
+
+  void _onToggleDebugOverlay() {
+    setState(() => _debugOverlay = !_debugOverlay);
+  }
+
+  void _onStartCalibration() {
+    setState(() {
+      _calibrating = !_calibrating;
+      _calibrationPoints.clear();
+    });
+  }
+
+  Future<void> _onCalibrationTap(Point2 point) async {
+    setState(() => _calibrationPoints.add(point));
+    if (_calibrationPoints.length < 2) return;
+
+    final p1 = _calibrationPoints[0];
+    final p2 = _calibrationPoints[1];
+    final plan = _cadFloorPlan!;
+    final pixelDistance = math.sqrt(
+      math.pow((p2.x - p1.x) * plan.sourceWidthPx, 2) +
+          math.pow((p2.y - p1.y) * plan.sourceHeightPx, 2),
+    );
+
+    final mm = await showScaleReferenceLengthSheet(context);
+    if (!mounted) return;
+
+    if (mm != null && pixelDistance > 0) {
+      setState(() {
+        _scale = FloorPlanScale(
+          mmPerPixel: mm / pixelDistance,
+          referenceStart: p1,
+          referenceEnd: p2,
+          referenceLengthMm: mm,
+        );
+      });
     }
+    setState(() {
+      _calibrating = false;
+      _calibrationPoints.clear();
+    });
+  }
 
-    final exteriorWalls = result.walls.where((w) => w.isExterior).toList();
-    final interiorWalls = result.walls.where((w) => !w.isExterior).toList();
-
-    addGroup(
-      name: '외벽',
-      category: WorkspaceTaskCategory.wall,
-      finishLabel: WorkspaceTaskCategory.wall.finishOptions.first,
-      color: const Color(0xFFB98A5C),
-      geometryIds: exteriorWalls.map((w) => w.id).toSet(),
-      markerPosition: _centroidOfWalls(exteriorWalls),
+  Future<void> _onSetCeilingHeight() async {
+    final value = await showCeilingHeightSheet(
+      context,
+      initialMm: _ceilingHeightMm,
     );
-    addGroup(
-      name: '내벽',
-      category: WorkspaceTaskCategory.wall,
-      finishLabel: WorkspaceTaskCategory.wall.finishOptions.first,
-      color: const Color(0xFFF2EEE9),
-      geometryIds: interiorWalls.map((w) => w.id).toSet(),
-      markerPosition: _centroidOfWalls(interiorWalls),
-    );
+    if (!mounted || value == null) return;
+    setState(() => _ceilingHeightMm = value);
+  }
 
-    var roomNumber = 1;
-    for (final room in result.rooms) {
-      addGroup(
-        name: '공간 $roomNumber',
-        category: WorkspaceTaskCategory.floor,
-        finishLabel: WorkspaceTaskCategory.floor.finishOptions.first,
-        color: const Color(0xFFE3E7E9),
-        geometryIds: {room.id},
-        markerPosition: _centroidOfPolygon(room.polygon),
-      );
-      roomNumber++;
-    }
-
-    final doors = result.openings
-        .where((o) => o.type == OpeningType.door)
-        .toList();
-    final windows = result.openings
-        .where((o) => o.type != OpeningType.door)
-        .toList();
-
-    addGroup(
-      name: '문 후보',
-      category: WorkspaceTaskCategory.door,
-      finishLabel: WorkspaceTaskCategory.door.finishOptions.first,
-      color: const Color(0xFFD8C3A5),
-      geometryIds: doors.map((o) => o.id).toSet(),
-      markerPosition: _centroidOfOpenings(doors),
-    );
-    addGroup(
-      name: '창 후보',
-      category: WorkspaceTaskCategory.window,
-      finishLabel: WorkspaceTaskCategory.window.finishOptions.first,
-      color: const Color(0xFFA9ADB2),
-      geometryIds: windows.map((o) => o.id).toSet(),
-      markerPosition: _centroidOfOpenings(windows),
-    );
-
-    return (
-      tasks: tasks,
-      groupMembers: groupMembers,
-      geometryOwnerTask: geometryOwnerTask,
+  /// [3D 공간 생성] — 실제 3D 렌더러는 이번 범위 밖이다(가짜 3D 이미지를
+  /// 만들지 않는다). geometry/축척/천장고가 모두 준비됐을 때만 눌릴 수
+  /// 있으며, 지금은 그 입력 데이터가 갖춰졌음을 확인해 주는 것까지만
+  /// 한다.
+  void _onGenerate3D() {
+    if (!_cadWorkspaceState.isReadyFor3D) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('3D 생성 입력 데이터(도면 geometry·축척·천장고)가 준비되었습니다.'),
+      ),
     );
   }
 
-  Offset _centroidOfWalls(List<WallSegment> walls) {
-    if (walls.isEmpty) return const Offset(0.5, 0.5);
-    var sx = 0.0, sy = 0.0;
-    for (final wall in walls) {
-      sx += (wall.start.x + wall.end.x) / 2;
-      sy += (wall.start.y + wall.end.y) / 2;
-    }
-    return Offset(sx / walls.length, sy / walls.length);
-  }
+  CadWorkspaceState get _cadWorkspaceState => CadWorkspaceState(
+    floorPlan: _cadFloorPlan,
+    selectedObjectId: _selectedCadObjectId,
+    displayMode: _displayMode,
+    debugOverlay: _debugOverlay,
+    calibrating: _calibrating,
+    calibrationPoints: _calibrationPoints,
+    scale: _scale,
+    ceilingHeightMm: _ceilingHeightMm,
+  );
 
-  Offset _centroidOfPolygon(List<Point2> polygon) {
-    if (polygon.isEmpty) return const Offset(0.5, 0.5);
-    var sx = 0.0, sy = 0.0;
-    for (final p in polygon) {
-      sx += p.x;
-      sy += p.y;
-    }
-    return Offset(sx / polygon.length, sy / polygon.length);
-  }
-
-  Offset _centroidOfOpenings(List<OpeningCandidate> openings) {
-    if (openings.isEmpty) return const Offset(0.5, 0.5);
-    var sx = 0.0, sy = 0.0;
-    for (final o in openings) {
-      sx += o.center.x;
-      sy += o.center.y;
-    }
-    return Offset(sx / openings.length, sy / openings.length);
-  }
-
-  /// 캔버스 오버레이에서 벽/공간/문·창 geometry를 탭했을 때 호출된다 —
-  /// 그 geometry가 속한 작업을 선택해, 작업 목록/우측 패널과 동일한
-  /// 선택 상태를 공유한다(WO 11번).
-  void _onSelectAnalysisObject(String geometryId) {
-    final ownerTaskId = _geometryOwnerTask[geometryId];
-    if (ownerTaskId != null) {
-      setState(() => _selectedTaskId = ownerTaskId);
-    }
-  }
+  CadWorkspaceCallbacks get _cadWorkspaceCallbacks => CadWorkspaceCallbacks(
+    onSelectObject: _onSelectCadObject,
+    onWallEndpointChanged: _onWallEndpointChanged,
+    onDisplayModeChanged: _onDisplayModeChanged,
+    onToggleDebugOverlay: _onToggleDebugOverlay,
+    onCalibrationTap: _onCalibrationTap,
+    onStartCalibration: _onStartCalibration,
+    onSetCeilingHeight: _onSetCeilingHeight,
+    onGenerate3D: _onGenerate3D,
+  );
 
   static List<WorkspaceTaskItem> _demoTasks() => [
     const WorkspaceTaskItem(
@@ -379,9 +495,6 @@ class _FloorPlanWorkspaceScreenState extends State<FloorPlanWorkspaceScreen> {
 
   WorkspaceTaskItem? get _selectedTask =>
       _tasks.where((task) => task.id == _selectedTaskId).firstOrNull;
-
-  Set<String> get _selectedAnalysisObjectIds =>
-      _analysisGroupMembers[_selectedTaskId] ?? const {};
 
   void _mutate(
     List<WorkspaceTaskItem> Function(List<WorkspaceTaskItem>) mutator,
@@ -578,6 +691,16 @@ class _FloorPlanWorkspaceScreenState extends State<FloorPlanWorkspaceScreen> {
             onRedo: _redo,
             onAiAssistantTap: _onAiAssistantTap,
             analysisDebugStats: _analysisResult?.debugStats,
+            selectedCadWall: _selectedCadWall,
+            selectedCadOpening: _selectedCadOpening,
+            selectedCadRoom: _selectedCadRoom,
+            cadScale: _scale,
+            cadSourceWidthPx: _cadFloorPlan?.sourceWidthPx ?? 0,
+            cadSourceHeightPx: _cadFloorPlan?.sourceHeightPx ?? 0,
+            canUndoCad: _cadUndoStack.isNotEmpty,
+            onUndoCad: _undoCad,
+            onDeleteCad: _deleteSelectedCadObject,
+            onCreateWorkItemFromCad: _createWorkItemFromCad,
           ),
         ),
       ],
@@ -610,24 +733,30 @@ class _FloorPlanWorkspaceScreenState extends State<FloorPlanWorkspaceScreen> {
             child: WorkspaceCanvas(
               tasks: _tasks,
               selectedId: _selectedTaskId,
-              onSelect: (id) => setState(() => _selectedTaskId = id),
+              onSelect: (id) => setState(() {
+                _selectedTaskId = id;
+                _selectedCadObjectId = null;
+              }),
               viewMode: _viewMode,
               floorPlanFile: _floorPlanFile,
               analysisPhase: _analysisPhase,
               analysisStep: _analysisStep,
               analysisResult: _analysisResult,
               analysisFailureMessage: _analysisFailureMessage,
-              selectedAnalysisObjectIds: _selectedAnalysisObjectIds,
+              cad: _cadWorkspaceState,
+              cadCallbacks: _cadWorkspaceCallbacks,
               onPickFloorPlanFile: _pickFloorPlan,
               onStartAnalysis: _startAnalysis,
-              onSelectAnalysisObject: _onSelectAnalysisObject,
             ),
           ),
           const SizedBox(height: 12),
           WorkspaceTaskList(
             tasks: _tasks,
             selectedId: _selectedTaskId,
-            onSelect: (id) => setState(() => _selectedTaskId = id),
+            onSelect: (id) => setState(() {
+              _selectedTaskId = id;
+              _selectedCadObjectId = null;
+            }),
             onToggleVisible: (id) => _mutate(
               (tasks) => [
                 for (final t in tasks)
@@ -690,24 +819,30 @@ class _FloorPlanWorkspaceScreenState extends State<FloorPlanWorkspaceScreen> {
           child: WorkspaceCanvas(
             tasks: _tasks,
             selectedId: _selectedTaskId,
-            onSelect: (id) => setState(() => _selectedTaskId = id),
+            onSelect: (id) => setState(() {
+              _selectedTaskId = id;
+              _selectedCadObjectId = null;
+            }),
             viewMode: _viewMode,
             floorPlanFile: _floorPlanFile,
             analysisPhase: _analysisPhase,
             analysisStep: _analysisStep,
             analysisResult: _analysisResult,
             analysisFailureMessage: _analysisFailureMessage,
-            selectedAnalysisObjectIds: _selectedAnalysisObjectIds,
+            cad: _cadWorkspaceState,
+            cadCallbacks: _cadWorkspaceCallbacks,
             onPickFloorPlanFile: _pickFloorPlan,
             onStartAnalysis: _startAnalysis,
-            onSelectAnalysisObject: _onSelectAnalysisObject,
           ),
         ),
         const SizedBox(height: 12),
         WorkspaceTaskList(
           tasks: _tasks,
           selectedId: _selectedTaskId,
-          onSelect: (id) => setState(() => _selectedTaskId = id),
+          onSelect: (id) => setState(() {
+            _selectedTaskId = id;
+            _selectedCadObjectId = null;
+          }),
           onToggleVisible: (id) => _mutate(
             (tasks) => [
               for (final t in tasks)
@@ -746,15 +881,7 @@ class _FloorPlanWorkspaceScreenState extends State<FloorPlanWorkspaceScreen> {
     final id = _selectedTaskId;
     if (id == null) return;
     _mutate((tasks) => tasks.where((t) => t.id != id).toList());
-    setState(() {
-      _selectedTaskId = null;
-      final members = _analysisGroupMembers.remove(id);
-      if (members != null) {
-        for (final geometryId in members) {
-          _geometryOwnerTask.remove(geometryId);
-        }
-      }
-    });
+    setState(() => _selectedTaskId = null);
   }
 
   Future<void> _showRenameDialog(WorkspaceTaskItem? task) async {

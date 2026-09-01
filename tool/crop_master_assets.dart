@@ -4,10 +4,12 @@ import 'package:image/image.dart' as img;
 
 /// SS_V1_UI_MASTER.png에서 지정한 픽셀 영역을 잘라 assets/images/에 저장한다.
 ///
-/// 사용법: dart run tool/crop_master_assets.dart <x> <y> <w> <h> <output_filename>
+/// 사용법: `dart run tool/crop_master_assets.dart <x> <y> <w> <h> <output_filename>`
 void main(List<String> args) {
   if (args.length != 5) {
-    stderr.writeln('usage: dart run tool/crop_master_assets.dart <x> <y> <w> <h> <output_filename>');
+    stderr.writeln(
+      'usage: dart run tool/crop_master_assets.dart <x> <y> <w> <h> <output_filename>',
+    );
     exit(1);
   }
 

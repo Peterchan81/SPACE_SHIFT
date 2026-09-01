@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
 
+import '../../models/cad_floor_plan.dart';
 import '../../models/floor_plan_geometry.dart';
 import '../../models/workspace_task_item.dart';
 import '../../theme/space_shift_colors.dart';
+import 'cad_structure_tab.dart';
 import 'display_tab.dart';
 import 'furniture_tab.dart';
 import 'info_tab.dart';
@@ -58,6 +60,16 @@ class UserWorkspacePanel extends StatefulWidget {
     required this.onRedo,
     required this.onAiAssistantTap,
     this.analysisDebugStats,
+    this.selectedCadWall,
+    this.selectedCadOpening,
+    this.selectedCadRoom,
+    this.cadScale,
+    this.cadSourceWidthPx = 0,
+    this.cadSourceHeightPx = 0,
+    this.canUndoCad = false,
+    this.onUndoCad,
+    this.onDeleteCad,
+    this.onCreateWorkItemFromCad,
   });
 
   final WorkspaceTaskItem? task;
@@ -65,6 +77,20 @@ class UserWorkspacePanel extends StatefulWidget {
   final int taskCount;
   final int visibleTaskCount;
   final FloorPlanAnalysisDebugStats? analysisDebugStats;
+
+  /// [task]가 null이고 이 값들 중 하나가 있으면, 사용자 작업 대신 CAD
+  /// geometry(도면 보정) 화면을 보여준다 — 둘은 서로 다른 선택 상태다
+  /// (WO 8/12번).
+  final CadWall? selectedCadWall;
+  final CadOpening? selectedCadOpening;
+  final CadRoom? selectedCadRoom;
+  final FloorPlanScale? cadScale;
+  final int cadSourceWidthPx;
+  final int cadSourceHeightPx;
+  final bool canUndoCad;
+  final VoidCallback? onUndoCad;
+  final VoidCallback? onDeleteCad;
+  final VoidCallback? onCreateWorkItemFromCad;
 
   final WorkspaceSelectionTool selectedTool;
   final ValueChanged<WorkspaceSelectionTool> onToolSelected;
@@ -163,8 +189,33 @@ class _UserWorkspacePanelState extends State<UserWorkspacePanel> {
     switch (_tab) {
       case _PanelTab.work:
         final task = widget.task;
+        final cadSelected =
+            widget.selectedCadWall ??
+            widget.selectedCadOpening ??
+            widget.selectedCadRoom;
+        if (task == null && cadSelected != null) {
+          return CadStructureTab(
+            wall: widget.selectedCadWall,
+            opening: widget.selectedCadOpening,
+            room: widget.selectedCadRoom,
+            scale: widget.cadScale,
+            sourceWidthPx: widget.cadSourceWidthPx,
+            sourceHeightPx: widget.cadSourceHeightPx,
+            canUndo: widget.canUndoCad,
+            onUndo: widget.onUndoCad ?? () {},
+            onDelete: widget.onDeleteCad ?? () {},
+            onCreateWorkItem: widget.onCreateWorkItemFromCad ?? () {},
+          );
+        }
         if (task == null) {
-          return const _EmptySelectionNotice();
+          // 삭제 직후에는 선택이 함께 풀리므로, 방금 지운 도면 보정을
+          // 되돌릴 방법이 선택 상태에 갇힌 CadStructureTab 안에만
+          // 있으면 안 된다 — 선택이 비어 있어도 실행 취소는 여기서
+          // 계속 할 수 있어야 한다.
+          return _EmptySelectionNotice(
+            canUndoCad: widget.canUndoCad,
+            onUndoCad: widget.onUndoCad,
+          );
         }
         return WorkTab(
           task: task,
@@ -252,21 +303,41 @@ class _PanelTabButton extends StatelessWidget {
 }
 
 class _EmptySelectionNotice extends StatelessWidget {
-  const _EmptySelectionNotice();
+  const _EmptySelectionNotice({this.canUndoCad = false, this.onUndoCad});
+
+  final bool canUndoCad;
+  final VoidCallback? onUndoCad;
 
   @override
   Widget build(BuildContext context) {
-    return const Padding(
-      padding: EdgeInsets.all(24),
+    return Padding(
+      padding: const EdgeInsets.all(24),
       child: Center(
-        child: Text(
-          '선택된 항목이 없습니다.\n평면도에서 작업할 영역을 선택해주세요.',
-          textAlign: TextAlign.center,
-          style: TextStyle(
-            fontSize: 13,
-            color: SpaceShiftColors.textSecondary,
-            height: 1.5,
-          ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Text(
+              '선택된 항목이 없습니다.\n평면도에서 작업할 영역을 선택해주세요.',
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                fontSize: 13,
+                color: SpaceShiftColors.textSecondary,
+                height: 1.5,
+              ),
+            ),
+            if (canUndoCad && onUndoCad != null) ...[
+              const SizedBox(height: 16),
+              OutlinedButton.icon(
+                onPressed: onUndoCad,
+                icon: const Icon(Icons.undo_rounded, size: 18),
+                label: const Text('실행 취소'),
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: SpaceShiftColors.textPrimary,
+                  side: const BorderSide(color: SpaceShiftColors.border),
+                ),
+              ),
+            ],
+          ],
         ),
       ),
     );

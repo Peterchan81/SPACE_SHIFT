@@ -1,0 +1,353 @@
+import 'dart:math' as math;
+
+import 'package:flutter/material.dart';
+
+import '../../models/cad_floor_plan.dart';
+import '../../models/floor_plan_geometry.dart';
+import '../../theme/space_shift_colors.dart';
+import 'floor_plan_analysis_overlay.dart' show ContainFitTransform;
+
+/// 중앙 2D 평면도 위에 편집 가능한 CAD geometry(벽/공간/문·창)를
+/// 그리는 기본 화면.
+///
+/// [FloorPlanAnalysisOverlay](분석 확인/debug 모드에서만 쓰는 confidence
+/// color overlay)와 달리, 이 위젯은 평소 화면에 보이는 CAD 스타일이다 —
+/// 짙은 회색/검정 벽선 + white/light 배경, 선택된 객체만 accent로
+/// 강조한다(WO 5번). 번호 marker는 절대 그리지 않는다 — 분석 geometry는
+/// 사용자 작업이 아니기 때문이다(WO 1/2번).
+///
+/// 벽은 얇은 선이 아니라 중심선 + 두께로 계산한 폭이 있는 폴리곤으로
+/// 그린다(WO 4번). 선택된 벽은 끝점 handle 두 개가 나타나 드래그로 옮길
+/// 수 있고(WO 7번), 그 결과는 [onWallEndpointChanged]로 부모에게 알려
+/// undo 가능한 mutation으로 처리한다.
+///
+/// 끝점 드래그는 캔버스 전체를 덮는 탭 감지기와 완전히 분리된, 각 끝점
+/// 위치에만 있는 작은 별도 [GestureDetector]가 담당한다 — 하나의
+/// GestureDetector에 tap과 pan을 모두 붙이면 제스처 arena에서 서로
+/// 충돌해 탭이 씹히는 문제가 있어, 처음부터 히트테스트 영역을 나눴다.
+class CadFloorPlanOverlay extends StatefulWidget {
+  const CadFloorPlanOverlay({
+    super.key,
+    required this.floorPlan,
+    required this.selectedId,
+    required this.onSelect,
+    required this.onWallEndpointChanged,
+    this.calibrating = false,
+    this.calibrationPoints = const [],
+    this.onCalibrationTap,
+  });
+
+  final CadFloorPlan floorPlan;
+  final String? selectedId;
+  final ValueChanged<String?> onSelect;
+
+  /// 사용자가 선택된 벽의 끝점을 드래그로 옮길 때마다 호출된다.
+  /// [isStart]가 true면 시작점, false면 끝점을 옮긴 것이다.
+  final void Function(String wallId, bool isStart, Point2 newPosition)
+  onWallEndpointChanged;
+
+  /// true면 geometry 선택 대신 "기준 치수 설정"용 두 점 찍기 모드로
+  /// 동작한다(WO 9번) — 탭한 위치를 geometry 히트테스트 없이 그대로
+  /// [onCalibrationTap]으로 전달한다.
+  final bool calibrating;
+
+  /// 지금까지 찍은 기준점(0~2개) — painter가 점/보조선을 그리는 데 쓴다.
+  final List<Point2> calibrationPoints;
+  final ValueChanged<Point2>? onCalibrationTap;
+
+  @override
+  State<CadFloorPlanOverlay> createState() => _CadFloorPlanOverlayState();
+}
+
+class _CadFloorPlanOverlayState extends State<CadFloorPlanOverlay> {
+  CadWall? get _selectedWall {
+    final id = widget.selectedId;
+    if (id == null) return null;
+    for (final wall in widget.floorPlan.walls) {
+      if (wall.id == id) return wall;
+    }
+    return null;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final imageSize = Size(
+      widget.floorPlan.sourceWidthPx.toDouble(),
+      widget.floorPlan.sourceHeightPx.toDouble(),
+    );
+
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final container = Size(constraints.maxWidth, constraints.maxHeight);
+        final transform = ContainFitTransform.compute(container, imageSize);
+        final selectedWall = _selectedWall;
+
+        return Stack(
+          fit: StackFit.expand,
+          children: [
+            GestureDetector(
+              behavior: HitTestBehavior.translucent,
+              onTapUp: (details) {
+                if (widget.calibrating) {
+                  final point = transform.inverse(details.localPosition);
+                  if (point != null) widget.onCalibrationTap?.call(point);
+                  return;
+                }
+                _handleTap(details.localPosition, transform);
+              },
+              child: CustomPaint(
+                size: container,
+                painter: _CadOverlayPainter(
+                  floorPlan: widget.floorPlan,
+                  transform: transform,
+                  selectedId: widget.selectedId,
+                  calibrationPoints: widget.calibrationPoints,
+                ),
+              ),
+            ),
+            if (selectedWall != null && !widget.calibrating) ...[
+              _EndpointHandle(
+                screenPosition: transform.mapNormalized(selectedWall.start),
+                onDragDelta: (delta) => _moveEndpoint(
+                  selectedWall,
+                  isStart: true,
+                  delta: delta,
+                  transform: transform,
+                ),
+              ),
+              _EndpointHandle(
+                screenPosition: transform.mapNormalized(selectedWall.end),
+                onDragDelta: (delta) => _moveEndpoint(
+                  selectedWall,
+                  isStart: false,
+                  delta: delta,
+                  transform: transform,
+                ),
+              ),
+            ],
+          ],
+        );
+      },
+    );
+  }
+
+  void _moveEndpoint(
+    CadWall wall, {
+    required bool isStart,
+    required Offset delta,
+    required ContainFitTransform transform,
+  }) {
+    final current = isStart ? wall.start : wall.end;
+    final updated = Point2(
+      (current.x + delta.dx / transform.rect.width).clamp(0.0, 1.0),
+      (current.y + delta.dy / transform.rect.height).clamp(0.0, 1.0),
+    );
+    widget.onWallEndpointChanged(wall.id, isStart, updated);
+  }
+
+  void _handleTap(Offset local, ContainFitTransform transform) {
+    final point = transform.inverse(local);
+    if (point == null) {
+      widget.onSelect(null);
+      return;
+    }
+
+    final shortSide = math.min(transform.rect.width, transform.rect.height);
+    if (shortSide <= 0) return;
+    final tolerance = 14.0 / shortSide;
+
+    for (final opening in widget.floorPlan.openings) {
+      if (opening.center.distanceTo(point) <= tolerance * 1.4) {
+        widget.onSelect(opening.id);
+        return;
+      }
+    }
+
+    String? nearestWallId;
+    var bestDistance = double.infinity;
+    for (final wall in widget.floorPlan.walls) {
+      final distance = _distanceToSegment(point, wall.start, wall.end);
+      if (distance <= tolerance && distance < bestDistance) {
+        bestDistance = distance;
+        nearestWallId = wall.id;
+      }
+    }
+    if (nearestWallId != null) {
+      widget.onSelect(nearestWallId);
+      return;
+    }
+
+    for (final room in widget.floorPlan.rooms) {
+      if (room.containsPoint(point)) {
+        widget.onSelect(room.id);
+        return;
+      }
+    }
+
+    widget.onSelect(null);
+  }
+}
+
+/// 벽 끝점 하나를 드래그하기 위한, 화면 위치에 고정된 작은 히트테스트
+/// 영역. 실제 원(●) 그림은 [_CadOverlayPainter]가 그리고, 이 위젯은
+/// 손가락/펜으로 누르기 충분한 크기(44x44)의 투명한 드래그 감지 영역만
+/// 담당한다.
+class _EndpointHandle extends StatelessWidget {
+  const _EndpointHandle({
+    required this.screenPosition,
+    required this.onDragDelta,
+  });
+
+  final Offset screenPosition;
+  final ValueChanged<Offset> onDragDelta;
+
+  static const double _hitSize = 44;
+
+  @override
+  Widget build(BuildContext context) {
+    return Positioned(
+      left: screenPosition.dx - _hitSize / 2,
+      top: screenPosition.dy - _hitSize / 2,
+      width: _hitSize,
+      height: _hitSize,
+      child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onPanUpdate: (details) => onDragDelta(details.delta),
+      ),
+    );
+  }
+}
+
+double _distanceToSegment(Point2 p, Point2 a, Point2 b) {
+  final abx = b.x - a.x;
+  final aby = b.y - a.y;
+  final lengthSquared = abx * abx + aby * aby;
+  if (lengthSquared == 0) return p.distanceTo(a);
+
+  var t = ((p.x - a.x) * abx + (p.y - a.y) * aby) / lengthSquared;
+  t = t.clamp(0.0, 1.0);
+  final projection = Point2(a.x + t * abx, a.y + t * aby);
+  return p.distanceTo(projection);
+}
+
+class _CadOverlayPainter extends CustomPainter {
+  _CadOverlayPainter({
+    required this.floorPlan,
+    required this.transform,
+    required this.selectedId,
+    required this.calibrationPoints,
+  });
+
+  final CadFloorPlan floorPlan;
+  final ContainFitTransform transform;
+  final String? selectedId;
+  final List<Point2> calibrationPoints;
+
+  static const _wallFill = Color(0xFFEDF0F3);
+  static const _wallStroke = Color(0xFF334155);
+  static const _guideLine = Color(0xFFCBD5E1);
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    for (final room in floorPlan.rooms) {
+      final selected = room.id == selectedId;
+      final path = Path()
+        ..addPolygon(room.polygon.map(transform.mapNormalized).toList(), true);
+      canvas.drawPath(
+        path,
+        Paint()
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = selected ? 2 : 1
+          ..color = selected ? SpaceShiftColors.selectionAccent : _guideLine,
+      );
+    }
+
+    for (final wall in floorPlan.walls) {
+      final selected = wall.id == selectedId;
+      final polygon = wall.boundaryPolygon
+          .map(transform.mapNormalized)
+          .toList();
+      final path = Path()..addPolygon(polygon, true);
+      canvas.drawPath(
+        path,
+        Paint()
+          ..style = PaintingStyle.fill
+          ..color = selected
+              ? SpaceShiftColors.selectionAccent.withValues(alpha: 0.12)
+              : _wallFill,
+      );
+      canvas.drawPath(
+        path,
+        Paint()
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = selected ? 2.5 : 1.5
+          ..color = selected ? SpaceShiftColors.selectionAccent : _wallStroke,
+      );
+
+      if (selected) {
+        final startHandle = transform.mapNormalized(wall.start);
+        final endHandle = transform.mapNormalized(wall.end);
+        final handlePaint = Paint()..color = SpaceShiftColors.selectionAccent;
+        final handleBorder = Paint()
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 2
+          ..color = Colors.white;
+        for (final handle in [startHandle, endHandle]) {
+          canvas.drawCircle(handle, 7, handlePaint);
+          canvas.drawCircle(handle, 7, handleBorder);
+        }
+      }
+    }
+
+    for (final opening in floorPlan.openings) {
+      final selected = opening.id == selectedId;
+      final center = transform.mapNormalized(opening.center);
+      final paint = Paint()
+        ..style = PaintingStyle.fill
+        ..color = Colors.white;
+      final border = Paint()
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = selected ? 2 : 1.5
+        ..color = selected ? SpaceShiftColors.selectionAccent : _wallStroke;
+      final radius = selected ? 7.0 : 5.0;
+      canvas.drawCircle(center, radius, paint);
+      canvas.drawCircle(center, radius, border);
+    }
+
+    if (calibrationPoints.isNotEmpty) {
+      final points = calibrationPoints.map(transform.mapNormalized).toList();
+      if (points.length == 2) {
+        canvas.drawLine(
+          points[0],
+          points[1],
+          Paint()
+            ..strokeWidth = 2
+            ..color = SpaceShiftColors.selectionAccent,
+        );
+      }
+      for (final p in points) {
+        canvas.drawCircle(
+          p,
+          6,
+          Paint()..color = SpaceShiftColors.selectionAccent,
+        );
+        canvas.drawCircle(
+          p,
+          6,
+          Paint()
+            ..style = PaintingStyle.stroke
+            ..strokeWidth = 2
+            ..color = Colors.white,
+        );
+      }
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant _CadOverlayPainter oldDelegate) {
+    return oldDelegate.floorPlan != floorPlan ||
+        oldDelegate.selectedId != selectedId ||
+        oldDelegate.transform.rect != transform.rect ||
+        oldDelegate.calibrationPoints != calibrationPoints;
+  }
+}
