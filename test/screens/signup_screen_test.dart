@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import 'package:ason_space/screens/floor_plan_workspace_screen.dart';
 import 'package:ason_space/screens/signup_screen.dart';
 import 'package:ason_space/widgets/gradient_cta_button.dart';
 
@@ -12,7 +13,10 @@ void main() {
 
   Future<void> fillRequiredFields(WidgetTester tester) async {
     await tester.enterText(find.widgetWithText(TextFormField, '이름'), '홍길동');
-    await tester.enterText(find.widgetWithText(TextFormField, '이메일'), 'a@b.com');
+    await tester.enterText(
+      find.widgetWithText(TextFormField, '이메일'),
+      'a@b.com',
+    );
     await tester.enterText(
       find.widgetWithText(TextFormField, '비밀번호'),
       'password1',
@@ -36,7 +40,10 @@ void main() {
   testWidgets('비밀번호와 비밀번호 확인이 다르면 SnackBar로 안내하고 진행하지 않는다', (tester) async {
     await pumpSignup(tester);
     await tester.enterText(find.widgetWithText(TextFormField, '이름'), '홍길동');
-    await tester.enterText(find.widgetWithText(TextFormField, '이메일'), 'a@b.com');
+    await tester.enterText(
+      find.widgetWithText(TextFormField, '이메일'),
+      'a@b.com',
+    );
     await tester.enterText(
       find.widgetWithText(TextFormField, '비밀번호'),
       'password1',
@@ -63,7 +70,7 @@ void main() {
     expect(find.byType(SignupScreen), findsOneWidget);
   });
 
-  testWidgets('필수 항목을 채우고 약관에 동의하면 사진 등록 화면으로 이동한다', (tester) async {
+  testWidgets('필수 항목을 채우고 약관에 동의하면 신규 MASTER 메인 작업 화면으로 이동한다', (tester) async {
     await pumpSignup(tester);
     await fillRequiredFields(tester);
     await tester.tap(find.byType(Checkbox));
@@ -73,6 +80,7 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.byType(SignupScreen), findsNothing);
+    expect(find.byType(FloorPlanWorkspaceScreen), findsOneWidget);
   });
 
   testWidgets('비밀번호 필드의 보기/숨기기 아이콘이 각각 독립적으로 동작한다', (tester) async {

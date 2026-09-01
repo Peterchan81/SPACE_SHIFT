@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../theme/space_shift_colors.dart';
 import '../widgets/gradient_cta_button.dart';
-import 'photo_select_screen.dart';
+import 'floor_plan_workspace_screen.dart';
 import 'signup_screen.dart';
 
 /// MASTER UI 1번 화면 — 로그인 / 자동로그인.
@@ -11,8 +11,8 @@ import 'signup_screen.dart';
 /// 입력, 자동 로그인, 간편 로그인, 회원가입 진입을 제공한다.
 ///
 /// 실제 인증 백엔드는 아직 준비되지 않았으므로, 이 화면은 로그인 UI와
-/// 정상적인 앱 진입 흐름(사진 선택 화면으로 이동)만 구현하고 실제 계정
-/// 검증은 하지 않는다.
+/// 정상적인 앱 진입 흐름(신규 MASTER 메인 작업 화면[FloorPlanWorkspaceScreen]
+/// 으로 이동)만 구현하고 실제 계정 검증은 하지 않는다.
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
 
@@ -36,16 +36,16 @@ class _LoginScreenState extends State<LoginScreen> {
   void _enterApp() {
     Navigator.of(context).pushReplacement(
       MaterialPageRoute(
-        builder: (context) => const PhotoSelectScreen(),
-        settings: const RouteSettings(name: 'photo_select'),
+        builder: (context) => const FloorPlanWorkspaceScreen(),
+        settings: const RouteSettings(name: 'floor_plan_workspace'),
       ),
     );
   }
 
   void _goToSignup() {
-    Navigator.of(context).push(
-      MaterialPageRoute(builder: (context) => const SignupScreen()),
-    );
+    Navigator.of(
+      context,
+    ).push(MaterialPageRoute(builder: (context) => const SignupScreen()));
   }
 
   @override

@@ -5,7 +5,7 @@ import 'package:flutter/material.dart';
 import '../services/image_picker_service.dart';
 import '../theme/space_shift_colors.dart';
 import '../widgets/gradient_cta_button.dart';
-import 'photo_select_screen.dart';
+import 'floor_plan_workspace_screen.dart';
 
 /// MASTER UI 1번 화면(회원가입 상태) — 이름/이메일/비밀번호와 약관 동의로
 /// 신규 계정을 만드는 화면.
@@ -17,8 +17,8 @@ import 'photo_select_screen.dart';
 /// 한다(WorkspaceScreen의 isWide 관례와 동일한 800px 기준).
 ///
 /// 실제 인증 백엔드가 없으므로 입력값 검증(필수 항목, 비밀번호 일치, 약관
-/// 동의)만 수행하고, 통과하면 곧바로 앱 사용 흐름(사진 선택 화면)으로
-/// 진입시킨다.
+/// 동의)만 수행하고, 통과하면 곧바로 앱 사용 흐름(신규 MASTER 메인 작업
+/// 화면)으로 진입시킨다.
 class SignupScreen extends StatefulWidget {
   const SignupScreen({
     super.key,
@@ -69,22 +69,22 @@ class _SignupScreenState extends State<SignupScreen> {
     final formOk = _formKey.currentState?.validate() ?? false;
     if (!formOk) return;
     if (_passwordController.text != _passwordConfirmController.text) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('비밀번호가 일치하지 않습니다.')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('비밀번호가 일치하지 않습니다.')));
       return;
     }
     if (!_agreed) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('이용약관 및 개인정보처리방침에 동의해주세요.')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('이용약관 및 개인정보처리방침에 동의해주세요.')));
       return;
     }
 
     Navigator.of(context).pushReplacement(
       MaterialPageRoute(
-        builder: (context) => const PhotoSelectScreen(),
-        settings: const RouteSettings(name: 'photo_select'),
+        builder: (context) => const FloorPlanWorkspaceScreen(),
+        settings: const RouteSettings(name: 'floor_plan_workspace'),
       ),
     );
   }
@@ -375,7 +375,10 @@ class _SignupScreenState extends State<SignupScreen> {
         children: [
           const Text(
             '이미 계정이 있으신가요?',
-            style: TextStyle(fontSize: 13, color: SpaceShiftColors.textSecondary),
+            style: TextStyle(
+              fontSize: 13,
+              color: SpaceShiftColors.textSecondary,
+            ),
           ),
           TextButton(
             onPressed: () => Navigator.of(context).pop(),

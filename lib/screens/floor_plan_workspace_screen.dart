@@ -7,16 +7,24 @@ import '../widgets/workspace/user_workspace_panel.dart';
 import '../widgets/workspace/workspace_canvas.dart';
 import '../widgets/workspace/workspace_task_list.dart';
 import '../widgets/workspace/workspace_view_switcher.dart';
+import 'photo_select_screen.dart';
 
-/// 신규 MASTER 1번 — "평면도 업로드" 작업실.
+/// 신규 MASTER 1번 — "평면도 업로드" 작업실이자, 로그인/회원가입 이후
+/// 진입하는 신규 MASTER 메인 작업 화면.
 ///
-/// 이번 작업 범위는 [WorkspaceStartMethod.floorPlanUpload]의 실제 화면
-/// 구현이다. 나머지 두 시작 방식(직접 그리기/사진으로 변환)은 좌측 패널의
-/// 진입 선택 UI만 제공하고, 실제 화면은 아직 없어 선택 시 안내만 보여준다.
+/// 좌측 "시작 방식 선택" 3가지 중 이번 작업 범위는
+/// [WorkspaceStartMethod.floorPlanUpload]의 실제 화면 구현이다.
+/// - [WorkspaceStartMethod.drawManually](직접 그리기): 아직 실제 화면이
+///   없어 선택 시 준비중 안내만 보여준다.
+/// - [WorkspaceStartMethod.photoConvert](사진으로 변환): 기존
+///   [PhotoSelectScreen](공간 사진 등록)의 카메라/갤러리 선택 기능을 그대로
+///   재사용한다 — 화면을 다시 만들지 않고, 이 화면 위에 잠시 push했다가
+///   완료/취소 시 다시 이 화면으로 돌아오는 방식으로 최소 연결한다.
 ///
-/// 기존 [WorkspaceScreen](공간 작업실, 사진 기반 부분 영역 선택)은 그대로
-/// 유지되며 이 화면과 무관하게 계속 동작한다 — 이 화면은 완전히 새로운
-/// 평면도 기반 3D 작업실이다.
+/// 기존 [WorkspaceScreen](공간 작업실, 사진 기반 부분 영역 선택)과
+/// [PhotoSelectScreen]은 코드/기능 모두 삭제하지 않고 그대로 보존한다 —
+/// 다만 로그인 직후 자동으로 진입하는 기본 화면에서는 제외되고, 이 화면의
+/// "사진으로 변환" 경로를 통해서만 진입한다.
 class FloorPlanWorkspaceScreen extends StatefulWidget {
   const FloorPlanWorkspaceScreen({super.key, this.projectName = '새 프로젝트'});
 
@@ -161,13 +169,27 @@ class _FloorPlanWorkspaceScreenState extends State<FloorPlanWorkspaceScreen> {
   }
 
   void _onStartMethodSelected(WorkspaceStartMethod method) {
-    setState(() => _startMethod = method);
-    if (method != WorkspaceStartMethod.floorPlanUpload) {
+    if (method == WorkspaceStartMethod.floorPlanUpload) {
+      setState(() => _startMethod = method);
+    } else if (method == WorkspaceStartMethod.drawManually) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('"${method.title}"은(는) 준비 중입니다. 곧 지원할 예정입니다.')),
       );
-      setState(() => _startMethod = WorkspaceStartMethod.floorPlanUpload);
+    } else {
+      _openPhotoConvert();
     }
+  }
+
+  /// "사진으로 변환" — 기존 [PhotoSelectScreen]의 카메라/갤러리 선택 기능을
+  /// 화면을 다시 만들지 않고 그대로 불러온다. 이 화면 위에 push하므로
+  /// 완료/뒤로가기 모두 이 MASTER 화면으로 돌아온다.
+  Future<void> _openPhotoConvert() async {
+    await Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (context) => const PhotoSelectScreen(),
+        settings: const RouteSettings(name: 'photo_select'),
+      ),
+    );
   }
 
   void _onAiAssistantTap() {

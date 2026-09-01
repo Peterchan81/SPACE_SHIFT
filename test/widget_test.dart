@@ -33,6 +33,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:ason_space/models/ai_generation_request.dart';
 import 'package:ason_space/models/ai_generation_response.dart';
 import 'package:ason_space/screens/final_confirm_screen.dart';
+import 'package:ason_space/screens/floor_plan_workspace_screen.dart';
 import 'package:ason_space/screens/generate_screen.dart';
 import 'package:ason_space/screens/login_screen.dart';
 import 'package:ason_space/screens/photo_select_screen.dart';
@@ -236,7 +237,7 @@ void main() {
     UsagePolicyService.instance.resetForTesting();
   });
 
-  testWidgets('로그인 화면에서 로그인을 누르면 사진 등록 화면으로 이동한다', (
+  testWidgets('로그인 화면에서 로그인을 누르면 신규 MASTER 메인 작업 화면으로 이동한다', (
     WidgetTester tester,
   ) async {
     await tester.pumpWidget(const MaterialApp(home: LoginScreen()));
@@ -247,8 +248,11 @@ void main() {
     await tester.tap(find.widgetWithText(GradientCtaButton, '로그인'));
     await tester.pumpAndSettle();
 
-    expect(find.text('공간 사진 등록'), findsOneWidget);
-    expect(find.text('변화시킬 공간을 보여주세요'), findsOneWidget);
+    expect(find.byType(FloorPlanWorkspaceScreen), findsOneWidget);
+    expect(find.text('평면도 업로드 작업실'), findsOneWidget);
+    expect(find.text('시작 방식 선택'), findsOneWidget);
+    // 기존 "공간 사진 등록" 화면이 로그인 직후 자동으로 나타나지 않는다.
+    expect(find.text('공간 사진 등록'), findsNothing);
   });
 
   testWidgets('사진이 없을 때 다음 버튼이 비활성화된다', (WidgetTester tester) async {
