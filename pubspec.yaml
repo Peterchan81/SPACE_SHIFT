@@ -49,6 +49,12 @@ dependencies:
   # PDF). image_picker는 이미지/동영상만 지원해 PDF를 고를 수 없어 별도로
   # 추가한다 — Flutter 생태계에서 가장 널리 쓰이는 범용 파일 선택 패키지.
   file_picker: ^12.1.2
+  # 평면도 실제 분석(디코드/다운샘플/grayscale·luminance 픽셀 접근)에 쓰는
+  # 순수 Dart 이미지 처리 라이브러리 — OpenCV 같은 네이티브 바인딩 없이도
+  # compute()/isolate 안에서 안전하게 돌릴 수 있어 이 구조에 맞다. 이미
+  # 다른 의존성(flutter_launcher_icons)을 통해 간접 포함되어 있던 것을
+  # 직접 의존성으로 승격한다.
+  image: ^4.9.2
 
 dev_dependencies:
   flutter_test:

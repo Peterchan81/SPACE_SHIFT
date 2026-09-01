@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../../models/floor_plan_geometry.dart';
 import '../../theme/space_shift_colors.dart';
 
 /// 우측 "작업 환경 → 정보" Tab.
@@ -14,14 +15,21 @@ class InfoTab extends StatelessWidget {
     required this.projectName,
     required this.taskCount,
     required this.visibleTaskCount,
+    this.analysisDebugStats,
   });
 
   final String projectName;
   final int taskCount;
   final int visibleTaskCount;
 
+  /// 평면도 분석 개발 검증용 최소 통계 — 있을 때만 "분석 정보(개발자용)"
+  /// 카드로 노출한다. 일반 사용자 화면에는 과도한 숫자를 보여주지 않는다
+  /// (WO 26번).
+  final FloorPlanAnalysisDebugStats? analysisDebugStats;
+
   @override
   Widget build(BuildContext context) {
+    final debugStats = analysisDebugStats;
     return ListView(
       padding: const EdgeInsets.all(16),
       children: [
@@ -41,6 +49,39 @@ class InfoTab extends StatelessWidget {
             _InfoRow(label: '표시 중인 항목', value: '$visibleTaskCount개'),
           ],
         ),
+        if (debugStats != null) ...[
+          const SizedBox(height: 16),
+          _Card(
+            title: '분석 정보 (개발자용)',
+            children: [
+              _InfoRow(
+                label: '원본 이미지',
+                value:
+                    '${debugStats.sourceWidthPx}×${debugStats.sourceHeightPx}px',
+              ),
+              _InfoRow(
+                label: '분석 해상도',
+                value:
+                    '${debugStats.analysisWidthPx}×${debugStats.analysisHeightPx}px',
+              ),
+              _InfoRow(
+                label: '검출된 raw 직선',
+                value:
+                    '수평 ${debugStats.rawHorizontalRuns} · 수직 ${debugStats.rawVerticalRuns}',
+              ),
+              _InfoRow(label: '병합된 벽', value: '${debugStats.mergedWallCount}개'),
+              _InfoRow(
+                label: '공간 후보',
+                value: '${debugStats.roomCandidateCount}개',
+              ),
+              _InfoRow(
+                label: '문/창 후보',
+                value: '${debugStats.openingCandidateCount}개',
+              ),
+              _InfoRow(label: '분석 소요 시간', value: '${debugStats.durationMs}ms'),
+            ],
+          ),
+        ],
         const SizedBox(height: 16),
         _Card(
           title: '사용 안내',

@@ -93,7 +93,12 @@ extension WorkspaceSelectionToolX on WorkspaceSelectionTool {
 
 /// 작업 목록/3D marker가 공유하는 대상 종류. 종류에 따라 "사이즈" 필드와
 /// "마감재 선택" 옵션이 달라진다.
-enum WorkspaceTaskCategory { wall, floor, ceiling }
+///
+/// [door]/[window]는 평면도 실제 분석(WO: "평면도 실제 분석 엔진 1차
+/// 구현")에서 검출된 문/창 후보를 작업 목록에 올리기 위해 추가했다 —
+/// 기존 wall/floor/ceiling과 같은 방식으로 [finishOptions]만 가지므로
+/// WorkTab/FinishSelector 등 기존 위젯은 전혀 수정하지 않아도 된다.
+enum WorkspaceTaskCategory { wall, floor, ceiling, door, window }
 
 extension WorkspaceTaskCategoryX on WorkspaceTaskCategory {
   /// 이 종류에서 고를 수 있는 마감재 옵션(왼쪽부터 우선 노출).
@@ -115,6 +120,13 @@ extension WorkspaceTaskCategoryX on WorkspaceTaskCategory {
       '사용자 선택',
     ],
     WorkspaceTaskCategory.ceiling => const ['페인트', '벽지', '패널', '사용자 선택'],
+    WorkspaceTaskCategory.door => const ['원목도어', '유리도어', '금속도어', '사용자 선택'],
+    WorkspaceTaskCategory.window => const [
+      '알루미늄 새시',
+      'PVC 새시',
+      '시스템 창호',
+      '사용자 선택',
+    ],
   };
 }
 

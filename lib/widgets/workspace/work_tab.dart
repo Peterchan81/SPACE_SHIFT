@@ -59,9 +59,12 @@ class WorkTab extends StatelessWidget {
         ),
         const SizedBox(height: 16),
         SizeEditor(
-          heightMm: task.heightMm ?? 2700,
-          widthMm: task.widthMm ?? 1000,
-          thicknessMm: task.thicknessMm ?? 120,
+          // 값이 없으면(예: 평면도 실제 분석으로 만들어진 항목 — 아직
+          // 실제 축척을 모름) 가짜 기본값(2700mm 등)으로 채우지 않고
+          // "미설정"으로 정직하게 보여준다(WO 17번).
+          heightMm: task.heightMm,
+          widthMm: task.widthMm,
+          thicknessMm: task.thicknessMm,
           onHeightChanged: onHeightChanged,
           onWidthChanged: onWidthChanged,
           onThicknessChanged: onThicknessChanged,

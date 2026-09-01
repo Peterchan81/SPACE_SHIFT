@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../models/floor_plan_file.dart';
+import '../../models/floor_plan_geometry.dart';
 import '../../models/workspace_task_item.dart';
 import '../../theme/space_shift_colors.dart';
 import 'floor_plan_preview.dart';
@@ -21,8 +22,13 @@ class WorkspaceCanvas extends StatelessWidget {
     required this.viewMode,
     required this.floorPlanFile,
     required this.analysisPhase,
+    required this.analysisStep,
+    required this.analysisResult,
+    required this.analysisFailureMessage,
+    required this.selectedAnalysisObjectIds,
     required this.onPickFloorPlanFile,
     required this.onStartAnalysis,
+    required this.onSelectAnalysisObject,
   });
 
   final List<WorkspaceTaskItem> tasks;
@@ -32,8 +38,13 @@ class WorkspaceCanvas extends StatelessWidget {
   final WorkspaceViewMode viewMode;
   final FloorPlanFile? floorPlanFile;
   final FloorPlanAnalysisPhase analysisPhase;
+  final FloorPlanAnalysisStep? analysisStep;
+  final FloorPlanAnalysisResult? analysisResult;
+  final String? analysisFailureMessage;
+  final Set<String> selectedAnalysisObjectIds;
   final VoidCallback onPickFloorPlanFile;
   final VoidCallback onStartAnalysis;
+  final ValueChanged<String> onSelectAnalysisObject;
 
   @override
   Widget build(BuildContext context) {
@@ -53,8 +64,13 @@ class WorkspaceCanvas extends StatelessWidget {
                 viewMode: viewMode,
                 file: floorPlanFile,
                 analysisPhase: analysisPhase,
+                analysisStep: analysisStep,
+                analysisResult: analysisResult,
+                failureMessage: analysisFailureMessage,
+                selectedAnalysisObjectIds: selectedAnalysisObjectIds,
                 onPickFile: onPickFloorPlanFile,
                 onStartAnalysis: onStartAnalysis,
+                onSelectAnalysisObject: onSelectAnalysisObject,
               ),
               for (final task in tasks)
                 if (task.visible)

@@ -29,7 +29,9 @@ class FloorPlanFile {
 
 /// "평면도 분석 시작" 버튼을 누른 뒤의 진행 상태.
 ///
-/// 실제 벽/문/창문 인식 백엔드가 아직 없으므로, [analyzing] 다음에는
-/// 항상 [unavailable]로 끝난다 — 분석이 끝난 것처럼 거짓 결과를 만들지
-/// 않는다(WO 7-B).
-enum FloorPlanAnalysisPhase { notStarted, analyzing, unavailable }
+/// [analyzing] 동안 실제로 어느 단계인지는
+/// `FloorPlanAnalysisStep`(floor_plan_geometry.dart)이 담당한다. 분석이
+/// 실제 결과를 내면 [completed](FloorPlanAnalysisResult 보유), 벽 후보를
+/// 찾지 못했거나 오류가 나면 [failed](실패 메시지 보유)로 정직하게
+/// 구분한다 — 항상 "준비 중"만 반환하던 이전 placeholder는 제거했다.
+enum FloorPlanAnalysisPhase { notStarted, analyzing, completed, failed }

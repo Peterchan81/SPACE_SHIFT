@@ -1,14 +1,16 @@
 import 'package:flutter/material.dart';
 
 import '../../models/floor_plan_file.dart';
+import '../../models/floor_plan_geometry.dart';
 import '../../models/workspace_task_item.dart';
 import '../../theme/space_shift_colors.dart';
+import 'floor_plan_analysis_overlay.dart';
 
-/// 중앙 캔버스에서 "평면도 업로드" 단계별 상태를 보여주는 위젯.
+/// 중앙 캔버스에서 "평면도 업로드/분석" 단계별 상태를 보여주는 위젯.
 ///
 /// 2D 평면도 View에서만 실제 업로드한 파일을 보여준다. 3D 아이소/투시
 /// View는 아직 3D 생성 엔진이 없으므로, 파일이 있어도 정직하게 "아직
-/// 생성되지 않았다"고 안내한다(WO 13번 — 뷰를 넘나들어도 2D 쪽 파일
+/// 생성되지 않았다"고 안내한다(WO 13번 — 뷰를 넘나들어도 2D 쪽 파일/분석
 /// 상태는 그대로 유지된다. 상태를 들고 있는 쪽은 이 위젯이 아니라
 /// 호출부이므로, 이 위젯 자체는 항상 stateless로 값만 그린다).
 class FloorPlanPreview extends StatelessWidget {
@@ -17,15 +19,35 @@ class FloorPlanPreview extends StatelessWidget {
     required this.viewMode,
     required this.file,
     required this.analysisPhase,
+    required this.analysisStep,
+    required this.analysisResult,
+    required this.failureMessage,
+    required this.selectedAnalysisObjectIds,
     required this.onPickFile,
     required this.onStartAnalysis,
+    required this.onSelectAnalysisObject,
   });
 
   final WorkspaceViewMode viewMode;
   final FloorPlanFile? file;
   final FloorPlanAnalysisPhase analysisPhase;
+
+  /// [analysisPhase]가 [FloorPlanAnalysisPhase.analyzing]일 때만 의미가
+  /// 있는 실제 진행 단계.
+  final FloorPlanAnalysisStep? analysisStep;
+
+  /// [analysisPhase]가 [FloorPlanAnalysisPhase.completed]일 때 채워지는
+  /// 실제 분석 결과.
+  final FloorPlanAnalysisResult? analysisResult;
+
+  /// [analysisPhase]가 [FloorPlanAnalysisPhase.failed]일 때 보여줄, 이미
+  /// 사용자 친화적으로 다듬어진 메시지.
+  final String? failureMessage;
+
+  final Set<String> selectedAnalysisObjectIds;
   final VoidCallback onPickFile;
   final VoidCallback onStartAnalysis;
+  final ValueChanged<String> onSelectAnalysisObject;
 
   @override
   Widget build(BuildContext context) {
@@ -48,6 +70,8 @@ class FloorPlanPreview extends StatelessWidget {
       );
     }
 
+    final result = analysisResult;
+
     return Stack(
       fit: StackFit.expand,
       children: [
@@ -65,11 +89,19 @@ class FloorPlanPreview extends StatelessWidget {
                 : const _PdfPlaceholderIcon(),
           ),
         ),
+        if (analysisPhase == FloorPlanAnalysisPhase.completed && result != null)
+          Positioned.fill(
+            child: FloorPlanAnalysisOverlay(
+              result: result,
+              selectedIds: selectedAnalysisObjectIds,
+              onSelect: onSelectAnalysisObject,
+            ),
+          ),
         Positioned(
           left: 16,
           right: 16,
           top: 16,
-          child: _StatusBanner(file: file),
+          child: _StatusBanner(file: file, result: result),
         ),
         Positioned(
           left: 16,
@@ -77,6 +109,9 @@ class FloorPlanPreview extends StatelessWidget {
           bottom: 16,
           child: _AnalysisActionBar(
             phase: analysisPhase,
+            step: analysisStep,
+            result: result,
+            failureMessage: failureMessage,
             onStartAnalysis: onStartAnalysis,
           ),
         ),
@@ -109,12 +144,18 @@ class _PdfPlaceholderIcon extends StatelessWidget {
 }
 
 class _StatusBanner extends StatelessWidget {
-  const _StatusBanner({required this.file});
+  const _StatusBanner({required this.file, required this.result});
 
   final FloorPlanFile file;
+  final FloorPlanAnalysisResult? result;
 
   @override
   Widget build(BuildContext context) {
+    final result = this.result;
+    final message = result == null
+        ? '평면도가 선택되었습니다 · ${file.fileName}'
+        : '벽 ${result.walls.length}개 · 공간 ${result.rooms.length}개 인식됨';
+
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
       decoration: BoxDecoration(
@@ -132,7 +173,7 @@ class _StatusBanner extends StatelessWidget {
           const SizedBox(width: 8),
           Expanded(
             child: Text(
-              '평면도가 선택되었습니다 · ${file.fileName}',
+              message,
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
               style: const TextStyle(
@@ -151,11 +192,30 @@ class _StatusBanner extends StatelessWidget {
 class _AnalysisActionBar extends StatelessWidget {
   const _AnalysisActionBar({
     required this.phase,
+    required this.step,
+    required this.result,
+    required this.failureMessage,
     required this.onStartAnalysis,
   });
 
   final FloorPlanAnalysisPhase phase;
+  final FloorPlanAnalysisStep? step;
+  final FloorPlanAnalysisResult? result;
+  final String? failureMessage;
   final VoidCallback onStartAnalysis;
+
+  String get _stepLabel {
+    switch (step) {
+      case FloorPlanAnalysisStep.preparingAndWalls:
+        return '이미지를 준비하고 벽을 분석하는 중입니다...';
+      case FloorPlanAnalysisStep.roomsAndOpenings:
+        return '공간과 문/창 후보를 분석하는 중입니다...';
+      case FloorPlanAnalysisStep.finalizing:
+        return '결과를 정리하는 중입니다...';
+      case null:
+        return '평면도를 분석하는 중입니다...';
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -180,45 +240,133 @@ class _AnalysisActionBar extends StatelessWidget {
             ),
           ),
         ),
-        FloorPlanAnalysisPhase.analyzing => const Row(
+        FloorPlanAnalysisPhase.analyzing => Row(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            SizedBox(
+            const SizedBox(
               width: 16,
               height: 16,
               child: CircularProgressIndicator(strokeWidth: 2),
             ),
-            SizedBox(width: 10),
-            Text(
-              '평면도를 확인하는 중입니다...',
-              style: TextStyle(
-                fontSize: 13,
-                color: SpaceShiftColors.textSecondary,
+            const SizedBox(width: 10),
+            Expanded(
+              child: Text(
+                _stepLabel,
+                style: const TextStyle(
+                  fontSize: 13,
+                  color: SpaceShiftColors.textSecondary,
+                ),
               ),
             ),
           ],
         ),
-        FloorPlanAnalysisPhase.unavailable => const Row(
+        FloorPlanAnalysisPhase.completed => _CompletedSummary(
+          result: result,
+          onReanalyze: onStartAnalysis,
+        ),
+        FloorPlanAnalysisPhase.failed => Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Icon(
-              Icons.info_outline_rounded,
-              size: 18,
-              color: SpaceShiftColors.textSecondary,
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Icon(
+                  Icons.error_outline_rounded,
+                  size: 18,
+                  color: Colors.redAccent,
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    failureMessage ?? '평면도를 분석하지 못했습니다.',
+                    style: const TextStyle(
+                      fontSize: 12.5,
+                      color: SpaceShiftColors.textPrimary,
+                      height: 1.4,
+                    ),
+                  ),
+                ),
+              ],
             ),
-            SizedBox(width: 8),
-            Expanded(
-              child: Text(
-                '평면도 분석 기능은 아직 준비 중입니다. 업로드한 평면도는 그대로 확인할 수 있습니다.',
-                style: TextStyle(
-                  fontSize: 12.5,
-                  color: SpaceShiftColors.textSecondary,
-                  height: 1.4,
+            const SizedBox(height: 10),
+            SizedBox(
+              width: double.infinity,
+              child: OutlinedButton.icon(
+                onPressed: onStartAnalysis,
+                icon: const Icon(Icons.refresh_rounded, size: 18),
+                label: const Text('다시 시도'),
+                style: OutlinedButton.styleFrom(
+                  minimumSize: const Size.fromHeight(40),
+                  foregroundColor: SpaceShiftColors.textPrimary,
+                  side: const BorderSide(color: SpaceShiftColors.border),
                 ),
               ),
             ),
           ],
         ),
       },
+    );
+  }
+}
+
+class _CompletedSummary extends StatelessWidget {
+  const _CompletedSummary({required this.result, required this.onReanalyze});
+
+  final FloorPlanAnalysisResult? result;
+  final VoidCallback onReanalyze;
+
+  @override
+  Widget build(BuildContext context) {
+    final result = this.result;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            const Icon(
+              Icons.check_circle_outline_rounded,
+              size: 18,
+              color: Color(0xFF22C55E),
+            ),
+            const SizedBox(width: 8),
+            const Expanded(
+              child: Text(
+                '벽/공간 후보를 캔버스 위에 표시했습니다. 항목을 눌러 확인해보세요.',
+                style: TextStyle(
+                  fontSize: 12.5,
+                  color: SpaceShiftColors.textPrimary,
+                  height: 1.4,
+                ),
+              ),
+            ),
+          ],
+        ),
+        if (result != null && result.warnings.isNotEmpty) ...[
+          const SizedBox(height: 6),
+          for (final warning in result.warnings)
+            Padding(
+              padding: const EdgeInsets.only(left: 26, top: 2),
+              child: Text(
+                warning,
+                style: const TextStyle(fontSize: 12, color: Color(0xFFB45309)),
+              ),
+            ),
+        ],
+        const SizedBox(height: 10),
+        SizedBox(
+          width: double.infinity,
+          child: OutlinedButton.icon(
+            onPressed: onReanalyze,
+            icon: const Icon(Icons.refresh_rounded, size: 18),
+            label: const Text('다시 분석'),
+            style: OutlinedButton.styleFrom(
+              minimumSize: const Size.fromHeight(40),
+              foregroundColor: SpaceShiftColors.textPrimary,
+              side: const BorderSide(color: SpaceShiftColors.border),
+            ),
+          ),
+        ),
+      ],
     );
   }
 }

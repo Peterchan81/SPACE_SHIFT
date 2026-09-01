@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../models/floor_plan_file.dart';
+import '../models/floor_plan_geometry.dart';
 import '../models/workspace_task_item.dart';
 import '../services/floor_plan_analysis_service.dart';
 import '../services/floor_plan_upload_service.dart';
@@ -65,6 +66,18 @@ class _FloorPlanWorkspaceScreenState extends State<FloorPlanWorkspaceScreen> {
 
   FloorPlanFile? _floorPlanFile;
   FloorPlanAnalysisPhase _analysisPhase = FloorPlanAnalysisPhase.notStarted;
+  FloorPlanAnalysisStep? _analysisStep;
+  FloorPlanAnalysisResult? _analysisResult;
+  String? _analysisFailureMessage;
+
+  /// 작업(task) id → 그 작업에 속한 분석 geometry id들. "외벽"/"내벽"/
+  /// "문 후보"/"창 후보"는 여러 geometry를 한 작업으로 묶고, 공간은
+  /// geometry 하나당 작업 하나다(WO 12번).
+  Map<int, Set<String>> _analysisGroupMembers = {};
+
+  /// geometry id → 그 geometry가 속한 작업 id. 오버레이에서 벽/공간/문·창
+  /// 을 탭했을 때 어떤 작업을 선택할지 찾는 역방향 조회용.
+  Map<String, int> _geometryOwnerTask = {};
 
   final List<List<WorkspaceTaskItem>> _undoStack = [];
   final List<List<WorkspaceTaskItem>> _redoStack = [];
@@ -76,24 +89,217 @@ class _FloorPlanWorkspaceScreenState extends State<FloorPlanWorkspaceScreen> {
     _selectedTaskId = _tasks.isEmpty ? null : _tasks.first.id;
   }
 
-  /// "① 평면도 업로드" 카드/캔버스의 업로드 버튼 공용 핸들러.
+  /// "① 평면도 업로드" 카드/캔버스의 업로드 버튼 공용 핸들러. 새 파일을
+  /// 고르면 이전 파일에 대한 분석 결과/작업 목록은 더 이상 유효하지
+  /// 않으므로 함께 초기화한다.
   Future<void> _pickFloorPlan() async {
     final file = await widget.uploadService.pickFloorPlanFile();
     if (file == null || !mounted) return;
     setState(() {
       _floorPlanFile = file;
       _analysisPhase = FloorPlanAnalysisPhase.notStarted;
+      _analysisStep = null;
+      _analysisResult = null;
+      _analysisFailureMessage = null;
+      _analysisGroupMembers = {};
+      _geometryOwnerTask = {};
+      _tasks = widget.demoMode ? _demoTasks() : const [];
+      _selectedTaskId = _tasks.isEmpty ? null : _tasks.first.id;
+      _undoStack.clear();
+      _redoStack.clear();
     });
   }
 
-  /// "평면도 분석 시작" — 실제 분석 백엔드가 없으므로 항상 "준비 중"으로
-  /// 끝난다(가짜 분석 완료 결과를 만들지 않는다, WO 7-B).
+  /// "평면도 분석 시작" — 실제 CV 파이프라인(FloorPlanAnalysisService)을
+  /// 호출해 벽/공간/문·창 후보를 계산하고, 그 결과로 작업 목록을 새로
+  /// 만든다. 실패하면 원본 이미지는 그대로 두고 실패 이유만 보여준다
+  /// (가짜 분석 완료를 만들지 않는다).
   Future<void> _startAnalysis() async {
-    if (_floorPlanFile == null) return;
-    setState(() => _analysisPhase = FloorPlanAnalysisPhase.analyzing);
-    final phase = await widget.analysisService.analyze(_floorPlanFile!);
+    final file = _floorPlanFile;
+    if (file == null) return;
+
+    setState(() {
+      _analysisPhase = FloorPlanAnalysisPhase.analyzing;
+      _analysisStep = FloorPlanAnalysisStep.preparingAndWalls;
+      _analysisFailureMessage = null;
+    });
+
+    final outcome = await widget.analysisService.analyze(
+      file,
+      onStep: (step) {
+        if (mounted) setState(() => _analysisStep = step);
+      },
+    );
     if (!mounted) return;
-    setState(() => _analysisPhase = phase);
+
+    if (outcome.isSuccess) {
+      final result = outcome.result!;
+      final generated = _buildAnalysisTasks(result);
+      setState(() {
+        _analysisPhase = FloorPlanAnalysisPhase.completed;
+        _analysisResult = result;
+        _analysisStep = null;
+        _tasks = generated.tasks;
+        _analysisGroupMembers = generated.groupMembers;
+        _geometryOwnerTask = generated.geometryOwnerTask;
+        _selectedTaskId = null;
+        _undoStack.clear();
+        _redoStack.clear();
+      });
+    } else {
+      setState(() {
+        _analysisPhase = FloorPlanAnalysisPhase.failed;
+        _analysisFailureMessage = outcome.message;
+        _analysisStep = null;
+      });
+    }
+  }
+
+  /// 분석 결과를 "상위 객체 기준" 작업 목록으로 묶는다 — line segment
+  /// 하나하나가 아니라 외벽/내벽/공간/문 후보/창 후보 단위로 만든다
+  /// (WO 12번). 실제 mm 치수는 아직 모르므로 heightMm/widthMm/thicknessMm은
+  /// 채우지 않고 null(미설정)로 둔다(WO 17/18번).
+  ({
+    List<WorkspaceTaskItem> tasks,
+    Map<int, Set<String>> groupMembers,
+    Map<String, int> geometryOwnerTask,
+  })
+  _buildAnalysisTasks(FloorPlanAnalysisResult result) {
+    final tasks = <WorkspaceTaskItem>[];
+    final groupMembers = <int, Set<String>>{};
+    final geometryOwnerTask = <String, int>{};
+    var nextId = 1;
+    var number = 1;
+
+    void addGroup({
+      required String name,
+      required WorkspaceTaskCategory category,
+      required String finishLabel,
+      required Color color,
+      required Set<String> geometryIds,
+      required Offset markerPosition,
+    }) {
+      if (geometryIds.isEmpty) return;
+      final id = nextId++;
+      tasks.add(
+        WorkspaceTaskItem(
+          id: id,
+          number: number++,
+          name: name,
+          category: category,
+          finishLabel: finishLabel,
+          color: color,
+          markerPosition: markerPosition,
+        ),
+      );
+      groupMembers[id] = geometryIds;
+      for (final geometryId in geometryIds) {
+        geometryOwnerTask[geometryId] = id;
+      }
+    }
+
+    final exteriorWalls = result.walls.where((w) => w.isExterior).toList();
+    final interiorWalls = result.walls.where((w) => !w.isExterior).toList();
+
+    addGroup(
+      name: '외벽',
+      category: WorkspaceTaskCategory.wall,
+      finishLabel: WorkspaceTaskCategory.wall.finishOptions.first,
+      color: const Color(0xFFB98A5C),
+      geometryIds: exteriorWalls.map((w) => w.id).toSet(),
+      markerPosition: _centroidOfWalls(exteriorWalls),
+    );
+    addGroup(
+      name: '내벽',
+      category: WorkspaceTaskCategory.wall,
+      finishLabel: WorkspaceTaskCategory.wall.finishOptions.first,
+      color: const Color(0xFFF2EEE9),
+      geometryIds: interiorWalls.map((w) => w.id).toSet(),
+      markerPosition: _centroidOfWalls(interiorWalls),
+    );
+
+    var roomNumber = 1;
+    for (final room in result.rooms) {
+      addGroup(
+        name: '공간 $roomNumber',
+        category: WorkspaceTaskCategory.floor,
+        finishLabel: WorkspaceTaskCategory.floor.finishOptions.first,
+        color: const Color(0xFFE3E7E9),
+        geometryIds: {room.id},
+        markerPosition: _centroidOfPolygon(room.polygon),
+      );
+      roomNumber++;
+    }
+
+    final doors = result.openings
+        .where((o) => o.type == OpeningType.door)
+        .toList();
+    final windows = result.openings
+        .where((o) => o.type != OpeningType.door)
+        .toList();
+
+    addGroup(
+      name: '문 후보',
+      category: WorkspaceTaskCategory.door,
+      finishLabel: WorkspaceTaskCategory.door.finishOptions.first,
+      color: const Color(0xFFD8C3A5),
+      geometryIds: doors.map((o) => o.id).toSet(),
+      markerPosition: _centroidOfOpenings(doors),
+    );
+    addGroup(
+      name: '창 후보',
+      category: WorkspaceTaskCategory.window,
+      finishLabel: WorkspaceTaskCategory.window.finishOptions.first,
+      color: const Color(0xFFA9ADB2),
+      geometryIds: windows.map((o) => o.id).toSet(),
+      markerPosition: _centroidOfOpenings(windows),
+    );
+
+    return (
+      tasks: tasks,
+      groupMembers: groupMembers,
+      geometryOwnerTask: geometryOwnerTask,
+    );
+  }
+
+  Offset _centroidOfWalls(List<WallSegment> walls) {
+    if (walls.isEmpty) return const Offset(0.5, 0.5);
+    var sx = 0.0, sy = 0.0;
+    for (final wall in walls) {
+      sx += (wall.start.x + wall.end.x) / 2;
+      sy += (wall.start.y + wall.end.y) / 2;
+    }
+    return Offset(sx / walls.length, sy / walls.length);
+  }
+
+  Offset _centroidOfPolygon(List<Point2> polygon) {
+    if (polygon.isEmpty) return const Offset(0.5, 0.5);
+    var sx = 0.0, sy = 0.0;
+    for (final p in polygon) {
+      sx += p.x;
+      sy += p.y;
+    }
+    return Offset(sx / polygon.length, sy / polygon.length);
+  }
+
+  Offset _centroidOfOpenings(List<OpeningCandidate> openings) {
+    if (openings.isEmpty) return const Offset(0.5, 0.5);
+    var sx = 0.0, sy = 0.0;
+    for (final o in openings) {
+      sx += o.center.x;
+      sy += o.center.y;
+    }
+    return Offset(sx / openings.length, sy / openings.length);
+  }
+
+  /// 캔버스 오버레이에서 벽/공간/문·창 geometry를 탭했을 때 호출된다 —
+  /// 그 geometry가 속한 작업을 선택해, 작업 목록/우측 패널과 동일한
+  /// 선택 상태를 공유한다(WO 11번).
+  void _onSelectAnalysisObject(String geometryId) {
+    final ownerTaskId = _geometryOwnerTask[geometryId];
+    if (ownerTaskId != null) {
+      setState(() => _selectedTaskId = ownerTaskId);
+    }
   }
 
   static List<WorkspaceTaskItem> _demoTasks() => [
@@ -173,6 +379,9 @@ class _FloorPlanWorkspaceScreenState extends State<FloorPlanWorkspaceScreen> {
 
   WorkspaceTaskItem? get _selectedTask =>
       _tasks.where((task) => task.id == _selectedTaskId).firstOrNull;
+
+  Set<String> get _selectedAnalysisObjectIds =>
+      _analysisGroupMembers[_selectedTaskId] ?? const {};
 
   void _mutate(
     List<WorkspaceTaskItem> Function(List<WorkspaceTaskItem>) mutator,
@@ -368,6 +577,7 @@ class _FloorPlanWorkspaceScreenState extends State<FloorPlanWorkspaceScreen> {
             onUndo: _undo,
             onRedo: _redo,
             onAiAssistantTap: _onAiAssistantTap,
+            analysisDebugStats: _analysisResult?.debugStats,
           ),
         ),
       ],
@@ -404,8 +614,13 @@ class _FloorPlanWorkspaceScreenState extends State<FloorPlanWorkspaceScreen> {
               viewMode: _viewMode,
               floorPlanFile: _floorPlanFile,
               analysisPhase: _analysisPhase,
+              analysisStep: _analysisStep,
+              analysisResult: _analysisResult,
+              analysisFailureMessage: _analysisFailureMessage,
+              selectedAnalysisObjectIds: _selectedAnalysisObjectIds,
               onPickFloorPlanFile: _pickFloorPlan,
               onStartAnalysis: _startAnalysis,
+              onSelectAnalysisObject: _onSelectAnalysisObject,
             ),
           ),
           const SizedBox(height: 12),
@@ -452,6 +667,7 @@ class _FloorPlanWorkspaceScreenState extends State<FloorPlanWorkspaceScreen> {
               onUndo: _undo,
               onRedo: _redo,
               onAiAssistantTap: _onAiAssistantTap,
+              analysisDebugStats: _analysisResult?.debugStats,
             ),
           ),
         ],
@@ -478,8 +694,13 @@ class _FloorPlanWorkspaceScreenState extends State<FloorPlanWorkspaceScreen> {
             viewMode: _viewMode,
             floorPlanFile: _floorPlanFile,
             analysisPhase: _analysisPhase,
+            analysisStep: _analysisStep,
+            analysisResult: _analysisResult,
+            analysisFailureMessage: _analysisFailureMessage,
+            selectedAnalysisObjectIds: _selectedAnalysisObjectIds,
             onPickFloorPlanFile: _pickFloorPlan,
             onStartAnalysis: _startAnalysis,
+            onSelectAnalysisObject: _onSelectAnalysisObject,
           ),
         ),
         const SizedBox(height: 12),
@@ -525,7 +746,15 @@ class _FloorPlanWorkspaceScreenState extends State<FloorPlanWorkspaceScreen> {
     final id = _selectedTaskId;
     if (id == null) return;
     _mutate((tasks) => tasks.where((t) => t.id != id).toList());
-    setState(() => _selectedTaskId = null);
+    setState(() {
+      _selectedTaskId = null;
+      final members = _analysisGroupMembers.remove(id);
+      if (members != null) {
+        for (final geometryId in members) {
+          _geometryOwnerTask.remove(geometryId);
+        }
+      }
+    });
   }
 
   Future<void> _showRenameDialog(WorkspaceTaskItem? task) async {

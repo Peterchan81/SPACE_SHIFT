@@ -3,8 +3,11 @@ import 'package:flutter/material.dart';
 import '../../theme/space_shift_colors.dart';
 
 /// "사이즈" 카드 — 선택 대상에 따라 필드가 달라질 수 있는 adaptive 구조.
-/// 이번 화면(벽 대상)에서는 높이/너비/두께를 값 입력 + 간단한 도식
-/// preview와 함께 보여준다.
+///
+/// 값이 null이면 "미설정"으로 정직하게 보여준다 — 평면도 실제 분석으로
+/// 만들어진 항목은 아직 실제 축척(scale)을 모르기 때문에 mm 값을 임의로
+/// 추정해 채우지 않는다(WO 17번). 사용자가 직접 값을 입력하면 그 값을
+/// 그대로 반영한다.
 class SizeEditor extends StatelessWidget {
   const SizeEditor({
     super.key,
@@ -16,9 +19,9 @@ class SizeEditor extends StatelessWidget {
     required this.onThicknessChanged,
   });
 
-  final double heightMm;
-  final double widthMm;
-  final double thicknessMm;
+  final double? heightMm;
+  final double? widthMm;
+  final double? thicknessMm;
   final ValueChanged<double> onHeightChanged;
   final ValueChanged<double> onWidthChanged;
   final ValueChanged<double> onThicknessChanged;
@@ -93,7 +96,7 @@ class _SizeField extends StatefulWidget {
   });
 
   final String label;
-  final double value;
+  final double? value;
   final ValueChanged<double> onChanged;
 
   @override
@@ -102,13 +105,13 @@ class _SizeField extends StatefulWidget {
 
 class _SizeFieldState extends State<_SizeField> {
   late final TextEditingController _controller = TextEditingController(
-    text: widget.value.toStringAsFixed(0),
+    text: widget.value?.toStringAsFixed(0) ?? '',
   );
 
   @override
   void didUpdateWidget(covariant _SizeField oldWidget) {
     super.didUpdateWidget(oldWidget);
-    final text = widget.value.toStringAsFixed(0);
+    final text = widget.value?.toStringAsFixed(0) ?? '';
     if (_controller.text != text) {
       _controller.text = text;
     }
@@ -147,6 +150,7 @@ class _SizeFieldState extends State<_SizeField> {
                 horizontal: 10,
                 vertical: 10,
               ),
+              hintText: '미설정',
               suffixText: 'mm',
             ),
             onChanged: (text) {
@@ -168,9 +172,9 @@ class _SizeDiagram extends StatelessWidget {
     required this.thicknessMm,
   });
 
-  final double heightMm;
-  final double widthMm;
-  final double thicknessMm;
+  final double? heightMm;
+  final double? widthMm;
+  final double? thicknessMm;
 
   /// 도식 박스 한 변의 최대 길이(px). 라벨 텍스트 폭까지 감안해 Row 안에서
   /// 절대 넘치지 않도록, AspectRatio 대신 두 변 모두 이 값 이하로 직접
@@ -179,7 +183,12 @@ class _SizeDiagram extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final ratio = widthMm <= 0 ? 1.0 : (heightMm / widthMm).clamp(0.4, 2.2);
+    final height = heightMm;
+    final width = widthMm;
+    final thickness = thicknessMm;
+    final ratio = (width == null || width <= 0 || height == null)
+        ? 1.0
+        : (height / width).clamp(0.4, 2.2);
     final boxWidth = ratio >= 1 ? _maxBoxDimension / ratio : _maxBoxDimension;
     final boxHeight = ratio >= 1 ? _maxBoxDimension : _maxBoxDimension * ratio;
 
@@ -195,7 +204,7 @@ class _SizeDiagram extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.center,
               children: [
                 Text(
-                  heightMm.toStringAsFixed(0),
+                  height?.toStringAsFixed(0) ?? '-',
                   style: const TextStyle(
                     fontSize: 10,
                     color: SpaceShiftColors.textSecondary,
@@ -216,7 +225,7 @@ class _SizeDiagram extends StatelessWidget {
           ),
           const SizedBox(height: 4),
           Text(
-            '${widthMm.toStringAsFixed(0)} × ${thicknessMm.toStringAsFixed(0)}',
+            '${width?.toStringAsFixed(0) ?? '-'} × ${thickness?.toStringAsFixed(0) ?? '-'}',
             style: const TextStyle(
               fontSize: 10,
               color: SpaceShiftColors.textSecondary,

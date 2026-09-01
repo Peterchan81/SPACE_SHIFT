@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../../models/floor_plan_geometry.dart';
 import '../../models/workspace_task_item.dart';
 import '../../theme/space_shift_colors.dart';
 import 'display_tab.dart';
@@ -56,12 +57,14 @@ class UserWorkspacePanel extends StatefulWidget {
     required this.onUndo,
     required this.onRedo,
     required this.onAiAssistantTap,
+    this.analysisDebugStats,
   });
 
   final WorkspaceTaskItem? task;
   final String projectName;
   final int taskCount;
   final int visibleTaskCount;
+  final FloorPlanAnalysisDebugStats? analysisDebugStats;
 
   final WorkspaceSelectionTool selectedTool;
   final ValueChanged<WorkspaceSelectionTool> onToolSelected;
@@ -187,6 +190,7 @@ class _UserWorkspacePanelState extends State<UserWorkspacePanel> {
           projectName: widget.projectName,
           taskCount: widget.taskCount,
           visibleTaskCount: widget.visibleTaskCount,
+          analysisDebugStats: widget.analysisDebugStats,
         );
     }
   }
