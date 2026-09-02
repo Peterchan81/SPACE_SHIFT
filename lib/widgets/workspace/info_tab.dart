@@ -71,6 +71,16 @@ class InfoTab extends StatelessWidget {
               ),
               _InfoRow(label: '병합된 벽', value: '${debugStats.mergedWallCount}개'),
               _InfoRow(
+                label: '제외된 벽 후보(두께 초과)',
+                value: '${debugStats.rejectedWallCount}개',
+              ),
+              _InfoRow(
+                label: '추정 회전 보정',
+                value: debugStats.rotationDegrees == 0
+                    ? '없음(이미 축 정렬됨)'
+                    : '${debugStats.rotationDegrees.toStringAsFixed(1)}°',
+              ),
+              _InfoRow(
                 label: '공간 후보',
                 value: '${debugStats.roomCandidateCount}개',
               ),

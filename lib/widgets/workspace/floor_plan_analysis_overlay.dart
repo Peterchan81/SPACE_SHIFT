@@ -146,6 +146,26 @@ class FloorPlanAnalysisOverlay extends StatelessWidget {
   }
 }
 
+/// [_AnalysisOverlayPainter]의 거부된 벽 후보 표시 전용 — 실선(실제 벽)과
+/// 혼동되지 않도록 일정 간격으로 끊어 그린다.
+void _drawDashedLine(Canvas canvas, Offset a, Offset b, Paint paint) {
+  const dashLength = 6.0;
+  const gapLength = 4.0;
+  final total = (b - a).distance;
+  if (total == 0) return;
+  final direction = (b - a) / total;
+  var drawn = 0.0;
+  while (drawn < total) {
+    final segmentEnd = math.min(drawn + dashLength, total);
+    canvas.drawLine(
+      a + direction * drawn,
+      a + direction * segmentEnd,
+      paint,
+    );
+    drawn = segmentEnd + gapLength;
+  }
+}
+
 double _distanceToSegment(Point2 p, Point2 a, Point2 b) {
   final abx = b.x - a.x;
   final aby = b.y - a.y;
@@ -193,6 +213,23 @@ class _AnalysisOverlayPainter extends CustomPainter {
     }
 
     final referenceDim = math.max(transform.rect.width, transform.rect.height);
+
+    // PC2 2D CAD 재조사 WO — 두께 필터에 걸려 최종 벽 후보에서 제외된
+    // band를 점선으로 함께 그린다. "왜 저 어두운 영역이 벽이 안
+    // 됐는지"를 개발자가 눈으로 바로 확인하기 위한 진단 전용 레이어라,
+    // 실제 벽(굵은 실선)과 확실히 구분되는 얇은 대시선 + 경고색만 쓴다.
+    for (final rejected in result.rejectedWalls) {
+      _drawDashedLine(
+        canvas,
+        transform.mapNormalized(rejected.start),
+        transform.mapNormalized(rejected.end),
+        Paint()
+          ..strokeCap = StrokeCap.round
+          ..strokeWidth = 2
+          ..color = const Color(0xFFDC2626).withValues(alpha: 0.55),
+      );
+    }
+
     for (final wall in result.walls) {
       final selected = selectedIds.contains(wall.id);
       final p1 = transform.mapNormalized(wall.start);

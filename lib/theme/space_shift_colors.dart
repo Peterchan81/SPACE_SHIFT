@@ -26,4 +26,23 @@ abstract final class SpaceShiftColors {
   static const Color border = Color(0xFFE4E7EB);
   static const Color surface = Colors.white;
   static const Color background = Colors.white;
+
+  /// PC2 2D CAD 재조사 WO — 공간(방) 번호/채움 색에 쓰는 순환 강조색.
+  /// [WorkspaceTaskItem]의 번호 marker(`workspaceMarkerColors`)와 같은
+  /// rainbow accent 팔레트를 공유해, "번호 하나 = accent 색 하나"라는
+  /// 언어가 작업 목록과 도면 공간 번호 사이에서 일관되게 보이도록 한다.
+  /// 도면 위에서는 항상 낮은 alpha로만 채워 벽선 가독성을 해치지 않는다.
+  static const List<Color> roomAccentColors = [
+    Color(0xFFEC4899), // pink/red
+    Color(0xFFFB923C), // orange
+    Color(0xFFEAB308), // yellow
+    Color(0xFF22C55E), // green
+    Color(0xFF22D3EE), // cyan
+    Color(0xFF6366F1), // blue/purple
+  ];
+
+  /// [index]는 0부터 시작(공간 목록 순번-1과 동일) — 팔레트보다 방이
+  /// 많으면 순환한다.
+  static Color roomAccentColorFor(int index) =>
+      roomAccentColors[index % roomAccentColors.length];
 }

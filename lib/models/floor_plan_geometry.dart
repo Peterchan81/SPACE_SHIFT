@@ -143,6 +143,34 @@ class OpeningCandidate {
   }
 }
 
+/// [RejectedWallCandidate]가 벽 후보에서 걸러진 이유 — 지금은 두께 필터
+/// (채워진 가구/해칭 블록 등)뿐이지만, 향후 다른 필터가 추가되면 값을
+/// 늘린다.
+enum RejectedWallReason { tooThick }
+
+/// 벽 band로 병합됐지만 최종 벽 후보에서 제외된 구간 — PC2 2D CAD
+/// 재조사(사용자 실기 FAIL 원인 진단) WO. 실제 제품 동작에는 전혀
+/// 영향을 주지 않는다(최종 [WallSegment]/[CadWall] 목록에는 들어가지
+/// 않는다) — 오직 "분석 확인"(개발자용) 디버그 오버레이에서만, 원본
+/// 도면의 어떤 어두운 영역이 왜 벽으로 인정되지 않았는지 보여주기
+/// 위한 진단 전용 데이터다.
+@immutable
+class RejectedWallCandidate {
+  const RejectedWallCandidate({
+    required this.id,
+    required this.start,
+    required this.end,
+    required this.thicknessNormalized,
+    required this.reason,
+  });
+
+  final String id;
+  final Point2 start;
+  final Point2 end;
+  final double thicknessNormalized;
+  final RejectedWallReason reason;
+}
+
 /// 닫힌 영역(방/공간) 후보.
 ///
 /// 2D 정확도 개선 WO(8번) — [FloorPlanAnalysisEngine]이 flood-fill로 찾은
@@ -208,6 +236,8 @@ class FloorPlanAnalysisDebugStats {
     required this.roomCandidateCount,
     required this.openingCandidateCount,
     required this.durationMs,
+    this.rejectedWallCount = 0,
+    this.rotationDegrees = 0,
   });
 
   final int sourceWidthPx;
@@ -220,6 +250,14 @@ class FloorPlanAnalysisDebugStats {
   final int roomCandidateCount;
   final int openingCandidateCount;
   final int durationMs;
+
+  /// 두께 필터에 걸려 최종 벽 후보에서 제외된 band 수(진단 전용,
+  /// [RejectedWallCandidate] 참고).
+  final int rejectedWallCount;
+
+  /// PC2 2D CAD 재조사 WO — 추정된 지배적 회전 보정각(도). 0이면 도면이
+  /// 이미 이미지 축에 잘 맞아 회전 보정이 적용되지 않았다는 뜻이다.
+  final double rotationDegrees;
 }
 
 /// 평면도 한 장을 분석한 결과 전체.
@@ -233,6 +271,7 @@ class FloorPlanAnalysisResult {
     required this.rooms,
     required this.warnings,
     required this.debugStats,
+    this.rejectedWalls = const [],
   });
 
   /// 원본(다운샘플 전) 이미지 픽셀 크기 — 화면에 실제로 그려지는
@@ -250,6 +289,10 @@ class FloorPlanAnalysisResult {
 
   final FloorPlanAnalysisDebugStats debugStats;
 
+  /// 벽 후보에서 걸러진 band — [RejectedWallCandidate] 참고. 진단
+  /// 전용이며 기본값(빈 목록)이면 기존 호출부는 아무 변화가 없다.
+  final List<RejectedWallCandidate> rejectedWalls;
+
   FloorPlanAnalysisResult copyWithWalls(List<WallSegment> walls) {
     return FloorPlanAnalysisResult(
       sourceWidthPx: sourceWidthPx,
@@ -259,6 +302,7 @@ class FloorPlanAnalysisResult {
       rooms: rooms,
       warnings: warnings,
       debugStats: debugStats,
+      rejectedWalls: rejectedWalls,
     );
   }
 }

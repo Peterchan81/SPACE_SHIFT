@@ -17,15 +17,25 @@ import '../models/floor_plan_geometry.dart';
 //   1. 이미지 디코드 → 최대 900px로 다운샘플(원본 비율 유지)
 //   2. 픽셀별 luminance로 grayscale 값 계산
 //   3. Otsu 방법으로 이진화 임계값을 실제 히스토그램에서 계산(하드코딩 아님)
-//   4. 이진화된 "어두운 픽셀"을 행/열 방향으로 run-length 스캔해 직선 후보 추출
+//   3.5. (PC2 2D CAD 재조사 WO) 이미지 전체에 공통으로 적용되는 지배적
+//      회전각을 추정해 "레벨을 맞춘" 작업 캔버스를 만든다 — 실제 촬영/
+//      스캔된 평면도는 건물 구조 전체가 이미지 축과 어긋난 경우가 흔하기
+//      때문이다. 이미 축에 잘 맞는 도면은 이 단계가 항등 변환이다.
+//   4. 이진화된 "어두운 픽셀"을 (회전 보정된) 행/열 방향으로 run-length
+//      스캔해 직선 후보 추출
 //   5. 인접한 run을 겹침 기준으로 병합해 벽 band(두께 포함)로 그룹화
 //   6. 같은 direction·같은 중심선의 인접 band 사이 gap을 문/창 후보로 추출
 //   7. (2단계 isolate 호출) 벽이 아닌(밝은) 영역을 flood fill로 연결
 //      요소를 찾아 이미지 경계에 닿지 않는 요소를 방 후보(경계 사각형)로 추출
 //
-// 이번 1차 구현은 Hough 변환이 아니라 "run-length 기반 축 정렬 직선 추출"이다
-// — 평면도가 대체로 수평/수직 벽으로 이루어진다는 전제를 쓴다. 사선 벽은
-// 이번 단계에서 검출하지 못한다(한계로 보고).
+// 이번 구현은 Hough 변환이 아니라 "run-length 기반 축 정렬 직선 추출"에
+// 지배적 회전각 보정(deskew) 한 겹을 더한 것이다 — 평면도가 대체로
+// 서로 수직/수평으로 맞물린 벽으로 이루어진다는 전제(대부분의 실제
+// 평면도가 이 전제를 만족한다)를 쓰되, 그 전체 구조가 이미지 축 자체와는
+// 몇 도 어긋나 있어도 된다. 축 정렬이 아닌, 벽마다 각도가 다른 진짜
+// 비정형 구조(한 벽만 45도로 꺾인 경우 등)는 이번 단계에서도 그 벽만은
+// 검출하지 못한다(한계로 보고) — 다만 그 벽의 두 이웃 벽이 여전히
+// 서로 수직/수평이면 방 전체가 통째로 사라지지는 않는다.
 
 const int kMaxAnalysisDimension = 900;
 const int kMinSourceDimension = 200;
@@ -46,9 +56,11 @@ class WallStageResult {
       mask = null,
       walls = const [],
       openings = const [],
+      rejectedWalls = const [],
       rawHorizontalRuns = 0,
       rawVerticalRuns = 0,
-      elapsedMs = 0;
+      elapsedMs = 0,
+      rotationDegrees = 0;
 
   const WallStageResult.success({
     required this.sourceWidthPx,
@@ -61,6 +73,8 @@ class WallStageResult {
     required this.rawHorizontalRuns,
     required this.rawVerticalRuns,
     required this.elapsedMs,
+    this.rejectedWalls = const [],
+    this.rotationDegrees = 0,
   }) : failureReason = null;
 
   final FloorPlanAnalysisFailureReason? failureReason;
@@ -73,9 +87,19 @@ class WallStageResult {
   final Uint8List? mask;
   final List<WallSegment> walls;
   final List<OpeningCandidate> openings;
+
+  /// PC2 2D CAD 재조사 WO — 벽 band로 병합됐지만 두께 필터에 걸려
+  /// 최종 벽 후보에서 제외된 구간(진단 전용, [walls]/[mask]에는 전혀
+  /// 영향을 주지 않는다). "분석 확인" 디버그 오버레이에서만 쓰인다.
+  final List<RejectedWallCandidate> rejectedWalls;
   final int rawHorizontalRuns;
   final int rawVerticalRuns;
   final int elapsedMs;
+
+  /// PC2 2D CAD 재조사 WO — 추정된 지배적 회전 보정각(도). 0이면 이미지가
+  /// 축에 잘 맞아 회전 보정이 적용되지 않았다는 뜻(진단/정보 표시 전용,
+  /// geometry 자체는 항상 이미 원본 이미지 좌표계로 보정되어 있다).
+  final double rotationDegrees;
 
   bool get isSuccess => failureReason == null;
 }
@@ -165,35 +189,89 @@ WallStageResult detectWallsAndOpenings(WallStageInput input) {
     mask[i] = luminance[i] <= threshold ? 1 : 0;
   }
 
-  final diagonal = math.sqrt(w * w + h * h);
-  final minRunLen = diagonal * 0.02 < 6 ? 6 : (diagonal * 0.02).round();
+  // PC2 2D CAD 재조사 WO(핵심 후보로 지목된 axis-aligned 전용 한계) —
+  // run-length 스캔은 완전한 수평/수직 벽만 검출한다. 실제 촬영/스캔된
+  // 평면도는 건물 구조 전체가 이미지 축과 몇 도씩 어긋나 있는 경우가
+  // 흔하고, 그 경우 벽 대부분을 그냥 놓쳤다(실기 재현: "실제 벽이
+  // 대량 누락됨"). 이미지 전체에 공통으로 적용되는 지배적 회전각
+  // 하나를 추정해, 그 각으로 "레벨을 맞춘" 확장 작업 캔버스에서 기존에
+  // 이미 검증된 run-length/band 파이프라인을 그대로 재사용하고, 결과
+  // 좌표만 원본 이미지 좌표계로 되돌린다 — 겹침 병합/두께 필터/
+  // saddle-point 안전 경계 추적 같은 기존 로직을 다시 만들지 않는다.
+  // 이미 축에 잘 맞는 도면(추정 회전각이 사실상 0)은 이 경로 전체가
+  // 항등 변환이라 기존 동작과 완전히 같다(회귀 없음 — 모든 기존
+  // synthetic 테스트가 이 경로를 검증한다).
+  final rotationDeg = _estimateDominantRotationDegrees(mask, w, h);
+  final rotationRad = rotationDeg * math.pi / 180;
+
+  final Uint8List workingMask;
+  final int workingW;
+  final int workingH;
+  if (rotationDeg == 0) {
+    workingMask = mask;
+    workingW = w;
+    workingH = h;
+  } else {
+    final expanded = _expandedCanvasSize(w, h, rotationRad);
+    workingW = expanded.w;
+    workingH = expanded.h;
+    workingMask = _resampleMask(
+      source: mask,
+      sourceW: w,
+      sourceH: h,
+      destW: workingW,
+      destH: workingH,
+      destToSource: (dx, dy) => _undoDeskewPoint(
+        x: dx,
+        y: dy,
+        originalW: w,
+        originalH: h,
+        rotatedW: workingW,
+        rotatedH: workingH,
+        angleRad: rotationRad,
+      ),
+    );
+  }
+
+  final workingDiagonal = math.sqrt(
+    workingW * workingW + workingH * workingH,
+  );
+  final originalDiagonal = math.sqrt(w * w + h * h);
+  final minRunLen = workingDiagonal * 0.02 < 6
+      ? 6
+      : (workingDiagonal * 0.02).round();
 
   final rawHorizontal = _scanRuns(
-    mask,
-    w,
-    h,
+    workingMask,
+    workingW,
+    workingH,
     horizontal: true,
     minRunLen: minRunLen,
   );
   final rawVertical = _scanRuns(
-    mask,
-    w,
-    h,
+    workingMask,
+    workingW,
+    workingH,
     horizontal: false,
     minRunLen: minRunLen,
   );
 
-  final maxThicknessPx = (math.max(w, h) * 0.06).round();
+  final maxThicknessPx = (math.max(workingW, workingH) * 0.06).round();
+  final rejectedHorizontalBands = <_WallBand>[];
+  final rejectedVerticalBands = <_WallBand>[];
   final horizontalBands = _mergeRunsToBands(
     rawHorizontal,
     maxThicknessPx: maxThicknessPx,
+    rejectedOut: rejectedHorizontalBands,
   );
   final verticalBands = _mergeRunsToBands(
     rawVertical,
     maxThicknessPx: maxThicknessPx,
+    rejectedOut: rejectedVerticalBands,
   );
 
-  // 검출된 모든 벽 band를 감싸는 bounding box — 외벽 후보 판정 기준.
+  // 검출된 모든 벽 band를 감싸는 bounding box(작업 캔버스 기준) — 외벽
+  // 후보 판정 기준.
   var minX = double.infinity;
   var maxX = double.negativeInfinity;
   var minY = double.infinity;
@@ -210,7 +288,42 @@ WallStageResult detectWallsAndOpenings(WallStageInput input) {
     minX = math.min(minX, b.crossCenter);
     maxX = math.max(maxX, b.crossCenter);
   }
-  final boundaryTolerance = math.max(w, h) * 0.03;
+  final boundaryTolerance = math.max(workingW, workingH) * 0.03;
+
+  // 작업(회전 보정) 캔버스 픽셀 좌표 → 원본 분석 이미지 정규화 좌표.
+  // rotationDeg가 0이면 기존 코드와 완전히 동일한 나눗셈(항등 변환).
+  Point2 toOriginalNormalized(double px, double py) {
+    if (rotationDeg == 0) return Point2(px / w, py / h);
+    final orig = _undoDeskewPoint(
+      x: px,
+      y: py,
+      originalW: w,
+      originalH: h,
+      rotatedW: workingW,
+      rotatedH: workingH,
+      angleRad: rotationRad,
+    );
+    return Point2(orig.x / w, orig.y / h);
+  }
+
+  // 3D 근본 수정 WO(2번)이 확정한 규칙("두께는 벽과 같은 축의 정규화
+  // 단위") — 회전 보정 후에도 원본 이미지 기준 수평/수직에 가까운
+  // 벽(회전각이 작거나 0인 절대다수의 실제 사례)은 이전과 100% 동일한
+  // h/w 나눗셈을 그대로 쓴다(회귀 없음, CadWall.boundaryPolygon과 3D
+  // 벽 두께 계산이 그대로 의존하는 규칙이라 절대 안전해야 한다). 두
+  // 축 어디에도 뚜렷이 속하지 않는 진짜 대각선 벽만 가로/세로 평균
+  // 기준의 근사치를 쓴다 — boundaryPolygon에 진짜 대각선용 정확한
+  // 두께 공식이 없어(3D 쪽 수정이 필요하며 이번 범위 밖) 의도적으로
+  // 받아들이는 한계다. 위치/각도(topology)는 항상 정확하다.
+  double thicknessNormalizedFor(Point2 start, Point2 end, double thicknessPx) {
+    final dxPx = (end.x - start.x) * w;
+    final dyPx = (end.y - start.y) * h;
+    final absDx = dxPx.abs();
+    final absDy = dyPx.abs();
+    if (absDx >= absDy * 3) return thicknessPx / h;
+    if (absDy >= absDx * 3) return thicknessPx / w;
+    return thicknessPx / ((w + h) / 2);
+  }
 
   var idCounter = 0;
   final walls = <WallSegment>[];
@@ -221,21 +334,25 @@ WallStageResult detectWallsAndOpenings(WallStageInput input) {
     final isExterior =
         band.crossCenter <= minY + boundaryTolerance ||
         band.crossCenter >= maxY - boundaryTolerance;
+    final start = toOriginalNormalized(
+      band.alongMin.toDouble(),
+      band.crossCenter,
+    );
+    final end = toOriginalNormalized(
+      band.alongMax.toDouble(),
+      band.crossCenter,
+    );
     walls.add(
       WallSegment(
         id: id,
-        start: Point2(band.alongMin / w, band.crossCenter / h),
-        end: Point2(band.alongMax / w, band.crossCenter / h),
-        // 3D 근본 수정 WO(2번, 면적/치수 재추적) — CadWall.boundaryPolygon은
-        // 이 값을 start/end와 "같은 축의 정규화 단위"로 취급해 그대로
-        // y좌표에 더한다(수평 벽은 두께 offset이 y축에만 실린다). 그런데
-        // 예전 코드는 diagonal 기준 비율을 넣고 있었다 — 정사각형이
-        // 아닌 이미지에서는 diagonal ≠ height라 벽 두께가 실제보다
-        // 얇거나 두껍게 재구성됐다(전형적으로 h/diagonal배, 대략
-        // 0.6~0.8배 과소). 수평 벽의 두께는 세로(y) 방향 픽셀 폭이므로
-        // h로 정규화해야 이후 mm 변환이 정확하다.
-        thicknessNormalized: band.thicknessPx / h,
-        confidence: _confidenceFor(band, diagonal),
+        start: start,
+        end: end,
+        thicknessNormalized: thicknessNormalizedFor(
+          start,
+          end,
+          band.thicknessPx.toDouble(),
+        ),
+        confidence: _confidenceFor(band, workingDiagonal),
         isExterior: isExterior,
       ),
     );
@@ -246,15 +363,25 @@ WallStageResult detectWallsAndOpenings(WallStageInput input) {
     final isExterior =
         band.crossCenter <= minX + boundaryTolerance ||
         band.crossCenter >= maxX - boundaryTolerance;
+    final start = toOriginalNormalized(
+      band.crossCenter,
+      band.alongMin.toDouble(),
+    );
+    final end = toOriginalNormalized(
+      band.crossCenter,
+      band.alongMax.toDouble(),
+    );
     walls.add(
       WallSegment(
         id: id,
-        start: Point2(band.crossCenter / w, band.alongMin / h),
-        end: Point2(band.crossCenter / w, band.alongMax / h),
-        // 위와 대칭 — 수직 벽의 두께 offset은 x축에 실리므로 가로(x)
-        // 방향 픽셀 폭 기준인 w로 정규화한다.
-        thicknessNormalized: band.thicknessPx / w,
-        confidence: _confidenceFor(band, diagonal),
+        start: start,
+        end: end,
+        thicknessNormalized: thicknessNormalizedFor(
+          start,
+          end,
+          band.thicknessPx.toDouble(),
+        ),
+        confidence: _confidenceFor(band, workingDiagonal),
         isExterior: isExterior,
       ),
     );
@@ -265,22 +392,76 @@ WallStageResult detectWallsAndOpenings(WallStageInput input) {
     horizontalBands: horizontalBands,
     verticalBands: verticalBands,
     wallIds: wallBandById,
-    diagonal: diagonal,
-    width: w,
-    height: h,
+    thresholdDiagonal: workingDiagonal,
+    normalizationDiagonal: originalDiagonal,
     idStart: idCounter,
+    toOriginalNormalized: toOriginalNormalized,
   );
 
+  final rejectedWalls = <RejectedWallCandidate>[
+    for (final band in rejectedHorizontalBands)
+      RejectedWallCandidate(
+        id: 'rejected-${idCounter++}',
+        start: toOriginalNormalized(
+          band.alongMin.toDouble(),
+          band.crossCenter,
+        ),
+        end: toOriginalNormalized(band.alongMax.toDouble(), band.crossCenter),
+        thicknessNormalized: thicknessNormalizedFor(
+          toOriginalNormalized(band.alongMin.toDouble(), band.crossCenter),
+          toOriginalNormalized(band.alongMax.toDouble(), band.crossCenter),
+          band.thicknessPx.toDouble(),
+        ),
+        reason: RejectedWallReason.tooThick,
+      ),
+    for (final band in rejectedVerticalBands)
+      RejectedWallCandidate(
+        id: 'rejected-${idCounter++}',
+        start: toOriginalNormalized(
+          band.crossCenter,
+          band.alongMin.toDouble(),
+        ),
+        end: toOriginalNormalized(band.crossCenter, band.alongMax.toDouble()),
+        thicknessNormalized: thicknessNormalizedFor(
+          toOriginalNormalized(band.crossCenter, band.alongMin.toDouble()),
+          toOriginalNormalized(band.crossCenter, band.alongMax.toDouble()),
+          band.thicknessPx.toDouble(),
+        ),
+        reason: RejectedWallReason.tooThick,
+      ),
+  ];
+
   // Windows 실기 FAIL 재조사(2D CAD reconstruction) — 방 검출(stage 2)에
-  // 넘기는 mask를 이전에는 Otsu 이진화 직후의 "raw 어두운 픽셀" 그대로
-  // 썼다. 가구 아이콘(옷장 내부 해칭, 위생기구 체크무늬), 치수/텍스트
-  // 라벨, 워터마크처럼 "벽으로 확정되지 않은" 어두운 픽셀도 전부 이
-  // raw mask에는 그대로 남아 있어, flood-fill 연결성을 끊어 실제로는
-  // 하나인 방을 여러 개의 작은 "방"으로 잘못 쪼갰다(실기 재현: 14개
-  // 공간 중 다수가 실제로는 존재하지 않는 노이즈 분할). 벽으로 실제
-  // 확정된 band(길이/두께 필터를 통과한 것)만으로 다시 채운 mask를
-  // 써야, 벽 판정에서 걸러진 노이즈가 방을 쪼개지 못한다.
-  final wallOnlyMask = _buildWallOnlyMask(w, h, horizontalBands, verticalBands);
+  // 넘기는 mask는 raw Otsu 픽셀이 아니라 벽으로 실제 확정된 band만으로
+  // 다시 채운다(가구/해칭/텍스트/워터마크가 방을 잘못 쪼개지 못하게).
+  // 작업(회전 보정) 캔버스 기준으로 만든 뒤, stage 2(방 검출)는 회전을
+  // 전혀 몰라도 되도록 항상 "원본 분석 해상도(w×h)" 크기로 되돌려
+  // 넘긴다 — saddle-point 안전 경계 추적을 포함한 기존 검증된 방 검출
+  // 코드를 그대로, 아무 변경 없이 재사용하기 위해서다.
+  final wallOnlyMaskWorking = _buildWallOnlyMask(
+    workingW,
+    workingH,
+    horizontalBands,
+    verticalBands,
+  );
+  final wallOnlyMask = rotationDeg == 0
+      ? wallOnlyMaskWorking
+      : _resampleMask(
+          source: wallOnlyMaskWorking,
+          sourceW: workingW,
+          sourceH: workingH,
+          destW: w,
+          destH: h,
+          destToSource: (dx, dy) => _deskewPoint(
+            x: dx,
+            y: dy,
+            originalW: w,
+            originalH: h,
+            rotatedW: workingW,
+            rotatedH: workingH,
+            angleRad: rotationRad,
+          ),
+        );
 
   stopwatch.stop();
   return WallStageResult.success(
@@ -291,9 +472,11 @@ WallStageResult detectWallsAndOpenings(WallStageInput input) {
     mask: wallOnlyMask,
     walls: walls,
     openings: openings,
+    rejectedWalls: rejectedWalls,
     rawHorizontalRuns: rawHorizontal.length,
     rawVerticalRuns: rawVertical.length,
     elapsedMs: stopwatch.elapsedMilliseconds,
+    rotationDegrees: rotationDeg,
   );
 }
 
@@ -611,6 +794,7 @@ class _WallBand {
 List<_WallBand> _mergeRunsToBands(
   List<_RawRun> runs, {
   required int maxThicknessPx,
+  List<_WallBand>? rejectedOut,
 }) {
   final sorted = [...runs]..sort((a, b) => a.lineIndex.compareTo(b.lineIndex));
   final active = <_WallBand>[];
@@ -664,6 +848,9 @@ List<_WallBand> _mergeRunsToBands(
   }
   finished.addAll(active);
 
+  if (rejectedOut != null) {
+    rejectedOut.addAll(finished.where((b) => b.thicknessPx > maxThicknessPx));
+  }
   return finished.where((b) => b.thicknessPx <= maxThicknessPx).toList();
 }
 
@@ -715,16 +902,16 @@ List<OpeningCandidate> _detectOpenings({
   required List<_WallBand> horizontalBands,
   required List<_WallBand> verticalBands,
   required Map<String, _WallBand> wallIds,
-  required double diagonal,
-  required int width,
-  required int height,
+  required double thresholdDiagonal,
+  required double normalizationDiagonal,
   required int idStart,
+  required Point2 Function(double px, double py) toOriginalNormalized,
 }) {
   final openings = <OpeningCandidate>[];
   var idCounter = idStart;
-  final minGapPx = math.max(4, (diagonal * 0.015).round());
-  final maxGapPx = (diagonal * 0.18).round();
-  final idealDoorPx = diagonal * 0.08;
+  final minGapPx = math.max(4, (thresholdDiagonal * 0.015).round());
+  final maxGapPx = (thresholdDiagonal * 0.18).round();
+  final idealDoorPx = thresholdDiagonal * 0.08;
 
   void scanGroup(List<MapEntry<String, _WallBand>> group, bool horizontal) {
     final sorted = [...group]
@@ -750,15 +937,21 @@ List<OpeningCandidate> _detectOpenings({
       // 수평 band 그룹: along축=x(→width), cross축=y(→height).
       // 수직 band 그룹: along축=y(→height), cross축=x(→width).
       final center = horizontal
-          ? Point2(centerAlong / width, crossCenter / height)
-          : Point2(crossCenter / width, centerAlong / height);
+          ? toOriginalNormalized(centerAlong, crossCenter)
+          : toOriginalNormalized(crossCenter, centerAlong);
 
       openings.add(
         OpeningCandidate(
           id: 'opening-${idCounter++}',
           type: type,
           center: center,
-          widthNormalized: gap / diagonal,
+          // estimateScaleFromDoors 등 downstream 소비자가 항상
+          // "원본 이미지 대각선" 기준으로 widthNormalized를 해석하므로,
+          // 회전 보정 작업 캔버스에서 계산 중이어도 정규화 기준은 항상
+          // 원본 대각선([normalizationDiagonal])으로 고정한다 —
+          // 회전은 등거리 변환이라 gap(픽셀)은 어느 프레임에서 재도
+          // 물리적으로 같다.
+          widthNormalized: gap / normalizationDiagonal,
           confidence: confidence.toDouble(),
           wallId: a.key,
           status: FloorPlanObjectStatus.needsReview,
@@ -777,4 +970,281 @@ List<OpeningCandidate> _detectOpenings({
   scanGroup(verticalEntries, false);
 
   return openings;
+}
+
+// ---------------------------------------------------------------------------
+// PC2 2D CAD 재조사 WO — 회전(deskew) 보정.
+//
+// 아래 함수들은 이 파일의 모든 "회전각만큼 좌표/픽셀을 옮기는" 계산이
+// 공유하는 유일한 원시 연산([_rotateAround])과 그 위에 쌓은 두 변환
+// ([_deskewPoint]/[_undoDeskewPoint], 서로 정확한 역함수)만 쓴다 — 공식을
+// 여러 곳에 따로 베껴 적어 부호를 틀리는 사고를 막기 위해서다. 실제
+// 정확성은 이 파일과 짝을 이루는 테스트의 왕복(원본→회전→원본) 검증으로
+// 확인한다.
+// ---------------------------------------------------------------------------
+
+/// (cx,cy) 중심으로 (x,y)를 angleRad만큼(표준 수학 규약, 반시계 방향)
+/// 회전한 좌표.
+({double x, double y}) _rotateAround(
+  double x,
+  double y,
+  double cx,
+  double cy,
+  double angleRad,
+) {
+  final dx = x - cx;
+  final dy = y - cy;
+  final cosA = math.cos(angleRad);
+  final sinA = math.sin(angleRad);
+  return (x: cx + dx * cosA - dy * sinA, y: cy + dx * sinA + dy * cosA);
+}
+
+/// 원본 분석 캔버스(originalW×originalH)의 한 점을, [angleRad]만큼
+/// "레벨을 맞춘"(deskew) 확장 작업 캔버스(rotatedW×rotatedH) 위의
+/// 위치로 옮긴다.
+({double x, double y}) _deskewPoint({
+  required double x,
+  required double y,
+  required int originalW,
+  required int originalH,
+  required int rotatedW,
+  required int rotatedH,
+  required double angleRad,
+}) {
+  final rotated = _rotateAround(x, y, originalW / 2, originalH / 2, -angleRad);
+  return (
+    x: rotated.x + (rotatedW - originalW) / 2,
+    y: rotated.y + (rotatedH - originalH) / 2,
+  );
+}
+
+/// [_deskewPoint]의 정확한 역함수 — 작업(회전 보정) 캔버스의 한 점을
+/// 원본 분석 캔버스 좌표로 되돌린다. 벽/방/문·창 결과 좌표는 항상 이
+/// 함수를 거쳐 "원본 이미지 기준"으로 반환된다.
+({double x, double y}) _undoDeskewPoint({
+  required double x,
+  required double y,
+  required int originalW,
+  required int originalH,
+  required int rotatedW,
+  required int rotatedH,
+  required double angleRad,
+}) {
+  final shiftedX = x - (rotatedW - originalW) / 2;
+  final shiftedY = y - (rotatedH - originalH) / 2;
+  return _rotateAround(
+    shiftedX,
+    shiftedY,
+    originalW / 2,
+    originalH / 2,
+    angleRad,
+  );
+}
+
+/// [angleRad]만큼 회전해도 원본 내용이 잘리지 않는 최소 확장 캔버스
+/// 크기(표준 "rotate and expand" bounding box 공식).
+({int w, int h}) _expandedCanvasSize(int w, int h, double angleRad) {
+  final cosA = math.cos(angleRad).abs();
+  final sinA = math.sin(angleRad).abs();
+  return (w: (w * cosA + h * sinA).ceil(), h: (w * sinA + h * cosA).ceil());
+}
+
+/// [destToSource]가 계산한 원본 좌표를 양선형(bilinear) 보간으로
+/// 샘플링해 (destW×destH) 크기의 새 마스크를 만든다 — 회전 보정 작업
+/// 캔버스를 만들거나(원본→회전) 되돌릴(회전→원본) 때 공통으로 쓰는
+/// 리샘플링.
+///
+/// 처음에는 최근접 이웃(nearest-neighbor)으로 샘플링했다 — 그런데
+/// wallOnlyMask는 "원본→회전(검출용)→원본(방 검출용)"으로 두 번
+/// 리샘플링되는데, 최근접 이웃을 두 번 거치면 특정 각도에서 모서리
+/// 부근에 계단식 앨리어싱이 누적되어(테스트로 실제 확인: -20도에서
+/// 벽이 4개가 아니라 21개로 잘게 쪼개짐) 짧은 잡음 조각이 여럿
+/// 생겼다. 이진 마스크에 양선형 보간(주변 4픽셀의 거리 가중 평균 후
+/// 0.5 문턱으로 재이진화)을 적용하면 회전된 경계가 계단이 아니라
+/// 매끄러운 직선에 훨씬 가깝게 유지되어, 이 잡음이 원천적으로
+/// 줄어든다.
+Uint8List _resampleMask({
+  required Uint8List source,
+  required int sourceW,
+  required int sourceH,
+  required int destW,
+  required int destH,
+  required ({double x, double y}) Function(double destX, double destY)
+  destToSource,
+}) {
+  final dest = Uint8List(destW * destH);
+  for (var y = 0; y < destH; y++) {
+    for (var x = 0; x < destW; x++) {
+      final src = destToSource(x.toDouble(), y.toDouble());
+      dest[y * destW + x] = _bilinearSampleMask(
+        source,
+        sourceW,
+        sourceH,
+        src.x,
+        src.y,
+      );
+    }
+  }
+  return dest;
+}
+
+int _bilinearSampleMask(Uint8List mask, int w, int h, double x, double y) {
+  final x0 = x.floor();
+  final y0 = y.floor();
+  final fx = x - x0;
+  final fy = y - y0;
+
+  int at(int xi, int yi) {
+    if (xi < 0 || yi < 0 || xi >= w || yi >= h) return 0;
+    return mask[yi * w + xi];
+  }
+
+  final v00 = at(x0, y0);
+  final v10 = at(x0 + 1, y0);
+  final v01 = at(x0, y0 + 1);
+  final v11 = at(x0 + 1, y0 + 1);
+
+  final top = v00 * (1 - fx) + v10 * fx;
+  final bottom = v01 * (1 - fx) + v11 * fx;
+  final value = top * (1 - fy) + bottom * fy;
+  return value >= 0.5 ? 1 : 0;
+}
+
+/// 회전각 탐색 전용 — 최대 변이 이 값이 되도록 최근접 이웃으로 축소한
+/// mask 사본만 있으면 된다(품질이 아니라 방향 탐색 속도가 목적).
+const int _kRotationProbeMaxDimension = 220;
+
+({Uint8List mask, int w, int h}) _downsampleMaskForProbe(
+  Uint8List mask,
+  int w,
+  int h,
+) {
+  final longest = math.max(w, h);
+  if (longest <= _kRotationProbeMaxDimension) return (mask: mask, w: w, h: h);
+  final scale = _kRotationProbeMaxDimension / longest;
+  final pw = math.max(1, (w * scale).round());
+  final ph = math.max(1, (h * scale).round());
+  final probe = Uint8List(pw * ph);
+  for (var y = 0; y < ph; y++) {
+    final sy = math.min(h - 1, (y / scale).round());
+    for (var x = 0; x < pw; x++) {
+      final sx = math.min(w - 1, (x / scale).round());
+      probe[y * pw + x] = mask[sy * w + sx];
+    }
+  }
+  return (mask: probe, w: pw, h: ph);
+}
+
+/// 이미지 전체에 공통으로 적용되는 지배적 회전각(도, [-45,45])을
+/// 추정한다 — 촬영/스캔 과정에서 건물 구조 전체가 이미지 축과 몇 도씩
+/// 어긋난 실제 평면도를 다루기 위해서다. 원본 해상도로 여러 각도를 전부
+/// 시도하면 느리므로, 훨씬 작은 다운샘플 사본에서만 "어느 각도로 회전해야
+/// run-length 벽 band가 가장 길게/많이 잡히는가"를 탐색한다 — 최종 검출
+/// 품질이 아니라 방향만 필요하기 때문이다.
+double _estimateDominantRotationDegrees(Uint8List mask, int w, int h) {
+  final probe = _downsampleMaskForProbe(mask, w, h);
+  final zeroScore = _rotatedAlignmentScore(probe.mask, probe.w, probe.h, 0);
+
+  var bestAngle = 0.0;
+  var bestScore = zeroScore;
+
+  void search(double from, double to, double step) {
+    var angle = from;
+    while (angle <= to + 1e-9) {
+      if (angle != 0) {
+        final score = _rotatedAlignmentScore(
+          probe.mask,
+          probe.w,
+          probe.h,
+          angle,
+        );
+        if (score > bestScore) {
+          bestScore = score;
+          bestAngle = angle;
+        }
+      }
+      angle += step;
+    }
+  }
+
+  search(-45, 45, 3);
+  final coarseBest = bestAngle;
+  search(coarseBest - 2.5, coarseBest + 2.5, 0.5);
+
+  // 개선폭이 미미하면(잡음/과적합) 회전하지 않는다 — 이미 축이 맞는
+  // 도면에서 불필요한 리샘플 손실을 만들지 않기 위해서다.
+  if (bestScore < zeroScore * 1.08) return 0;
+  return double.parse(bestAngle.toStringAsFixed(1));
+}
+
+/// 다운샘플된 mask를 [angleDeg]만큼 회전했을 때, 행/열 방향 "어두운
+/// 픽셀 개수" 투영(projection profile)의 분산 — 문서/도면 deskew에
+/// 널리 쓰이는 표준 기법이다. 축이 잘 맞을수록 벽이 있는 특정 행/열에
+/// 어두운 픽셀이 몰려 분산이 커지고, 축이 어긋날수록 여러 행/열에
+/// 퍼져 분산이 작아진다.
+///
+/// 처음에는 이 파일의 실제 벽 검출 파이프라인(run-length + band
+/// 병합, minRunLen/maxThicknessPx 문턱값)을 그대로 재사용해 "검출된
+/// band 총 길이"를 점수로 썼다 — 그런데 회전 리샘플링이 경계를
+/// 미세하게 어긋나게(aliasing) 만들면 문턱값 근처에서 band가 잘게
+/// 쪼개지거나 우연히 겹쳐 총 길이가 실제보다 훨씬 크게 잡히는 경우가
+/// 있었다(테스트로 확인된 실제 버그 — 완전히 축 정렬된 사각형에서도
+/// 엉뚱한 각도가 더 높은 점수를 받아 벽이 83개로 깨짐). 순수 픽셀
+/// 개수 분산은 문턱값/병합 같은 민감한 휴리스틱이 없어 이런 리샘플링
+/// 잡음에 훨씬 안정적이다.
+///
+/// 회전은 원본과 같은 크기 캔버스에서(모서리는 잘려도 무방 — 탐색
+/// 전용이라 실제 검출에는 쓰이지 않는다) [_deskewPoint]/
+/// [_undoDeskewPoint]와 동일한 회전 방향 규약으로 계산해, 여기서 고른
+/// 각도를 그대로 그 두 함수에 넘겨도 항상 같은 의미(레벨을 맞추는
+/// 방향)를 갖도록 한다.
+double _rotatedAlignmentScore(
+  Uint8List probeMask,
+  int probeW,
+  int probeH,
+  double angleDeg,
+) {
+  final Uint8List rotated;
+  if (angleDeg == 0) {
+    rotated = probeMask;
+  } else {
+    final angleRad = angleDeg * math.pi / 180;
+    rotated = _resampleMask(
+      source: probeMask,
+      sourceW: probeW,
+      sourceH: probeH,
+      destW: probeW,
+      destH: probeH,
+      destToSource: (dx, dy) =>
+          _rotateAround(dx, dy, probeW / 2, probeH / 2, angleRad),
+    );
+  }
+
+  final rowSums = List<int>.filled(probeH, 0);
+  final colSums = List<int>.filled(probeW, 0);
+  for (var y = 0; y < probeH; y++) {
+    final rowBase = y * probeW;
+    for (var x = 0; x < probeW; x++) {
+      if (rotated[rowBase + x] == 1) {
+        rowSums[y]++;
+        colSums[x]++;
+      }
+    }
+  }
+  return _variance(rowSums) + _variance(colSums);
+}
+
+double _variance(List<int> values) {
+  if (values.isEmpty) return 0;
+  var sum = 0.0;
+  for (final v in values) {
+    sum += v;
+  }
+  final mean = sum / values.length;
+  var squaredDiff = 0.0;
+  for (final v in values) {
+    final d = v - mean;
+    squaredDiff += d * d;
+  }
+  return squaredDiff / values.length;
 }

@@ -124,6 +124,7 @@ class WorkspaceCanvas extends StatelessWidget {
                         top: screenPos.dy - 14,
                         child: _RoomNumberMarker(
                           number: i + 1,
+                          color: SpaceShiftColors.roomAccentColorFor(i),
                           selected: room.id == cad.selectedObjectId,
                           onTap: () => cadCallbacks.onSelectObject(room.id),
                         ),
@@ -165,16 +166,26 @@ Point2 _polygonCentroid(List<Point2> polygon) {
 class _RoomNumberMarker extends StatelessWidget {
   const _RoomNumberMarker({
     required this.number,
+    required this.color,
     required this.selected,
     required this.onTap,
   });
 
   final int number;
+
+  /// PC2 2D CAD 재조사 WO — 이 방 polygon의 연한 fill과 같은
+  /// [SpaceShiftColors.roomAccentColorFor] 색. 선택되지 않은 상태의
+  /// 번호 배지 테두리/글자에 그대로 써서, "이 번호 = 도면 위 이
+  /// 색으로 칠해진 영역"이라는 대응을 색으로도 보여준다. 선택 상태는
+  /// 기존과 동일하게 앱 공통 selectionAccent로 강조해 방 색과 헷갈리지
+  /// 않게 한다.
+  final Color color;
   final bool selected;
   final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
+    final unselectedColor = color;
     return GestureDetector(
       onTap: onTap,
       child: AnimatedContainer(
@@ -186,7 +197,7 @@ class _RoomNumberMarker extends StatelessWidget {
           color: selected ? SpaceShiftColors.selectionAccent : Colors.white,
           shape: BoxShape.circle,
           border: Border.all(
-            color: selected ? Colors.white : SpaceShiftColors.selectionAccent,
+            color: selected ? Colors.white : unselectedColor,
             width: selected ? 2.5 : 1.5,
           ),
           boxShadow: [
@@ -199,7 +210,7 @@ class _RoomNumberMarker extends StatelessWidget {
         child: Text(
           '$number',
           style: TextStyle(
-            color: selected ? Colors.white : SpaceShiftColors.selectionAccent,
+            color: selected ? Colors.white : unselectedColor,
             fontSize: 13,
             fontWeight: FontWeight.bold,
           ),

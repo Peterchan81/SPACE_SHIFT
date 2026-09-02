@@ -1,7 +1,13 @@
 // CadFloorPlan/CadWall 모델과 buildCadFloorPlan 변환에 대한 단위 테스트.
 //
 // 1. 분석 결과(FloorPlanAnalysisResult)를 CAD geometry로 변환해도 좌표/
-//    두께/신뢰도가 새로 만들어지지 않고 그대로 옮겨진다(WO 15번).
+//    두께가 새로 만들어지지 않고 그대로 옮겨진다(WO 15번). Space-first
+//    재작업 WO 이후로는 신뢰도(confidence)만 예외다 — 이제 evidence를
+//    그대로 베끼지 않고 ArchitecturalDrawingInterpreter가 junction/
+//    boundary/parallel 증거로 재해석한 값을 쓴다(원본 evidence
+//    confidence를 그대로 복사하면 "벽처럼 보이지만 실제로는 아무
+//    근거도 연결되지 않은 선"까지 똑같이 신뢰할 수 있는 것처럼
+//    보이는 문제가 있었다).
 // 2. CadWall에는 사용자 작업 번호(number) 개념이 아예 없다 — geometry
 //    id와 사용자 작업 번호는 타입 수준에서부터 분리되어 있다(WO 1/12번).
 // 3. 벽 경계 폴리곤(boundaryPolygon)이 중심선 + 두께로 정확히 계산된다.
@@ -87,7 +93,10 @@ void main() {
     expect(exteriorWall.start, const Point2(0.1, 0.1));
     expect(exteriorWall.end, const Point2(0.9, 0.1));
     expect(exteriorWall.thicknessNormalized, 0.02);
-    expect(exteriorWall.confidence, 0.75);
+    // 원본 evidence confidence(0.75)가 아니라, 해석 계층이 실제 근거
+    // (다른 벽과의 접합점 + 검출된 방 경계 지지)로 재계산한 값이다 —
+    // 0.42(기본) + 0.2(접합점) + 0.2(경계 지지) = 0.82.
+    expect(exteriorWall.confidence, closeTo(0.82, 1e-9));
     expect(exteriorWall.source, CadElementSource.analyzed);
     expect(exteriorWall.edited, isFalse);
 

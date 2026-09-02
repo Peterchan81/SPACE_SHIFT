@@ -385,6 +385,7 @@ class _AnalysisActionBar extends StatelessWidget {
     required this.result,
     required this.failureMessage,
     required this.onStartAnalysis,
+    this.interpretationWarnings = const [],
   });
 
   final FloorPlanAnalysisPhase phase;
@@ -392,6 +393,14 @@ class _AnalysisActionBar extends StatelessWidget {
   final FloorPlanAnalysisResult? result;
   final String? failureMessage;
   final VoidCallback onStartAnalysis;
+
+  /// SS 건축도면 이해 엔진 V1 WO — evidence 단계(FloorPlanAnalysisResult)
+  /// 이후, 해석 단계([SSSpatialModelBuilder] → [CadFloorPlan.warnings])
+  /// 에서 새로 생긴 안내(예: "가구/설비로 보이는 N개 후보를 공간
+  /// 목록에서 제외했습니다"). 서로 다른 두 단계의 경고를 한 곳에서
+  /// 함께 보여줘야, 사용자가 "왜 이 화면이 됐는지"를 빠짐없이 알 수
+  /// 있다.
+  final List<String> interpretationWarnings;
 
   String get _stepLabel {
     switch (step) {
@@ -451,6 +460,7 @@ class _AnalysisActionBar extends StatelessWidget {
         ),
         FloorPlanAnalysisPhase.completed => _CompletedSummary(
           result: result,
+          interpretationWarnings: interpretationWarnings,
           onReanalyze: onStartAnalysis,
         ),
         FloorPlanAnalysisPhase.failed => Column(
@@ -499,14 +509,23 @@ class _AnalysisActionBar extends StatelessWidget {
 }
 
 class _CompletedSummary extends StatelessWidget {
-  const _CompletedSummary({required this.result, required this.onReanalyze});
+  const _CompletedSummary({
+    required this.result,
+    required this.onReanalyze,
+    this.interpretationWarnings = const [],
+  });
 
   final FloorPlanAnalysisResult? result;
   final VoidCallback onReanalyze;
+  final List<String> interpretationWarnings;
 
   @override
   Widget build(BuildContext context) {
     final result = this.result;
+    final warnings = [
+      ...?result?.warnings,
+      ...interpretationWarnings,
+    ];
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -531,9 +550,9 @@ class _CompletedSummary extends StatelessWidget {
             ),
           ],
         ),
-        if (result != null && result.warnings.isNotEmpty) ...[
+        if (warnings.isNotEmpty) ...[
           const SizedBox(height: 6),
-          for (final warning in result.warnings)
+          for (final warning in warnings)
             Padding(
               padding: const EdgeInsets.only(left: 26, top: 2),
               child: Text(
@@ -827,6 +846,7 @@ class FloorPlanStatusSection extends StatelessWidget {
           result: analysisResult,
           failureMessage: analysisFailureMessage,
           onStartAnalysis: onReanalyze,
+          interpretationWarnings: cad.floorPlan?.warnings ?? const [],
         ),
         if (analysisPhase == FloorPlanAnalysisPhase.completed) ...[
           const SizedBox(height: 16),

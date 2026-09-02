@@ -298,6 +298,7 @@ class _FloorPlanWorkspaceScreenState extends State<FloorPlanWorkspaceScreen> {
         openings: plan.openings.where((o) => o.id != id).toList(),
         rooms: plan.rooms.where((r) => r.id != id).toList(),
         warnings: plan.warnings,
+        objectCandidates: plan.objectCandidates,
       );
       _selectedCadObjectId = null;
     });
@@ -494,6 +495,7 @@ class _FloorPlanWorkspaceScreenState extends State<FloorPlanWorkspaceScreen> {
               room,
         ],
         warnings: plan.warnings,
+        objectCandidates: plan.objectCandidates,
       );
     });
   }

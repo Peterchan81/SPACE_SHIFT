@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 
 import '../../models/cad_floor_plan.dart';
 import '../../models/floor_plan_geometry.dart';
+import '../../models/ss_spatial_model.dart';
 import '../../theme/space_shift_colors.dart';
 import 'floor_plan_analysis_overlay.dart' show ContainFitTransform;
 
@@ -299,6 +300,32 @@ double _distanceToSegment(Point2 p, Point2 a, Point2 b) {
   return p.distanceTo(projection);
 }
 
+/// 가구/설비 후보([SSObjectCandidate]) 윤곽 전용 — 실제 벽(실선)과
+/// 혼동되지 않도록 닫힌 폴리곤을 점선으로 그린다.
+void _drawDashedPolygon(Canvas canvas, List<Offset> points, Color color) {
+  if (points.length < 2) return;
+  final paint = Paint()
+    ..style = PaintingStyle.stroke
+    ..strokeWidth = 1.2
+    ..color = color;
+  const dashLength = 5.0;
+  const gapLength = 4.0;
+  for (var i = 0; i < points.length; i++) {
+    final a = points[i];
+    final b = points[(i + 1) % points.length];
+    final segment = b - a;
+    final total = segment.distance;
+    if (total == 0) continue;
+    final direction = segment / total;
+    var drawn = 0.0;
+    while (drawn < total) {
+      final segmentEnd = math.min(drawn + dashLength, total);
+      canvas.drawLine(a + direction * drawn, a + direction * segmentEnd, paint);
+      drawn = segmentEnd + gapLength;
+    }
+  }
+}
+
 class _CadOverlayPainter extends CustomPainter {
   _CadOverlayPainter({
     required this.floorPlan,
@@ -315,13 +342,29 @@ class _CadOverlayPainter extends CustomPainter {
   static const _wallFill = Color(0xFFEDF0F3);
   static const _wallStroke = Color(0xFF334155);
   static const _guideLine = Color(0xFFCBD5E1);
+  static const _objectOutline = Color(0xFF94A3B8);
 
   @override
   void paint(Canvas canvas, Size size) {
-    for (final room in floorPlan.rooms) {
+    // PC2 2D CAD 재조사 WO — "어디까지가 공간 1이고 어디까지가 공간
+    // 2인지 한눈에" 보이도록, 검출된 각 공간 polygon을 아주 연한
+    // 반투명 fill로 채운다. 색은 공간마다 다르되([roomAccentColorFor]
+    // — 우측 목록/도면 위 번호 marker와 같은 순서·같은 roomId를
+    // 공유) 벽선 가독성을 해치지 않도록 항상 낮은 alpha만 쓴다. 벽은
+    // 이 fill보다 나중에(위에) 그려 항상 fill 위로 선명하게 보인다.
+    for (var i = 0; i < floorPlan.rooms.length; i++) {
+      final room = floorPlan.rooms[i];
       final selected = room.id == selectedId;
       final path = Path()
         ..addPolygon(room.polygon.map(transform.mapNormalized).toList(), true);
+      canvas.drawPath(
+        path,
+        Paint()
+          ..style = PaintingStyle.fill
+          ..color = SpaceShiftColors.roomAccentColorFor(
+            i,
+          ).withValues(alpha: selected ? 0.22 : 0.12),
+      );
       canvas.drawPath(
         path,
         Paint()
@@ -329,6 +372,16 @@ class _CadOverlayPainter extends CustomPainter {
           ..strokeWidth = selected ? 2 : 1
           ..color = selected ? SpaceShiftColors.selectionAccent : _guideLine,
       );
+    }
+
+    // SS 건축도면 이해 엔진 V1 WO — "공간"으로 인정되지 않고 가구/설비
+    // 후보로 분류된 닫힌 영역은 번호를 매기거나 채우지 않되, 완전히
+    // 숨기지도 않는다(WO 11번 — 가구/설비는 공간과 별도의 의미 객체).
+    // 회색 점선 윤곽만으로 "SS가 이 영역을 방이 아니라 가구/설비로
+    // 판단했다"는 것을 개발자/사용자가 눈으로 바로 확인할 수 있게 한다.
+    for (final object in floorPlan.objectCandidates) {
+      final points = object.polygon.map(transform.mapNormalized).toList();
+      _drawDashedPolygon(canvas, points, _objectOutline);
     }
 
     for (final wall in floorPlan.walls) {

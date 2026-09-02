@@ -90,6 +90,7 @@ class FloorPlanAnalysisService {
       openings: wallStage.openings,
       rooms: roomStage.rooms,
       warnings: warnings,
+      rejectedWalls: wallStage.rejectedWalls,
       debugStats: FloorPlanAnalysisDebugStats(
         sourceWidthPx: wallStage.sourceWidthPx,
         sourceHeightPx: wallStage.sourceHeightPx,
@@ -101,6 +102,8 @@ class FloorPlanAnalysisService {
         roomCandidateCount: roomStage.rooms.length,
         openingCandidateCount: wallStage.openings.length,
         durationMs: wallStage.elapsedMs + roomStage.elapsedMs,
+        rejectedWallCount: wallStage.rejectedWalls.length,
+        rotationDegrees: wallStage.rotationDegrees,
       ),
     );
 

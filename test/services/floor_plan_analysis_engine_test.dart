@@ -50,6 +50,62 @@ Uint8List _buildRectangularFloorPlan({bool withInteriorWall = false}) {
   return _encodePng(image);
 }
 
+/// PC2 2D CAD 재조사 WO — [_buildRectangularFloorPlan]과 같은 4개 벽을
+/// [angleDeg]만큼 회전한 위치에 "직접" 그려, 실제 촬영/스캔된
+/// 평면도처럼 건물 구조 전체가 이미지 축과 어긋난 경우를 재현한다.
+///
+/// [img.copyRotate]로 이미 그려진 이미지를 통째로 다시 회전시키는
+/// 방식은 쓰지 않는다 — 그러면 "① 사각형을 그림 → ② copyRotate로
+/// 회전(최근접 이웃 리샘플링 1회) → ③ 우리 파이프라인이 다시
+/// 역회전(리샘플링 1회 더)"으로 리샘플링이 두 번 겹쳐, 실제 단일
+/// 회전 사진에는 없는 인위적인 이중 앨리어싱 잡음이 모서리에 낀다.
+/// 대신 각 벽 사각형의 네 꼭짓점을 직접 회전 변환한 좌표로 폴리곤을
+/// 채워, 실제 "한 번만 기울어져 촬영된" 평면도와 같은 조건(리샘플링
+/// 1회, 우리 파이프라인의 역회전)만 재현한다.
+Uint8List _buildRotatedRectangularFloorPlan(double angleDeg) {
+  const canvasSize = 500;
+  const cx = canvasSize / 2.0;
+  const cy = canvasSize / 2.0;
+  final image = img.Image(width: canvasSize, height: canvasSize);
+  img.fill(image, color: img.ColorRgb8(255, 255, 255));
+  final black = img.ColorRgb8(0, 0, 0);
+  final rad = angleDeg * pi / 180;
+  final cosA = cos(rad);
+  final sinA = sin(rad);
+
+  img.Point rotatedPoint(double x, double y) {
+    final dx = x - cx;
+    final dy = y - cy;
+    return img.Point(
+      cx + dx * cosA - dy * sinA,
+      cy + dx * sinA + dy * cosA,
+    );
+  }
+
+  void fillRotatedRect(double x1, double y1, double x2, double y2) {
+    img.fillPolygon(
+      image,
+      vertices: [
+        rotatedPoint(x1, y1),
+        rotatedPoint(x2, y1),
+        rotatedPoint(x2, y2),
+        rotatedPoint(x1, y2),
+      ],
+      color: black,
+    );
+  }
+
+  // 원본 400x300 기준 사각형(가운데 정렬 offset +50,+100)의 4개 벽을
+  // 각각 회전된 폴리곤으로 채운다 — _buildRectangularFloorPlan과 같은
+  // 비율/두께.
+  fillRotatedRect(60, 110, 440, 120); // top
+  fillRotatedRect(60, 380, 440, 390); // bottom
+  fillRotatedRect(60, 110, 70, 390); // left
+  fillRotatedRect(430, 110, 440, 390); // right
+
+  return _encodePng(image);
+}
+
 /// 2D 정확도 개선 WO(8/9번) — 사각형 외곽 안에 한쪽 모서리를 막는 내부
 /// 벽을 더해, 남는 실내 공간이 L자(오목 다각형)가 되는 synthetic floor
 /// plan. 실제 픽셀 경계 추적(contour)이 "경계 사각형 근사"가 아니라
@@ -218,6 +274,22 @@ void main() {
       );
       expect(wallStage.isSuccess, isTrue);
       // 실제 외벽 4개만 남아야 한다 — 두꺼운 블록이 벽으로 오인되면 안 된다.
+      expect(wallStage.walls, hasLength(4));
+    });
+
+    test('벽 후보에서 제외된 블록은 rejectedWalls 진단 목록에 남는다', () {
+      final wallStage = detectWallsAndOpenings(
+        WallStageInput(buildRoomWithThickFurnitureBlock()),
+      );
+      expect(wallStage.rejectedWalls, isNotEmpty);
+      expect(
+        wallStage.rejectedWalls.every(
+          (r) => r.reason == RejectedWallReason.tooThick,
+        ),
+        isTrue,
+      );
+      // 진단 목록에만 반영될 뿐 실제 벽 후보(walls)에는 영향이 없어야
+      // 한다 — 외벽 4개만 유지된다.
       expect(wallStage.walls, hasLength(4));
     });
 
@@ -408,6 +480,60 @@ void main() {
       // (자기교차하면 뒤이은 ear-clipping이 방 밖으로 뻗는 거대한
       // 삼각형을 만들 수 있다 — 이번 사고의 핵심 위험).
       expect(_isSimplePolygon(room0.polygon), isTrue);
+    });
+  });
+
+  group('PC2 2D CAD 재조사 — 회전(deskew) 보정: 실제 촬영/스캔 평면도처럼 '
+      '건물 구조 전체가 이미지 축과 어긋난 경우', () {
+    // 사용자 실기 재현 — "실제 벽이 대량 누락됨"의 핵심 후보로 지목된
+    // axis-aligned 전용 한계 대응. 순수 수평/수직 run-length만 쓰면
+    // 이미지 자체가 몇 도만 틀어져도 벽 대부분을 놓친다. 15도/-20도로
+    // 회전시킨 같은 사각형 평면도에서도 여전히 벽/닫힌 방이 검출되고,
+    // 결과 좌표가 항상 유효 범위 안에 있는지 확인한다.
+    for (final angle in [15.0, -20.0]) {
+      test('$angle도 회전된 사각형 평면도도 벽 4개 안팎과 닫힌 방 1개를 '
+          '검출한다', () {
+        final wallStage = detectWallsAndOpenings(
+          WallStageInput(_buildRotatedRectangularFloorPlan(angle)),
+        );
+        expect(wallStage.isSuccess, isTrue);
+        // 회전 보정이 각도 탐색을 정확히 맞히면 벽 4개가 정확히
+        // 나온다는 것까지 확인한다(리샘플링 잡음으로 인한 소폭 편차만
+        // 허용) — "대량 누락"뿐 아니라 "회전 때문에 잘게 쪼개짐"도
+        // 없어야 한다.
+        expect(wallStage.rotationDegrees, angle);
+        expect(wallStage.walls.length, inInclusiveRange(4, 6));
+
+        for (final wall in wallStage.walls) {
+          expect(wall.start.x, inInclusiveRange(0.0, 1.0));
+          expect(wall.start.y, inInclusiveRange(0.0, 1.0));
+          expect(wall.end.x, inInclusiveRange(0.0, 1.0));
+          expect(wall.end.y, inInclusiveRange(0.0, 1.0));
+        }
+
+        final roomStage = detectRooms(
+          RoomStageInput(
+            mask: wallStage.mask!,
+            width: wallStage.analysisWidthPx,
+            height: wallStage.analysisHeightPx,
+          ),
+        );
+        expect(roomStage.rooms, isNotEmpty);
+        expect(roomStage.rooms.any((r) => r.closed), isTrue);
+        for (final room in roomStage.rooms) {
+          for (final p in room.polygon) {
+            expect(p.x, inInclusiveRange(0.0, 1.0));
+            expect(p.y, inInclusiveRange(0.0, 1.0));
+          }
+        }
+      });
+    }
+
+    test('이미 축에 정렬된 평면도는 회전 보정을 적용하지 않는다(회귀 없음)', () {
+      final wallStage = detectWallsAndOpenings(
+        WallStageInput(_buildRectangularFloorPlan()),
+      );
+      expect(wallStage.rotationDegrees, 0);
     });
   });
 }

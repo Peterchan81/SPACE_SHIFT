@@ -2,7 +2,9 @@ import 'dart:math' as math;
 
 import 'package:flutter/foundation.dart';
 
+import '../services/ss_spatial_model_builder.dart';
 import 'floor_plan_geometry.dart';
+import 'ss_spatial_model.dart';
 
 /// CAD 벽이 외벽/내벽 중 어느 쪽인지 — 렌더링/작업 생성 시 참고용일 뿐,
 /// [WorkspaceTaskCategory]와는 독립된 값이다.
@@ -386,6 +388,7 @@ class CadFloorPlan {
     required this.openings,
     required this.rooms,
     required this.warnings,
+    this.objectCandidates = const [],
   });
 
   final int sourceWidthPx;
@@ -394,6 +397,11 @@ class CadFloorPlan {
   final List<CadOpening> openings;
   final List<CadRoom> rooms;
   final List<String> warnings;
+
+  /// SS 건축도면 이해 엔진 V1 WO — [rooms]으로 인정되지 않은(가구/설비로
+  /// 보이는) 닫힌 영역 후보. 참고/진단 표시 전용이며 사용자 작업 대상이
+  /// 아니다([SSObjectCandidate] 참고).
+  final List<SSObjectCandidate> objectCandidates;
 
   double get diagonalPx => math.sqrt(
     sourceWidthPx * sourceWidthPx + sourceHeightPx * sourceHeightPx,
@@ -427,35 +435,52 @@ class CadFloorPlan {
       openings: openings,
       rooms: rooms,
       warnings: warnings,
+      objectCandidates: objectCandidates,
     );
   }
 }
 
-/// 실제 분석 엔진 결과([FloorPlanAnalysisResult])를 편집 가능한 CAD
-/// geometry로 옮긴다 — 좌표/두께/신뢰도를 새로 만들어내지 않고 그대로
-/// 감싸기만 한다(WO 15번: 기존 분석 엔진을 CAD 변환의 입력으로 재사용).
+/// 실제 분석 엔진 결과([FloorPlanAnalysisResult] — 검출기 evidence)를
+/// 편집 가능한 CAD geometry로 옮긴다.
+///
+/// SS 건축도면 이해 엔진 V1 재작업 WO — 예전에는 evidence(벽 band/방
+/// flood-fill 후보)를 좌표만 그대로 옮겨 곧바로 CAD로 썼다("detector →
+/// 바로 CAD"). 실제 사용자 테스트에서 반복 FAIL한 핵심 원인은, 벽과
+/// 비슷한 굵기로 그려진 가구/설비 외곽선이 "닫힌 사각형"이라는 이유만
+/// 으로 공간처럼 인식되어 실제 방을 잘못 쪼갠 것이었다. 지금은 evidence를
+/// [SSSpatialModelBuilder]가 먼저 해석해([SSSpatialModel] — "이 닫힌
+/// 영역이 진짜 독립 공간인가, 가구/설비 섬인가"를 포함 관계/상대
+/// 크기/출입 가능성으로 판단) 그 해석 결과만 CAD로 옮긴다(WO 15번 —
+/// evidence의 좌표/두께/신뢰도 자체를 새로 지어내지는 않는다, 어떤
+/// 후보를 "공간"으로 볼지 판단만 새로 더해졌다).
 CadFloorPlan buildCadFloorPlan(FloorPlanAnalysisResult result) {
+  final spatialModel = const SSSpatialModelBuilder().build(result);
   return CadFloorPlan(
-    sourceWidthPx: result.sourceWidthPx,
-    sourceHeightPx: result.sourceHeightPx,
+    sourceWidthPx: spatialModel.sourceWidthPx,
+    sourceHeightPx: spatialModel.sourceHeightPx,
     walls: [
-      for (final wall in result.walls)
+      for (final wall in spatialModel.walls)
         CadWall(
           id: wall.id,
           start: wall.start,
           end: wall.end,
           thicknessNormalized: wall.thicknessNormalized,
-          wallType: wall.isExterior
+          wallType: wall.kind == SSWallKind.exterior
               ? CadWallType.exterior
               : CadWallType.interior,
           confidence: wall.confidence,
         ),
     ],
     openings: [
-      for (final opening in result.openings)
+      for (final opening in spatialModel.openings)
         CadOpening(
           id: opening.id,
-          type: opening.type,
+          type: switch (opening.kind) {
+            SSOpeningKind.door => OpeningType.door,
+            SSOpeningKind.window => OpeningType.window,
+            SSOpeningKind.openPassage ||
+            SSOpeningKind.unknown => OpeningType.unknown,
+          },
           center: opening.center,
           widthNormalized: opening.widthNormalized,
           confidence: opening.confidence,
@@ -463,15 +488,16 @@ CadFloorPlan buildCadFloorPlan(FloorPlanAnalysisResult result) {
         ),
     ],
     rooms: [
-      for (final room in result.rooms)
+      for (final space in spatialModel.spaces)
         CadRoom(
-          id: room.id,
-          polygon: room.polygon,
-          areaNormalized: room.areaNormalized,
-          confidence: room.confidence,
-          closed: room.closed,
+          id: space.id,
+          polygon: space.polygon,
+          areaNormalized: space.areaNormalized,
+          confidence: space.confidence,
+          closed: space.closed,
         ),
     ],
-    warnings: result.warnings,
+    warnings: spatialModel.warnings,
+    objectCandidates: spatialModel.objects,
   );
 }
