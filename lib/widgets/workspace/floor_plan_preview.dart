@@ -5,12 +5,14 @@ import '../../models/cad_workspace_state.dart';
 import '../../models/floor_plan_file.dart';
 import '../../models/floor_plan_geometry.dart';
 import '../../models/space_scene.dart';
+import '../../models/space_scene_v2.dart';
 import '../../models/workspace_task_item.dart';
 import '../../theme/space_shift_colors.dart';
 import 'cad_floor_plan_overlay.dart';
 import 'ceiling_height_sheet.dart' show ceilingHeightPresetsMm;
 import 'floor_plan_analysis_overlay.dart';
 import 'space_3d_view.dart';
+import 'space_3d_view_gpu_v2.dart';
 
 /// 중앙 캔버스에서 "평면도 업로드/분석/CAD 편집" 단계별 상태를 보여주는
 /// 위젯.
@@ -30,6 +32,7 @@ class FloorPlanPreview extends StatelessWidget {
     required this.cadCallbacks,
     required this.onPickFile,
     this.spaceScene,
+    this.spaceSceneV2,
     this.spaceGenerationFailureMessage,
     this.onExitTo2D,
   });
@@ -51,6 +54,15 @@ class FloorPlanPreview extends StatelessWidget {
   /// 실제로 생성된 3D geometry. null이면(아직 생성 전) 준비 상태 안내를
   /// 계속 보여준다 — 정적 이미지를 3D인 것처럼 보여주지 않는다(WO 12번).
   final SpaceScene? spaceScene;
+
+  /// NOMPASS V2 WO — 값이 있으면 이 scene([Space3DViewGpuV2], 실제 GPU
+  /// 삼각형 rasterization/depth buffer 렌더러)을 우선 표시한다.
+  /// [spaceScene](V1/[Space3DView])과 CPU coarse-tile 렌더러
+  /// ([Space3DViewV2] — Windows 실기에서 벽/바닥 경계가 계단화된 큰
+  /// block으로 보여 renderer architecture를 재검토한 결과 실제 화면
+  /// 표시에서는 빠졌다)는 삭제하지 않고 그대로 남겨 둔다(기존 구현
+  /// 삭제 금지).
+  final SpaceSceneV2? spaceSceneV2;
   final String? spaceGenerationFailureMessage;
 
   /// 실기 FAIL 재수정 WO(2번) — 3D 아이소 안에 명확한 "2D 평면도로
@@ -65,6 +77,12 @@ class FloorPlanPreview extends StatelessWidget {
       // 완료 상태로 만들지 않는다." 이번 1차 구현은 궤도 카메라 하나뿐
       // (아이소 전용)이라, 3D 투시 전용 카메라/화면은 아직 없다 — 아이소가
       // 준비돼도 투시는 계속 준비 상태 안내로 남는다(다음 단계로 보고).
+      final sceneV2 = viewMode == WorkspaceViewMode.isometric3d
+          ? spaceSceneV2
+          : null;
+      if (sceneV2 != null) {
+        return Space3DViewGpuV2(scene: sceneV2, onExitTo2D: onExitTo2D);
+      }
       final scene = viewMode == WorkspaceViewMode.isometric3d
           ? spaceScene
           : null;
@@ -921,7 +939,7 @@ class _SpaceSummaryCard extends StatelessWidget {
         ],
         if (plan != null && plan.rooms.length > 1) ...[
           const SizedBox(height: 8),
-          _TotalAreaRow(plan: plan, scale: scale),
+          _TotalAreaRow(plan: plan, scale: scale, callbacks: callbacks),
         ],
         const SizedBox(height: 16),
         const Text(
@@ -1215,6 +1233,8 @@ class _RoomAreaRow extends StatelessWidget {
                     Text(
                       m2 == null
                           ? '계산 불가'
+                          : scale?.source == ScaleSource.unknown
+                          ? '축척 미확정 · 참고 약 ${m2.toStringAsFixed(1)}㎡'
                           : '약 ${m2.toStringAsFixed(1)}㎡ · 약 '
                                 '${pyeong!.toStringAsFixed(1)}평'
                                 '${estimated ? " (추정)" : ""}',
@@ -1235,15 +1255,82 @@ class _RoomAreaRow extends StatelessWidget {
 }
 
 class _TotalAreaRow extends StatelessWidget {
-  const _TotalAreaRow({required this.plan, required this.scale});
+  const _TotalAreaRow({
+    required this.plan,
+    required this.scale,
+    required this.callbacks,
+  });
 
   final CadFloorPlan plan;
   final FloorPlanScale? scale;
+  final CadWorkspaceCallbacks callbacks;
 
   @override
   Widget build(BuildContext context) {
     final m2 = totalAreaM2(plan, scale);
     if (m2 == null) return const SizedBox.shrink();
+
+    // NOMPASS V2 WO(2/3번) — "unknown scale에서 임의 diagonal로 계산한
+    // 값을 정확한 면적처럼 표시하는 구조를 중단한다." 8m→13m fallback
+    // 조정은 근본 해결이 아니었다 — 숫자 자체를 크게/확정처럼 보여주지
+    // 않고, "축척 미확정" 상태와 보정 유도를 1순위로 보여준다. 추정값은
+    // 참고용 2차 정보로만 작게 남긴다.
+    if (scale == null || scale!.source == ScaleSource.unknown) {
+      final pyeong = squareMetersToPyeong(m2);
+      return Container(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
+        decoration: BoxDecoration(
+          color: const Color(0xFFFFF7ED),
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(color: const Color(0xFFFCD9B4)),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              '분석된 공간 · 축척 미확정',
+              style: TextStyle(
+                fontSize: 13,
+                fontWeight: FontWeight.w700,
+                color: SpaceShiftColors.textPrimary,
+              ),
+            ),
+            const SizedBox(height: 4),
+            const Text(
+              '실제 길이 1곳을 입력하면 공간 면적과 3D 크기를 정확하게 보정할 수 있습니다.',
+              style: TextStyle(
+                fontSize: 11.5,
+                color: Color(0xFF92400E),
+                height: 1.4,
+              ),
+            ),
+            const SizedBox(height: 4),
+            Text(
+              '참고 추정: 약 ${m2.toStringAsFixed(1)}㎡ · 약 ${pyeong.toStringAsFixed(1)}평 '
+              '(신뢰도 낮음)',
+              style: const TextStyle(
+                fontSize: 11,
+                color: SpaceShiftColors.textSecondary,
+              ),
+            ),
+            const SizedBox(height: 8),
+            SizedBox(
+              width: double.infinity,
+              child: OutlinedButton(
+                onPressed: callbacks.onStartCalibration,
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: SpaceShiftColors.textPrimary,
+                  side: const BorderSide(color: Color(0xFFFCD9B4)),
+                  padding: const EdgeInsets.symmetric(vertical: 8),
+                ),
+                child: const Text('치수 보정', style: TextStyle(fontSize: 12.5)),
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
     final pyeong = squareMetersToPyeong(m2);
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
@@ -1265,7 +1352,7 @@ class _TotalAreaRow extends StatelessWidget {
           const SizedBox(height: 2),
           Text(
             '약 ${m2.toStringAsFixed(1)}㎡ · 약 ${pyeong.toStringAsFixed(1)}평'
-            '${scale != null && !scale!.source.isReliable ? " (추정)" : ""}',
+            '${!scale!.source.isReliable ? " (추정)" : ""}',
             style: const TextStyle(
               fontSize: 13.5,
               fontWeight: FontWeight.w700,

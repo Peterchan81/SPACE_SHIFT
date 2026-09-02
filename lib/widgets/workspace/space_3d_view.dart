@@ -110,6 +110,22 @@ bool isCutawayHidden(
   return unitNormal.dot(horizontalToCamera.normalized()) > 0;
 }
 
+/// 3D 2차 근본 수정 — [SpaceScene]은 벽마다 안쪽/바깥쪽 두 측면과 마구리
+/// 면을 전부 담고 있다("두꺼운 벽 = 얇은 상자"라서 안쪽 면·바깥쪽 면이
+/// 거의 같은 깊이에 존재). 렌더러는 painter's algorithm(정렬 후 순서대로
+/// 그리기)만 쓰고 z-buffer가 없어서, 이렇게 서로 가까운 면들의 그리기
+/// 순서가 자주 틀린다 — 카메라에서 안 보여야 할 뒷면이 앞면 "위에"
+/// 그려지며 조명 계산까지 뒤섞여 화면에서 벽이 찢어진 것처럼 보이고
+/// 밝기가 들쭉날쭉한 patchwork로 보이는 원인이 된다(실기 재현: saddle
+/// point 수정 이후에도 실제 화면에서 남아있던 증상). 표준 backface
+/// culling으로 "카메라 반대쪽을 보는 면"은 애초에 그리지 않으면, 겹치는
+/// 면 쌍 중 최소 하나는 항상 사라져 이 sort 실패의 영향이 크게 준다.
+bool isBackFace(SpaceTriangle tri, vm.Vector3 eye) {
+  final toCamera = eye - tri.centroid;
+  if (toCamera.length2 == 0) return false;
+  return tri.normal.dot(toCamera) <= 0;
+}
+
 /// 카메라 pitch(고도각) 허용 범위 — 정확히 수직으로 내려다보면
 /// makeViewMatrix의 forward·up이 평행해져 view 행렬이 특이(degenerate)
 /// 해지므로, 완전한 90도 대신 약간의 여유를 둔다. [Space3DView]와
@@ -657,6 +673,12 @@ class _Space3DPainter extends CustomPainter {
       if (behindNear(tri.a) || behindNear(tri.b) || behindNear(tri.c)) {
         continue;
       }
+      // 3D 2차 근본 수정 — z-buffer가 없는 painter's algorithm에서 벽
+      // 안쪽/바깥쪽 면이 서로 잘못된 순서로 그려져 벽이 찢어져 보이던
+      // 문제를 backface culling으로 막는다(자세한 이유는 isBackFace
+      // 참고). cutaway보다 먼저 걸러 카메라를 등진 면은 아예 계산하지
+      // 않는다.
+      if (isBackFace(tri, eye)) continue;
       // WO 20번 — 카메라를 정면으로 막는 근접 외벽을 숨겨 내부가 보이는
       // "인테리어 아이소"를 만든다(정적 판단이 아니라 매 프레임 현재
       // eye 기준으로 다시 계산 — 회전하면 숨겨지는 벽도 함께 바뀐다).

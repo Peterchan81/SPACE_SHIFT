@@ -226,7 +226,15 @@ WallStageResult detectWallsAndOpenings(WallStageInput input) {
         id: id,
         start: Point2(band.alongMin / w, band.crossCenter / h),
         end: Point2(band.alongMax / w, band.crossCenter / h),
-        thicknessNormalized: band.thicknessPx / diagonal,
+        // 3D 근본 수정 WO(2번, 면적/치수 재추적) — CadWall.boundaryPolygon은
+        // 이 값을 start/end와 "같은 축의 정규화 단위"로 취급해 그대로
+        // y좌표에 더한다(수평 벽은 두께 offset이 y축에만 실린다). 그런데
+        // 예전 코드는 diagonal 기준 비율을 넣고 있었다 — 정사각형이
+        // 아닌 이미지에서는 diagonal ≠ height라 벽 두께가 실제보다
+        // 얇거나 두껍게 재구성됐다(전형적으로 h/diagonal배, 대략
+        // 0.6~0.8배 과소). 수평 벽의 두께는 세로(y) 방향 픽셀 폭이므로
+        // h로 정규화해야 이후 mm 변환이 정확하다.
+        thicknessNormalized: band.thicknessPx / h,
         confidence: _confidenceFor(band, diagonal),
         isExterior: isExterior,
       ),
@@ -243,7 +251,9 @@ WallStageResult detectWallsAndOpenings(WallStageInput input) {
         id: id,
         start: Point2(band.crossCenter / w, band.alongMin / h),
         end: Point2(band.crossCenter / w, band.alongMax / h),
-        thicknessNormalized: band.thicknessPx / diagonal,
+        // 위와 대칭 — 수직 벽의 두께 offset은 x축에 실리므로 가로(x)
+        // 방향 픽셀 폭 기준인 w로 정규화한다.
+        thicknessNormalized: band.thicknessPx / w,
         confidence: _confidenceFor(band, diagonal),
         isExterior: isExterior,
       ),
@@ -261,13 +271,24 @@ WallStageResult detectWallsAndOpenings(WallStageInput input) {
     idStart: idCounter,
   );
 
+  // Windows 실기 FAIL 재조사(2D CAD reconstruction) — 방 검출(stage 2)에
+  // 넘기는 mask를 이전에는 Otsu 이진화 직후의 "raw 어두운 픽셀" 그대로
+  // 썼다. 가구 아이콘(옷장 내부 해칭, 위생기구 체크무늬), 치수/텍스트
+  // 라벨, 워터마크처럼 "벽으로 확정되지 않은" 어두운 픽셀도 전부 이
+  // raw mask에는 그대로 남아 있어, flood-fill 연결성을 끊어 실제로는
+  // 하나인 방을 여러 개의 작은 "방"으로 잘못 쪼갰다(실기 재현: 14개
+  // 공간 중 다수가 실제로는 존재하지 않는 노이즈 분할). 벽으로 실제
+  // 확정된 band(길이/두께 필터를 통과한 것)만으로 다시 채운 mask를
+  // 써야, 벽 판정에서 걸러진 노이즈가 방을 쪼개지 못한다.
+  final wallOnlyMask = _buildWallOnlyMask(w, h, horizontalBands, verticalBands);
+
   stopwatch.stop();
   return WallStageResult.success(
     sourceWidthPx: sourceWidth,
     sourceHeightPx: sourceHeight,
     analysisWidthPx: w,
     analysisHeightPx: h,
-    mask: mask,
+    mask: wallOnlyMask,
     walls: walls,
     openings: openings,
     rawHorizontalRuns: rawHorizontal.length,
@@ -412,8 +433,27 @@ List<Point2>? _traceRoomBoundary({
   int vKey(int x, int y) => y * (localWidth + 1) + x;
   final nextVertex = <int, int>{};
 
+  // 실기 FAIL 재수정(3D 근본 수정) — 대각선으로만 맞닿은 두 영역 조각이
+  // 같은 정점을 공유하는 "안장점(saddle point, marching-squares 고전적
+  // ambiguous case)"에서는 이 정점이 실제로 서로 다른 2개의 바깥쪽
+  // edge를 가진다. 예전 구현은 Map[key]=value로 그냥 덮어써서 그 중
+  // 하나를 조용히 버렸다 — 그 결과 경계 추적이 방의 실제 모양과 무관한
+  // 엉뚱한 정점으로 "점프"해, ear-clipping 단계에서 방과 무관하게 멀리
+  // 뻗는 거대한 삼각형을 만드는 원인이 됐다(벽 geometry는 항상 고정
+  // 사각형 extrusion이라 이 버그의 영향을 받지 않지만, 바닥/방 polygon은
+  // 이 함수의 결과를 그대로 쓴다). 같은 정점에 두 번째 edge가 들어오면
+  // "안전하게 실패"로 처리해 호출부가 bounding box로 폴백하게 한다 —
+  // 잘못된 polygon을 만드느니 차라리 부정확한 사각형을 쓴다는 이 파일의
+  // 기존 설계 원칙을 그대로 따른다.
+  var hasAmbiguousVertex = false;
+
   void addEdge(int x1, int y1, int x2, int y2) {
-    nextVertex[vKey(x1, y1)] = vKey(x2, y2);
+    final key = vKey(x1, y1);
+    if (nextVertex.containsKey(key)) {
+      hasAmbiguousVertex = true;
+      return;
+    }
+    nextVertex[key] = vKey(x2, y2);
   }
 
   for (var y = 0; y < localHeight; y++) {
@@ -428,6 +468,7 @@ List<Point2>? _traceRoomBoundary({
     }
   }
   if (nextVertex.isEmpty) return null;
+  if (hasAmbiguousVertex) return null;
 
   final startKey = nextVertex.keys.first;
   final loopKeys = <int>[startKey];
@@ -624,6 +665,40 @@ List<_WallBand> _mergeRunsToBands(
   finished.addAll(active);
 
   return finished.where((b) => b.thicknessPx <= maxThicknessPx).toList();
+}
+
+/// 확정된 벽 band만으로 새 이진 마스크를 채운다 — 각 band가 차지하는
+/// 실제 픽셀 사각형(along축 범위 x cross축 두께 범위)만 1로 표시한다.
+/// 벽 판정을 통과하지 못한 어두운 픽셀(가구/텍스트/워터마크/해칭)은
+/// 이 mask에 전혀 반영되지 않아, 방 검출(flood-fill) 단계가 실제
+/// 벽에서만 막히게 한다.
+Uint8List _buildWallOnlyMask(
+  int w,
+  int h,
+  List<_WallBand> horizontalBands,
+  List<_WallBand> verticalBands,
+) {
+  final mask = Uint8List(w * h);
+  void fillRect(int xMin, int xMax, int yMin, int yMax) {
+    final clampedYMin = math.max(0, yMin);
+    final clampedYMax = math.min(h - 1, yMax);
+    final clampedXMin = math.max(0, xMin);
+    final clampedXMax = math.min(w - 1, xMax);
+    for (var y = clampedYMin; y <= clampedYMax; y++) {
+      final rowStart = y * w;
+      for (var x = clampedXMin; x <= clampedXMax; x++) {
+        mask[rowStart + x] = 1;
+      }
+    }
+  }
+
+  for (final band in horizontalBands) {
+    fillRect(band.alongMin, band.alongMax, band.crossMin, band.crossMax);
+  }
+  for (final band in verticalBands) {
+    fillRect(band.crossMin, band.crossMax, band.alongMin, band.alongMax);
+  }
+  return mask;
 }
 
 double _confidenceFor(_WallBand band, double diagonal) {

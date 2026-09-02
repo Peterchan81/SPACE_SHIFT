@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 import 'package:vector_math/vector_math_64.dart';
 
@@ -28,6 +30,41 @@ double _mmX(Point2 p, int sourceWidthPx, double mmPerPixel) =>
 double _mmZ(Point2 p, int sourceHeightPx, double mmPerPixel) =>
     p.y * sourceHeightPx * mmPerPixel;
 
+/// [polygon]의 인접하지 않은 두 변이 실제로 교차하는지 확인한다(단순
+/// 다각형인지 검사, ear-clipping 전 필수 전제조건). 표준 세그먼트 교차
+/// 판정(orientation 부호 비교)만 쓴다 — 끝점이 살짝 스치는 경우까지
+/// 전부 자기교차로 판정하면 정상적인 rectilinear 윤곽(연속된 변이
+/// 같은 점을 공유)까지 걸릴 수 있어, 인접 변(같은 정점을 공유하는 변)은
+/// 애초에 비교 대상에서 제외한다.
+bool _isSelfIntersecting(List<Point2> polygon) {
+  final n = polygon.length;
+  double orientation(Point2 a, Point2 b, Point2 c) =>
+      (b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x);
+
+  bool segmentsIntersect(Point2 p1, Point2 p2, Point2 p3, Point2 p4) {
+    final d1 = orientation(p3, p4, p1);
+    final d2 = orientation(p3, p4, p2);
+    final d3 = orientation(p1, p2, p3);
+    final d4 = orientation(p1, p2, p4);
+    return ((d1 > 0 && d2 < 0) || (d1 < 0 && d2 > 0)) &&
+        ((d3 > 0 && d4 < 0) || (d3 < 0 && d4 > 0));
+  }
+
+  for (var i = 0; i < n; i++) {
+    final a1 = polygon[i];
+    final a2 = polygon[(i + 1) % n];
+    for (var j = i + 1; j < n; j++) {
+      if (j == i) continue;
+      // 인접 변(정점 공유)은 제외.
+      if (j == (i + 1) % n || (j + 1) % n == i) continue;
+      final b1 = polygon[j];
+      final b2 = polygon[(j + 1) % n];
+      if (segmentsIntersect(a1, a2, b1, b2)) return true;
+    }
+  }
+  return false;
+}
+
 /// 단순 다각형(오목 가능, 자기교차 없음)을 삼각형 인덱스 목록(원본
 /// [polygon] 기준)으로 분할한다(ear clipping) — 2D 정확도 개선 WO(8번),
 /// 방 polygon이 이제 항상 사각형이 아니라 실제 윤곽(오목 형태 포함)일
@@ -42,6 +79,12 @@ List<List<int>> _earClipTriangulate(List<Point2> polygon) {
       [0, 1, 2],
     ];
   }
+  // 3D 근본 수정 WO(3번) — 자기교차하는 폴리곤을 그대로 삼각분할하면
+  // convex/point-in-triangle 판정이 폴리곤 밖을 가로지르는 삼각형을
+  // 만들 수 있다(벽 geometry는 이 함수를 안 쓰므로 영향이 없지만, 방
+  // 윤곽은 이 결과를 그대로 바닥 geometry로 쓴다). 여기서 미리 걸러
+  // 아예 만들지 않는다 — 잘못된 바닥보다 바닥이 없는 쪽이 안전하다.
+  if (_isSelfIntersecting(polygon)) return const [];
 
   double signedArea() {
     var sum = 0.0;
@@ -120,6 +163,25 @@ SpaceScene buildSpaceScene({
   var minX = double.infinity, minY = double.infinity, minZ = double.infinity;
   var maxX = -double.infinity, maxY = -double.infinity, maxZ = -double.infinity;
 
+  // 3D 근본 수정 WO — 렌더러에 넘기기 전에 각 삼각형을 실제로 검증한다.
+  // "근처 벽으로 확대했을 때 튀는 near-plane 정점" 문제는 이전에 이미
+  // 고쳤지만, geometry 생성 단계 자체가 잘못된 폴리곤(자기교차·안장점
+  // 등, 실제 CAD에서 나올 수 있는 예상 밖 입력)을 만들면 렌더러의
+  // near-plane 방어만으로는 못 막는다 — 그래서 여기서 한 번 더, "이
+  // 도면이 실제로 가질 수 있는 최대 대각선"을 기준으로 비정상적으로
+  // 긴 edge/NaN/Infinity를 가진 삼각형을 소스별로 걸러낸다. 숨기고
+  // 끝내지 않고 [SpaceScene.warnings]에 어떤 geometry(source id/kind)가
+  // 문제였는지 정직하게 남긴다.
+  final expectedDiagonalMm = math.sqrt(
+    math.pow(plan.sourceWidthPx * scale.mmPerPixel, 2) +
+        math.pow(plan.sourceHeightPx * scale.mmPerPixel, 2),
+  );
+  // 실측 오차·사용자 편집으로 정규화 좌표가 0~1을 살짝 벗어날 수 있어
+  // 넉넉한 안전 배율을 둔다 — 그래도 "다른 vertex까지 길게 뻗는" 진짜
+  // 깨진 삼각형은 이 배율을 몇 배씩 초과한다.
+  final maxValidEdgeMm = expectedDiagonalMm * 3;
+  final invalidSources = <String>{};
+
   void extend(Vector3 v) {
     if (v.x < minX) minX = v.x;
     if (v.y < minY) minY = v.y;
@@ -127,6 +189,51 @@ SpaceScene buildSpaceScene({
     if (v.x > maxX) maxX = v.x;
     if (v.y > maxY) maxY = v.y;
     if (v.z > maxZ) maxZ = v.z;
+  }
+
+  bool isFiniteVec(Vector3 v) => v.x.isFinite && v.y.isFinite && v.z.isFinite;
+
+  void addTriangle(
+    Vector3 a,
+    Vector3 b,
+    Vector3 c,
+    Color color,
+    SpaceElementKind kind,
+    String id, {
+    bool isExteriorWall = false,
+  }) {
+    if (!isFiniteVec(a) || !isFiniteVec(b) || !isFiniteVec(c)) {
+      invalidSources.add('$kind:$id (NaN/Infinity 좌표)');
+      return;
+    }
+    final longestEdge = math.max(
+      (b - a).length,
+      math.max((c - b).length, (a - c).length),
+    );
+    if (maxValidEdgeMm > 0 && longestEdge > maxValidEdgeMm) {
+      invalidSources.add('$kind:$id (비정상적으로 긴 edge)');
+      return;
+    }
+    // 넓이 0에 가까운 (중복/일직선) 정점은 조용히 버린다 — 벽 모서리가
+    // 딱 맞물리는 곳에서 흔히 생기는 정상적인 케이스라 경고 대상이
+    // 아니다.
+    final area = (b - a).cross(c - a).length / 2;
+    if (area < 1e-6) return;
+
+    triangles.add(
+      SpaceTriangle(
+        a: a,
+        b: b,
+        c: c,
+        color: color,
+        sourceKind: kind,
+        sourceId: id,
+        isExteriorWall: isExteriorWall,
+      ),
+    );
+    extend(a);
+    extend(b);
+    extend(c);
   }
 
   Vector3 toVec(Point2 p, double y) => Vector3(
@@ -145,31 +252,8 @@ SpaceScene buildSpaceScene({
     String id, {
     bool isExteriorWall = false,
   }) {
-    triangles.add(
-      SpaceTriangle(
-        a: p0,
-        b: p1,
-        c: p2,
-        color: color,
-        sourceKind: kind,
-        sourceId: id,
-        isExteriorWall: isExteriorWall,
-      ),
-    );
-    triangles.add(
-      SpaceTriangle(
-        a: p0,
-        b: p2,
-        c: p3,
-        color: color,
-        sourceKind: kind,
-        sourceId: id,
-        isExteriorWall: isExteriorWall,
-      ),
-    );
-    for (final v in [p0, p1, p2, p3]) {
-      extend(v);
-    }
+    addTriangle(p0, p1, p2, color, kind, id, isExteriorWall: isExteriorWall);
+    addTriangle(p0, p2, p3, color, kind, id, isExteriorWall: isExteriorWall);
   }
 
   var wallCount = 0;
@@ -226,21 +310,20 @@ SpaceScene buildSpaceScene({
     final pts = [for (final p in room.polygon) toVec(p, 0)];
     for (final tri in earTriangles) {
       final a = pts[tri[0]];
-      final b = pts[tri[1]];
-      final c = pts[tri[2]];
-      triangles.add(
-        SpaceTriangle(
-          a: a,
-          b: b,
-          c: c,
-          color: _floorColor,
-          sourceKind: SpaceElementKind.floor,
-          sourceId: room.id,
-        ),
-      );
-      for (final v in [a, b, c]) {
-        extend(v);
+      var b = pts[tri[1]];
+      var c = pts[tri[2]];
+      // 3D 2차 근본 수정 — room.polygon의 winding(추적 방향에 따라
+      // CW/CCW가 달라질 수 있다)에 그대로 의존하면 바닥 삼각형의 법선이
+      // 방마다 위(+Y) 또는 아래(-Y)로 뒤섞여 나올 수 있다. 렌더러가
+      // backface culling(카메라 반대쪽을 향한 면은 그리지 않음)을 쓰기
+      // 시작하면, 뒤집힌 바닥은 위에서 보는 카메라에 아예 안 보이게
+      // 된다 — 그래서 여기서 항상 위를 향하도록 명시적으로 고정한다.
+      if ((b - a).cross(c - a).y < 0) {
+        final tmp = b;
+        b = c;
+        c = tmp;
       }
+      addTriangle(a, b, c, _floorColor, SpaceElementKind.floor, room.id);
     }
     floorCount++;
   }
@@ -251,6 +334,10 @@ SpaceScene buildSpaceScene({
           '반영하지 않습니다(다음 단계 예정) — 벽이 뚫려 있지 않은 것으로 '
           '보일 수 있습니다.',
     if (floorCount == 0 && wallCount > 0) '공간(방)을 인식하지 못해 바닥은 생성하지 않았습니다.',
+    if (invalidSources.isNotEmpty)
+      '비정상 geometry ${invalidSources.length}건을 제외했습니다: '
+          '${invalidSources.take(5).join(', ')}'
+          '${invalidSources.length > 5 ? ' 외 ${invalidSources.length - 5}건' : ''}',
   ];
 
   if (triangles.isEmpty) {

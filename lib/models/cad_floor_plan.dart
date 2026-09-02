@@ -39,9 +39,12 @@ class CadWall {
   final Point2 start;
   final Point2 end;
 
-  /// 벽 두께. 정규화 좌표계와 같은 단위(이미지 대각선 대비 비율)로만
-  /// 담는다 — 실제 mm는 [FloorPlanScale]이 확정된 뒤에만 계산한다(WO 9번,
-  /// 임의 mm 생성 금지).
+  /// 벽 두께. [boundaryPolygon]이 이 값을 start/end와 같은 축(수평
+  /// 벽=세로/y축, 수직 벽=가로/x축)의 정규화 단위로 그대로 오프셋에
+  /// 쓰므로, 이 값도 반드시 그 축 기준으로 정규화돼 있어야 한다(3D
+  /// 근본 수정 WO — 예전에는 이미지 대각선 기준이라 정사각형이 아닌
+  /// 이미지에서 두께가 실제보다 작게 재구성됐다). 실제 mm는
+  /// [FloorPlanScale]이 확정된 뒤에만 계산한다(WO 9번, 임의 mm 생성 금지).
   final double thicknessNormalized;
 
   final CadWallType wallType;
@@ -316,12 +319,16 @@ FloorPlanScale? estimateScaleFromDoors(CadFloorPlan plan) {
 }
 
 /// 실측도 문 기준 추정도 불가능할 때 3D 생성을 막지 않기 위한 마지막
-/// 폴백 — 도면 전체 대각선이 "일반적인 작은 주거 공간" 정도의 실제
-/// 크기([kUnknownScaleFallbackDiagonalMm])라고 가정한다. 절대 실측값처럼
-/// 보이면 안 되므로 [ScaleSource.unknown]으로만 만들어진다 — 화면은 이
-/// source를 보고 "크기를 추정할 수 없습니다" 같은 명시적 경고를 반드시
-/// 함께 보여줘야 한다(4번).
-const double kUnknownScaleFallbackDiagonalMm = 8000;
+/// 폴백 — 도면 전체 대각선이 이 앱의 실제 사용 맥락(사용자가 인테리어
+/// 상담을 위해 올리는 주거 공간 평면도)에서 흔한 크기라고 가정한다.
+/// 3D 근본 수정 WO(8번, 면적 재추적) — 예전 기본값(8m)은 소형 원룸/
+/// 창고 수준이라, 이 값이 실제로 쓰였을 때 총 면적이 실제보다 훨씬
+/// 작게 표시되는 사고가 있었다. 국내에서 흔한 "84㎡(국민평형)" 아파트
+/// 대각선(√(84×2)≈13m)에 맞춰 올렸다 — 여전히 임의의 가정일 뿐이므로
+/// [ScaleSource.unknown]으로만 만들어진다. 화면은 이 source를 보고
+/// "크기를 추정할 수 없습니다" 같은 명시적 경고를 반드시 함께 보여줘야
+/// 한다(4번).
+const double kUnknownScaleFallbackDiagonalMm = 13000;
 
 FloorPlanScale unknownFallbackScale(CadFloorPlan plan) {
   final diagonalPx = plan.diagonalPx;

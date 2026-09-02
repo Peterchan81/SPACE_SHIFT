@@ -5,6 +5,7 @@ import '../../models/cad_workspace_state.dart';
 import '../../models/floor_plan_file.dart';
 import '../../models/floor_plan_geometry.dart';
 import '../../models/space_scene.dart';
+import '../../models/space_scene_v2.dart';
 import '../../models/workspace_task_item.dart';
 import '../../theme/space_shift_colors.dart';
 import 'floor_plan_analysis_overlay.dart' show ContainFitTransform;
@@ -37,6 +38,7 @@ class WorkspaceCanvas extends StatelessWidget {
     required this.cadCallbacks,
     required this.onPickFloorPlanFile,
     this.spaceScene,
+    this.spaceSceneV2,
     this.spaceGenerationFailureMessage,
     this.onExitTo2D,
   });
@@ -55,6 +57,11 @@ class WorkspaceCanvas extends StatelessWidget {
   /// [CadWorkspaceCallbacks.onGenerate3D]가 실제로 만든 3D geometry —
   /// null이면(아직 생성 전) [FloorPlanPreview]가 준비 상태 안내를 보여준다.
   final SpaceScene? spaceScene;
+
+  /// NOMPASS V2 WO — 실제로 화면에 렌더링하는 3D scene(값이 있으면
+  /// [FloorPlanPreview]가 이 값을 우선한다). [spaceScene](V1)은 삭제하지
+  /// 않고 계속 넘겨받되, 실기 화면 표시에는 더 이상 쓰이지 않는다.
+  final SpaceSceneV2? spaceSceneV2;
   final String? spaceGenerationFailureMessage;
   final VoidCallback? onExitTo2D;
 
@@ -95,6 +102,7 @@ class WorkspaceCanvas extends StatelessWidget {
                 cadCallbacks: cadCallbacks,
                 onPickFile: onPickFloorPlanFile,
                 spaceScene: spaceScene,
+                spaceSceneV2: spaceSceneV2,
                 spaceGenerationFailureMessage: spaceGenerationFailureMessage,
                 onExitTo2D: onExitTo2D,
               ),

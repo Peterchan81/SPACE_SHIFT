@@ -5,10 +5,12 @@ import '../models/cad_workspace_state.dart';
 import '../models/floor_plan_file.dart';
 import '../models/floor_plan_geometry.dart';
 import '../models/space_scene.dart';
+import '../models/space_scene_v2.dart';
 import '../models/workspace_task_item.dart';
 import '../services/floor_plan_analysis_service.dart';
 import '../services/floor_plan_upload_service.dart';
 import '../services/space_scene_builder.dart';
+import '../services/space_scene_builder_v2.dart';
 import '../theme/space_shift_colors.dart';
 import '../widgets/workspace/ceiling_height_sheet.dart';
 import '../widgets/workspace/settings_entry_button.dart';
@@ -103,6 +105,13 @@ class _FloorPlanWorkspaceScreenState extends State<FloorPlanWorkspaceScreen> {
   /// viewMode가 3D여도 이 값이 null이면 아직 생성 전(또는 생성 실패)
   /// 이라는 뜻이라 [FloorPlanPreview]가 준비 상태 안내를 계속 보여준다.
   SpaceScene? _spaceScene;
+
+  /// NOMPASS V2 WO — 실제 화면에 보여주는 3D는 이제 [buildSpaceSceneV2]
+  /// 결과다([_spaceScene]/V1 렌더러는 삭제하지 않고 그대로 남겨 두되
+  /// (WO "기존 구현 삭제 금지"), 사용자가 실기로 확인하는 화면은 V2로
+  /// 교체한다 — 병렬로만 만들고 아무 데서도 안 쓰면 실기 검증 자체가
+  /// 불가능하다).
+  SpaceSceneV2? _spaceSceneV2;
   String? _spaceGenerationFailureMessage;
 
   final List<List<WorkspaceTaskItem>> _undoStack = [];
@@ -142,6 +151,7 @@ class _FloorPlanWorkspaceScreenState extends State<FloorPlanWorkspaceScreen> {
       _scale = null;
       _ceilingHeightMm = null;
       _spaceScene = null;
+      _spaceSceneV2 = null;
       _spaceGenerationFailureMessage = null;
       _viewMode = WorkspaceViewMode.plan2d;
     });
@@ -192,6 +202,7 @@ class _FloorPlanWorkspaceScreenState extends State<FloorPlanWorkspaceScreen> {
         // 더 이상 지금 도면과 일치한다고 보장할 수 없다 — 다시 만들어야
         // 한다(가짜로 그대로 두지 않는다).
         _spaceScene = null;
+        _spaceSceneV2 = null;
         _spaceGenerationFailureMessage = null;
       });
     } else {
@@ -488,11 +499,11 @@ class _FloorPlanWorkspaceScreenState extends State<FloorPlanWorkspaceScreen> {
   }
 
   /// [3D 아이소 만들기] — geometry/축척/천장고가 모두 준비됐을 때만
-  /// 눌릴 수 있다. 이제 단순 viewMode 전환이 아니라, 실제로
-  /// [buildSpaceScene]을 실행해 벽/바닥 3D geometry를 만든다(WO 9/12번
-  /// — 실제 scene 생성이 성공해야 3D 아이소 화면으로 진입한다). 생성에
-  /// 실패하면(예: geometry가 비정상) 2D 화면을 유지하고 이유를 보여준다
-  /// (WO 9번, viewMode를 바꾸지 않는다).
+  /// 눌릴 수 있다. NOMPASS V2 WO — 실제 화면에 표시하는 3D는
+  /// [buildSpaceSceneV2]로 만든다(V1 [buildSpaceScene]은 삭제하지 않고
+  /// 그대로 계속 계산해 둔다 — "기존 구현 삭제 금지", 필요하면 언제든
+  /// 되돌릴 수 있다). 생성에 실패하면(예: geometry가 비정상) 2D 화면을
+  /// 유지하고 이유를 보여준다(viewMode를 바꾸지 않는다).
   void _onGenerate3D() {
     final plan = _cadFloorPlan;
     final scale = _scale;
@@ -509,9 +520,15 @@ class _FloorPlanWorkspaceScreenState extends State<FloorPlanWorkspaceScreen> {
       scale: scale,
       ceilingHeightMm: ceilingHeightMm,
     );
-    if (scene.isEmpty) {
+    final sceneV2 = buildSpaceSceneV2(
+      plan: plan,
+      scale: scale,
+      ceilingHeightMm: ceilingHeightMm,
+    );
+    if (sceneV2.isEmpty) {
       setState(() {
         _spaceScene = null;
+        _spaceSceneV2 = null;
         _spaceGenerationFailureMessage =
             '벽/바닥 geometry를 3D로 옮기지 못했습니다 — 도면에서 실제로 인식된 '
             '벽/공간이 없는 것 같습니다.';
@@ -520,7 +537,8 @@ class _FloorPlanWorkspaceScreenState extends State<FloorPlanWorkspaceScreen> {
     }
 
     setState(() {
-      _spaceScene = scene;
+      _spaceScene = scene.isEmpty ? null : scene;
+      _spaceSceneV2 = sceneV2;
       _spaceGenerationFailureMessage = null;
       _viewMode = WorkspaceViewMode.isometric3d;
     });
@@ -896,6 +914,7 @@ class _FloorPlanWorkspaceScreenState extends State<FloorPlanWorkspaceScreen> {
               cadCallbacks: _cadWorkspaceCallbacks,
               onPickFloorPlanFile: _pickFloorPlan,
               spaceScene: _spaceScene,
+              spaceSceneV2: _spaceSceneV2,
               spaceGenerationFailureMessage: _spaceGenerationFailureMessage,
               onExitTo2D: () =>
                   setState(() => _viewMode = WorkspaceViewMode.plan2d),
@@ -990,6 +1009,7 @@ class _FloorPlanWorkspaceScreenState extends State<FloorPlanWorkspaceScreen> {
             cadCallbacks: _cadWorkspaceCallbacks,
             onPickFloorPlanFile: _pickFloorPlan,
             spaceScene: _spaceScene,
+            spaceSceneV2: _spaceSceneV2,
             spaceGenerationFailureMessage: _spaceGenerationFailureMessage,
             onExitTo2D: () =>
                 setState(() => _viewMode = WorkspaceViewMode.plan2d),

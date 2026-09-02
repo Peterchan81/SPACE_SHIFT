@@ -63,6 +63,7 @@ dependencies:
   # 래스터라이저라 Windows/Android/Web에서 추가 플랫폼 설정 없이 동일하게
   # 동작한다.
   vector_math: ^2.2.0
+  three_js: ^0.3.0
 
 dev_dependencies:
   flutter_test:
