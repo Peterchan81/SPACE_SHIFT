@@ -8,6 +8,7 @@ import '../../models/space_scene.dart';
 import '../../models/workspace_task_item.dart';
 import '../../theme/space_shift_colors.dart';
 import 'cad_floor_plan_overlay.dart';
+import 'ceiling_height_sheet.dart' show ceilingHeightPresetsMm;
 import 'floor_plan_analysis_overlay.dart';
 import 'space_3d_view.dart';
 
@@ -810,13 +811,16 @@ class FloorPlanStatusSection extends StatelessWidget {
           ),
           const SizedBox(height: 16),
           _LabeledCard(
-            title: '평면도 표시 설정',
-            child: CadToolbar(cad: cad, callbacks: cadCallbacks),
-          ),
-          const SizedBox(height: 16),
-          _LabeledCard(
             title: cad.isReadyFor3D ? '3D 아이소 만들기 준비 완료' : '3D 아이소 만들기 준비 상태',
             child: _ReadinessSummary(cad: cad, callbacks: cadCallbacks),
+          ),
+          const SizedBox(height: 16),
+          // 2D 정확도 개선 WO(19번) — CAD/원본/비교 전환·분석 확인은
+          // 일반 사용자의 핵심 작업이 아니라 검증용 고급 기능이다.
+          // 중앙 작업 영역은 도면 자체가 가장 잘 보이는 게 우선이므로,
+          // 기본은 접힌 상태로 두고 필요한 사람만 펼쳐서 쓴다.
+          _CollapsibleAdvancedSection(
+            child: CadToolbar(cad: cad, callbacks: cadCallbacks),
           ),
         ],
       ],
@@ -837,43 +841,78 @@ class _SpaceSummaryCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final areaM2 = _estimateTotalAreaM2(cad.floorPlan, cad.scale);
+    final plan = cad.floorPlan;
     final scale = cad.scale;
+    final estimated = scale != null && !scale.source.isReliable;
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         const Text(
-          '공간 크기',
+          '공간별 크기',
           style: TextStyle(fontSize: 12, color: SpaceShiftColors.textSecondary),
         ),
-        const SizedBox(height: 4),
-        Text(
-          areaM2 == null
-              ? '크기를 계산할 수 없습니다'
-              : (scale != null && scale.source.isReliable
-                    ? '약 ${areaM2.toStringAsFixed(1)}㎡'
-                    : '약 ${areaM2.toStringAsFixed(1)}㎡ (추정)'),
-          style: const TextStyle(
-            fontSize: 20,
-            fontWeight: FontWeight.bold,
-            color: SpaceShiftColors.textPrimary,
-          ),
-        ),
-        if (scale != null && !scale.source.isReliable) ...[
-          const SizedBox(height: 4),
-          Text(
-            scale.source == ScaleSource.estimatedFromDoor
-                ? '평면도에 정확한 치수가 없어 문 크기 등을 기준으로 대략 '
-                      '계산했습니다.'
-                : '평면도에서 정확한 크기를 판단할 수 없어 임시 기준으로 대략 '
-                      '보여주고 있습니다. "치수 보정"으로 실제 크기를 반영할 '
-                      '수 있습니다.',
-            style: const TextStyle(
-              fontSize: 12,
+        const SizedBox(height: 8),
+        if (plan == null || plan.rooms.isEmpty)
+          const Text(
+            '인식된 공간이 없습니다',
+            style: TextStyle(
+              fontSize: 13,
               color: SpaceShiftColors.textSecondary,
-              height: 1.4,
+            ),
+          )
+        else
+          for (var i = 0; i < plan.rooms.length; i++)
+            _RoomAreaRow(
+              plan: plan,
+              room: plan.rooms[i],
+              index: i,
+              scale: scale,
+              onRename: (name) =>
+                  callbacks.onRenameRoom(plan.rooms[i].id, name),
+            ),
+        // 2D 정확도 개선 WO(7번) — 추정 치수 경고는 개발자 용어 없이,
+        // 실측값처럼 보이지 않도록 항상 명시적으로 보여준다.
+        if (estimated) ...[
+          const SizedBox(height: 8),
+          Container(
+            padding: const EdgeInsets.all(10),
+            decoration: BoxDecoration(
+              color: const Color(0xFFFFF7ED),
+              borderRadius: BorderRadius.circular(8),
+              border: Border.all(color: const Color(0xFFFCD9B4)),
+            ),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Icon(
+                  Icons.info_outline_rounded,
+                  size: 15,
+                  color: Color(0xFFB45309),
+                ),
+                const SizedBox(width: 6),
+                Expanded(
+                  child: Text(
+                    scale.source == ScaleSource.estimatedFromDoor
+                        ? '평면도에 정확한 치수가 없어 문 크기와 공간 구조를 '
+                              '기준으로 대략 계산했습니다. 실제 현장 치수와 '
+                              '오차가 있을 수 있습니다.'
+                        : '도면 정보를 기준으로 계산한 추정 치수입니다. 실제 '
+                              '현장 치수와 오차가 있을 수 있습니다.',
+                    style: const TextStyle(
+                      fontSize: 11.5,
+                      color: Color(0xFF92400E),
+                      height: 1.4,
+                    ),
+                  ),
+                ),
+              ],
             ),
           ),
+        ],
+        if (plan != null && plan.rooms.length > 1) ...[
+          const SizedBox(height: 8),
+          _TotalAreaRow(plan: plan, scale: scale),
         ],
         const SizedBox(height: 16),
         const Text(
@@ -881,14 +920,7 @@ class _SpaceSummaryCard extends StatelessWidget {
           style: TextStyle(fontSize: 12, color: SpaceShiftColors.textSecondary),
         ),
         const SizedBox(height: 6),
-        _ToolbarTextButton(
-          icon: Icons.height_rounded,
-          label: cad.hasCeilingHeight
-              ? '${cad.ceilingHeightMm!.toStringAsFixed(0)}mm'
-              : '천장 높이 입력',
-          active: false,
-          onTap: callbacks.onSetCeilingHeight,
-        ),
+        _CeilingHeightChips(cad: cad, callbacks: callbacks),
         const SizedBox(height: 14),
         Align(
           alignment: Alignment.centerLeft,
@@ -916,18 +948,222 @@ class _SpaceSummaryCard extends StatelessWidget {
   }
 }
 
-/// [CadRoom]들의 실제 면적 합(㎡)을 계산한다. [scale]이 없으면(분석 직후
-/// 자동으로 채워지므로 보통 없을 일이 없지만, 방어적으로) null.
-double? _estimateTotalAreaM2(CadFloorPlan? plan, FloorPlanScale? scale) {
-  if (plan == null || scale == null || plan.rooms.isEmpty) return null;
-  final imageAreaPx2 = (plan.sourceWidthPx * plan.sourceHeightPx).toDouble();
-  final mm2PerPx2 = scale.mmPerPixel * scale.mmPerPixel;
-  var totalM2 = 0.0;
-  for (final room in plan.rooms) {
-    final areaPx2 = room.areaNormalized * imageAreaPx2;
-    totalM2 += areaPx2 * mm2PerPx2 / 1e6;
+class _RoomAreaRow extends StatelessWidget {
+  const _RoomAreaRow({
+    required this.plan,
+    required this.room,
+    required this.index,
+    required this.scale,
+    required this.onRename,
+  });
+
+  final CadFloorPlan plan;
+  final CadRoom room;
+  final int index;
+  final FloorPlanScale? scale;
+  final ValueChanged<String> onRename;
+
+  Future<void> _promptRename(BuildContext context) async {
+    final controller = TextEditingController(
+      text: room.name ?? displayRoomName(room, index),
+    );
+    final result = await showDialog<String>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('공간 이름 변경'),
+        content: TextField(
+          controller: controller,
+          autofocus: true,
+          decoration: const InputDecoration(hintText: '예: 거실, 안방'),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('취소'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(context).pop(controller.text),
+            child: const Text('저장'),
+          ),
+        ],
+      ),
+    );
+    if (result != null) onRename(result);
   }
-  return totalM2;
+
+  @override
+  Widget build(BuildContext context) {
+    final m2 = roomAreaM2(plan, room, scale);
+    final pyeong = m2 == null ? null : squareMetersToPyeong(m2);
+    final estimated = scale != null && !scale!.source.isReliable;
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 10),
+      child: InkWell(
+        onTap: () => _promptRename(context),
+        borderRadius: BorderRadius.circular(6),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Flexible(
+                  child: Text(
+                    displayRoomName(room, index),
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      fontSize: 13.5,
+                      fontWeight: FontWeight.w600,
+                      color: SpaceShiftColors.textPrimary,
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 4),
+                const Icon(
+                  Icons.edit_outlined,
+                  size: 13,
+                  color: SpaceShiftColors.textSecondary,
+                ),
+              ],
+            ),
+            const SizedBox(height: 2),
+            Text(
+              m2 == null
+                  ? '계산 불가'
+                  : '약 ${m2.toStringAsFixed(1)}㎡ · 약 ${pyeong!.toStringAsFixed(1)}평'
+                        '${estimated ? " (추정)" : ""}',
+              style: const TextStyle(
+                fontSize: 12.5,
+                color: SpaceShiftColors.textSecondary,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _TotalAreaRow extends StatelessWidget {
+  const _TotalAreaRow({required this.plan, required this.scale});
+
+  final CadFloorPlan plan;
+  final FloorPlanScale? scale;
+
+  @override
+  Widget build(BuildContext context) {
+    final m2 = totalAreaM2(plan, scale);
+    if (m2 == null) return const SizedBox.shrink();
+    final pyeong = squareMetersToPyeong(m2);
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+      decoration: BoxDecoration(
+        color: SpaceShiftColors.background,
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text(
+            '전체',
+            style: TextStyle(
+              fontSize: 12.5,
+              fontWeight: FontWeight.w600,
+              color: SpaceShiftColors.textSecondary,
+            ),
+          ),
+          const SizedBox(height: 2),
+          Text(
+            '약 ${m2.toStringAsFixed(1)}㎡ · 약 ${pyeong.toStringAsFixed(1)}평'
+            '${scale != null && !scale!.source.isReliable ? " (추정)" : ""}',
+            style: const TextStyle(
+              fontSize: 13.5,
+              fontWeight: FontWeight.w700,
+              color: SpaceShiftColors.textPrimary,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// 2D 정확도 개선 WO(9번) — 천장 높이를 "자동 확정"처럼 보이지 않게,
+/// 프리셋 칩(직접 눌러 확인/변경) + 직접입력으로 보여준다. 현재 값이
+/// 프리셋 중 하나면 그 칩이 선택 표시된다.
+class _CeilingHeightChips extends StatelessWidget {
+  const _CeilingHeightChips({required this.cad, required this.callbacks});
+
+  final CadWorkspaceState cad;
+  final CadWorkspaceCallbacks callbacks;
+
+  @override
+  Widget build(BuildContext context) {
+    final current = cad.ceilingHeightMm;
+    return Wrap(
+      spacing: 6,
+      runSpacing: 6,
+      children: [
+        for (final preset in ceilingHeightPresetsMm)
+          _CeilingChip(
+            label: preset.toStringAsFixed(0),
+            selected: current == preset,
+            onTap: () => callbacks.onCeilingHeightPresetSelected(preset),
+          ),
+        _CeilingChip(
+          label: current != null && !ceilingHeightPresetsMm.contains(current)
+              ? '${current.toStringAsFixed(0)}mm(직접입력)'
+              : '직접 입력',
+          selected:
+              current != null && !ceilingHeightPresetsMm.contains(current),
+          onTap: callbacks.onSetCeilingHeight,
+        ),
+      ],
+    );
+  }
+}
+
+class _CeilingChip extends StatelessWidget {
+  const _CeilingChip({
+    required this.label,
+    required this.selected,
+    required this.onTap,
+  });
+
+  final String label;
+  final bool selected;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(8),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
+        decoration: BoxDecoration(
+          color: selected
+              ? SpaceShiftColors.selectionAccent.withValues(alpha: 0.14)
+              : SpaceShiftColors.background,
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(
+            color: selected
+                ? SpaceShiftColors.selectionAccent
+                : SpaceShiftColors.border,
+          ),
+        ),
+        child: Text(
+          label,
+          style: TextStyle(
+            fontSize: 12,
+            fontWeight: FontWeight.w600,
+            color: selected
+                ? SpaceShiftColors.selectionAccent
+                : SpaceShiftColors.textPrimary,
+          ),
+        ),
+      ),
+    );
+  }
 }
 
 class _ReadinessSummary extends StatelessWidget {
@@ -983,6 +1219,78 @@ class _ReadinessSummary extends StatelessWidget {
           ),
         ),
       ],
+    );
+  }
+}
+
+/// 2D 정확도 개선 WO(19번) — CAD/원본/비교 전환 등 검증용 고급 기능을
+/// 기본 접힌 상태로 감싼다. 기능 자체는 삭제하지 않고 그대로 유지한다.
+class _CollapsibleAdvancedSection extends StatefulWidget {
+  const _CollapsibleAdvancedSection({required this.child});
+
+  final Widget child;
+
+  @override
+  State<_CollapsibleAdvancedSection> createState() =>
+      _CollapsibleAdvancedSectionState();
+}
+
+class _CollapsibleAdvancedSectionState
+    extends State<_CollapsibleAdvancedSection> {
+  bool _expanded = false;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: SpaceShiftColors.border),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          InkWell(
+            onTap: () => setState(() => _expanded = !_expanded),
+            borderRadius: BorderRadius.circular(16),
+            child: Padding(
+              padding: const EdgeInsets.all(14),
+              child: Row(
+                children: [
+                  const Icon(
+                    Icons.tune_rounded,
+                    size: 16,
+                    color: SpaceShiftColors.textSecondary,
+                  ),
+                  const SizedBox(width: 8),
+                  const Expanded(
+                    child: Text(
+                      '고급 설정(CAD/원본/비교, 분석 확인)',
+                      style: TextStyle(
+                        fontSize: 12.5,
+                        fontWeight: FontWeight.w600,
+                        color: SpaceShiftColors.textSecondary,
+                      ),
+                    ),
+                  ),
+                  Icon(
+                    _expanded
+                        ? Icons.keyboard_arrow_up_rounded
+                        : Icons.keyboard_arrow_down_rounded,
+                    size: 18,
+                    color: SpaceShiftColors.textSecondary,
+                  ),
+                ],
+              ),
+            ),
+          ),
+          if (_expanded)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(14, 0, 14, 14),
+              child: widget.child,
+            ),
+        ],
+      ),
     );
   }
 }

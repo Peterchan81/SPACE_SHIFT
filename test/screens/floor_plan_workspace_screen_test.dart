@@ -474,13 +474,14 @@ void main() {
     expect(find.byType(CadFloorPlanOverlay), findsOneWidget);
     expect(find.byType(FloorPlanAnalysisOverlay), findsNothing);
 
-    // 분석 geometry는 사용자 작업이 아니므로, 분석 직후에도 작업 목록은
-    // 여전히 0개다(WO 1/2번) — "외벽"/"내벽"/"공간 1"/"문 후보" 같은
-    // 이름은 사용자가 실제로 작업을 만들기 전까지 어디에도 나타나지
-    // 않는다.
+    // 분석 geometry는 사용자 작업이 아니므로, 분석 직후에도 "작업 목록"은
+    // 여전히 0개다(WO 1/2번) — "외벽"/"내벽" 같은 작업 이름은 사용자가
+    // 실제로 작업을 만들기 전까지 작업 목록에 나타나지 않는다.
+    // ("공간 1"은 2D 정확도 개선 WO(4번)부터 우측 "평면도 준비 완료"
+    // 카드에 공간별 크기 목록으로 항상 보인다 — 작업 목록과는 별개다.)
     expect(find.text('아직 등록된 작업이 없습니다.'), findsOneWidget);
     expect(find.text('외벽'), findsNothing);
-    expect(find.text('공간 1'), findsNothing);
+    expect(find.text('공간 1', skipOffstage: false), findsOneWidget);
     // 우측 패널 상단에 도면 분석 상태/표시 설정 섹션이 추가되어, 선택
     // 안내 카드가 스크롤 영역 아래로 밀려 화면 밖에 있을 수 있다 —
     // 존재 여부만 확인하므로 skipOffstage: false로 찾는다.

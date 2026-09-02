@@ -414,6 +414,33 @@ class _FloorPlanWorkspaceScreenState extends State<FloorPlanWorkspaceScreen> {
     setState(() => _ceilingHeightMm = value);
   }
 
+  void _onCeilingHeightPresetSelected(double mm) {
+    setState(() => _ceilingHeightMm = mm);
+  }
+
+  /// 2D 정확도 개선 WO(4번) — 공간 이름을 사용자가 직접 바꾼다.
+  void _onRenameRoom(String roomId, String name) {
+    final plan = _cadFloorPlan;
+    if (plan == null) return;
+    final trimmed = name.trim();
+    setState(() {
+      _cadFloorPlan = CadFloorPlan(
+        sourceWidthPx: plan.sourceWidthPx,
+        sourceHeightPx: plan.sourceHeightPx,
+        walls: plan.walls,
+        openings: plan.openings,
+        rooms: [
+          for (final room in plan.rooms)
+            if (room.id == roomId)
+              room.withName(trimmed.isEmpty ? null : trimmed)
+            else
+              room,
+        ],
+        warnings: plan.warnings,
+      );
+    });
+  }
+
   /// [3D 아이소 만들기] — geometry/축척/천장고가 모두 준비됐을 때만
   /// 눌릴 수 있다. 이제 단순 viewMode 전환이 아니라, 실제로
   /// [buildSpaceScene]을 실행해 벽/바닥 3D geometry를 만든다(WO 9/12번
@@ -503,7 +530,9 @@ class _FloorPlanWorkspaceScreenState extends State<FloorPlanWorkspaceScreen> {
     onCalibrationTap: _onCalibrationTap,
     onStartCalibration: _onStartCalibration,
     onSetCeilingHeight: _onSetCeilingHeight,
+    onCeilingHeightPresetSelected: _onCeilingHeightPresetSelected,
     onGenerate3D: _onGenerate3D,
+    onRenameRoom: _onRenameRoom,
   );
 
   static List<WorkspaceTaskItem> _demoTasks() => [

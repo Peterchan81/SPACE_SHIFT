@@ -212,25 +212,37 @@ void main() {
       );
     });
 
-    test('B — 문 후보가 여러 개면 신뢰도가 가장 높은 문 하나만 기준으로 삼는다', () {
+    test('B — 문 후보가 여러 개면 각 문에서 독립적으로 역산한 mmPerPixel의 '
+        '중앙값을 쓴다(평균이 아니라 중앙값 — 잘못 검출된 극단값 하나가 '
+        '전체를 왜곡하지 않게)', () {
+      // 3개 문 gap(정규화 폭)이 각각 이런 mmPerPixel을 암시한다:
+      // door-a: widthPx=20 → 900/20=45, door-b: widthPx=45 → 20,
+      // door-c: widthPx=90 → 10. 중앙값은 door-b의 20이어야 한다.
       const result = FloorPlanAnalysisResult(
         sourceWidthPx: 800,
         sourceHeightPx: 600,
         walls: [],
         openings: [
           OpeningCandidate(
-            id: 'low-confidence-door',
+            id: 'door-a',
             type: OpeningType.door,
-            center: Point2(0.2, 0.2),
-            widthNormalized: 0.03,
-            confidence: 0.2,
+            center: Point2(0.1, 0.1),
+            widthNormalized: 0.02, // widthPx = 0.02*1000 = 20
+            confidence: 0.5,
           ),
           OpeningCandidate(
-            id: 'high-confidence-door',
+            id: 'door-b',
             type: OpeningType.door,
-            center: Point2(0.7, 0.7),
-            widthNormalized: 0.08,
-            confidence: 0.6,
+            center: Point2(0.5, 0.5),
+            widthNormalized: 0.045, // widthPx = 45
+            confidence: 0.5,
+          ),
+          OpeningCandidate(
+            id: 'door-c',
+            type: OpeningType.door,
+            center: Point2(0.9, 0.9),
+            widthNormalized: 0.09, // widthPx = 90
+            confidence: 0.5,
           ),
         ],
         rooms: [],
@@ -244,7 +256,7 @@ void main() {
           rawVerticalRuns: 0,
           mergedWallCount: 0,
           roomCandidateCount: 0,
-          openingCandidateCount: 2,
+          openingCandidateCount: 3,
           durationMs: 1,
         ),
       );
@@ -252,7 +264,8 @@ void main() {
       final estimated = estimateScaleFromDoors(cad);
 
       expect(estimated, isNotNull);
-      expect(estimated!.referenceStart, const Point2(0.7, 0.7));
+      expect(estimated!.referenceStart, const Point2(0.5, 0.5)); // door-b.
+      expect(estimated.mmPerPixel, closeTo(20, 1e-9));
     });
 
     test('C — 문 후보가 없으면 estimateScaleFromDoors는 null(거짓 값을 만들지 않는다)', () {
@@ -332,6 +345,135 @@ void main() {
       final cad = buildCadFloorPlan(noOpeningsResult);
       final resolved = resolveAutoScale(cad, null);
       expect(resolved.source, ScaleSource.unknown);
+    });
+  });
+
+  group('2D 정확도 개선 WO — 공간별 ㎡/평/전체 합계/이름', () {
+    // 800x600 이미지, room-0 polygon은 (0.1,0.1)~(0.5,0.9) — 정규화
+    // 면적 0.32(=areaNormalized), 실제 이미지 면적 480000px².
+    const scale = FloorPlanScale(
+      mmPerPixel: 2.0,
+      referenceStart: Point2(0, 0),
+      referenceEnd: Point2(1, 0),
+      referenceLengthMm: 1600,
+    );
+
+    test('A — roomAreaM2는 정규화 면적×이미지 픽셀 면적×mmPerPixel²로 계산한다', () {
+      final cad = buildCadFloorPlan(_sampleAnalysisResult());
+      final room = cad.rooms.first;
+
+      final m2 = roomAreaM2(cad, room, scale);
+      // areaPx2 = 0.32 * 800 * 600 = 153600. mm2 = 153600 * 2^2 = 614400.
+      // m2 = 614400 / 1e6 = 0.6144.
+      expect(m2, closeTo(0.6144, 1e-9));
+    });
+
+    test('A — scale이 없으면 roomAreaM2는 null(임의 mm 추정 금지)', () {
+      final cad = buildCadFloorPlan(_sampleAnalysisResult());
+      final room = cad.rooms.first;
+      expect(roomAreaM2(cad, room, null), isNull);
+    });
+
+    test('B — squareMetersToPyeong은 3.305785로 나눈 값이다', () {
+      expect(squareMetersToPyeong(3.305785), closeTo(1.0, 1e-9));
+      expect(squareMetersToPyeong(33.05785), closeTo(10.0, 1e-9));
+      expect(squareMetersToPyeong(0), 0);
+    });
+
+    test('C — totalAreaM2는 모든 공간의 roomAreaM2 합이다', () {
+      const twoRoomsResult = FloorPlanAnalysisResult(
+        sourceWidthPx: 800,
+        sourceHeightPx: 600,
+        walls: [],
+        openings: [],
+        rooms: [
+          RoomCandidate(
+            id: 'room-a',
+            polygon: [
+              Point2(0, 0),
+              Point2(0.5, 0),
+              Point2(0.5, 0.5),
+              Point2(0, 0.5),
+            ],
+            areaNormalized: 0.1,
+            confidence: 0.7,
+          ),
+          RoomCandidate(
+            id: 'room-b',
+            polygon: [
+              Point2(0.5, 0.5),
+              Point2(1, 0.5),
+              Point2(1, 1),
+              Point2(0.5, 1),
+            ],
+            areaNormalized: 0.2,
+            confidence: 0.7,
+          ),
+        ],
+        warnings: [],
+        debugStats: FloorPlanAnalysisDebugStats(
+          sourceWidthPx: 800,
+          sourceHeightPx: 600,
+          analysisWidthPx: 800,
+          analysisHeightPx: 600,
+          rawHorizontalRuns: 0,
+          rawVerticalRuns: 0,
+          mergedWallCount: 0,
+          roomCandidateCount: 2,
+          openingCandidateCount: 0,
+          durationMs: 1,
+        ),
+      );
+      final cad = buildCadFloorPlan(twoRoomsResult);
+      final total = totalAreaM2(cad, scale);
+      final a = roomAreaM2(cad, cad.rooms[0], scale)!;
+      final b = roomAreaM2(cad, cad.rooms[1], scale)!;
+      expect(total, closeTo(a + b, 1e-9));
+    });
+
+    test('C — 공간이 없으면 totalAreaM2는 null', () {
+      const empty = FloorPlanAnalysisResult(
+        sourceWidthPx: 800,
+        sourceHeightPx: 600,
+        walls: [],
+        openings: [],
+        rooms: [],
+        warnings: [],
+        debugStats: FloorPlanAnalysisDebugStats(
+          sourceWidthPx: 800,
+          sourceHeightPx: 600,
+          analysisWidthPx: 800,
+          analysisHeightPx: 600,
+          rawHorizontalRuns: 0,
+          rawVerticalRuns: 0,
+          mergedWallCount: 0,
+          roomCandidateCount: 0,
+          openingCandidateCount: 0,
+          durationMs: 1,
+        ),
+      );
+      expect(totalAreaM2(buildCadFloorPlan(empty), scale), isNull);
+    });
+
+    test('거짓 이름 단정 금지 — name이 없으면 "공간 N"(1부터)으로 표시한다', () {
+      final cad = buildCadFloorPlan(_sampleAnalysisResult());
+      final room = cad.rooms.first;
+      expect(room.name, isNull);
+      expect(displayRoomName(room, 0), '공간 1');
+      expect(displayRoomName(room, 3), '공간 4');
+    });
+
+    test('withName()으로 실제 이름을 지으면 그 이름이 표시된다', () {
+      final cad = buildCadFloorPlan(_sampleAnalysisResult());
+      final renamed = cad.rooms.first.withName('거실');
+      expect(displayRoomName(renamed, 0), '거실');
+    });
+
+    test('withName(null) 또는 빈 이름이면 다시 자동 이름("공간 N")으로 돌아간다', () {
+      final cad = buildCadFloorPlan(_sampleAnalysisResult());
+      final renamed = cad.rooms.first.withName('거실').withName(null);
+      expect(renamed.name, isNull);
+      expect(displayRoomName(renamed, 0), '공간 1');
     });
   });
 }

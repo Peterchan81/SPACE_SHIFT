@@ -263,4 +263,67 @@ void main() {
     expect(n.dot(tri.b - tri.a), closeTo(0, 1e-6));
     expect(n.dot(tri.c - tri.a), closeTo(0, 1e-6));
   });
+
+  test('I — 벽 상단 면(천장과 맞닿는 면)의 법선은 위(+Y)를 향한다(뒤집힌 '
+      'winding으로 아래를 향하지 않는다 — 3D 아이소 실기 재현: 벽면 거대 '
+      '삼각형 사고 조사 중 winding/topology를 직접 확인)', () {
+    final plan = _planWithOneWallAndRoom();
+    final scene = buildSpaceScene(
+      plan: plan,
+      scale: _scale,
+      ceilingHeightMm: 2400,
+    );
+    final wallTriangles = scene.triangles.where(
+      (t) => t.sourceKind == SpaceElementKind.wall,
+    );
+    // 상단면은 y=2400(천장고)인 정점 3개로만 이뤄진 삼각형 2개다.
+    final topTriangles = wallTriangles.where(
+      (t) => t.a.y == t.b.y && t.b.y == t.c.y && (t.a.y - 2400).abs() < 1e-6,
+    );
+    expect(topTriangles, hasLength(2));
+    for (final tri in topTriangles) {
+      expect(
+        tri.normal.y,
+        greaterThan(0),
+        reason:
+            '상단면 법선이 아래를 향하면 조명 계산이 뒤집혀 반대편이 '
+            '어둡게(또는 밝게) 보이는 잘못된 shading이 나온다',
+      );
+    }
+  });
+
+  test('I — 측면(바깥쪽 벽면)의 법선은 벽 중심선에서 바깥쪽을 향한다', () {
+    final plan = _planWithOneWallAndRoom();
+    final scene = buildSpaceScene(
+      plan: plan,
+      scale: _scale,
+      ceilingHeightMm: 2400,
+    );
+    final wallTriangles = scene.triangles
+        .where((t) => t.sourceKind == SpaceElementKind.wall)
+        .toList();
+    // 벽 중심(대략 min/max의 평균) — 이 벽은 거의 수평이라 중심 Z가
+    // 곧 "안쪽"의 기준이 된다.
+    final centerZ =
+        wallTriangles.map((t) => t.centroid.z).reduce((a, b) => a + b) /
+        wallTriangles.length;
+    // 측면(상단이 아닌) 삼각형들은 중심으로부터 바깥으로 벌어진 면의
+    // 법선을 가져야 한다 — 완전히 반대(안쪽)를 향하는 면은 없어야
+    // 한다. 벽이 얇아 정확히 절반씩 나뉘므로, 최소한 "모든 법선이
+    // 전부 한쪽(안쪽)으로만 쏠리지 않는다"는 것으로 topology가
+    // 일관적으로 뒤집히지 않았음을 확인한다.
+    final sideTriangles = wallTriangles.where(
+      (t) => !(t.a.y == t.b.y && t.b.y == t.c.y),
+    );
+    final outwardCount = sideTriangles
+        .where((t) => (t.centroid.z - centerZ) * t.normal.z >= -1e-6)
+        .length;
+    expect(
+      outwardCount,
+      greaterThan(0),
+      reason:
+          '측면 중 최소 일부는 중심 기준 바깥쪽을 향하는 법선을 가져야 한다'
+          '(전부 안쪽이면 topology가 통째로 뒤집힌 것)',
+    );
+  });
 }

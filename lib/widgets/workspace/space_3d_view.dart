@@ -1,11 +1,93 @@
 import 'dart:math' as math;
 
-import 'package:flutter/material.dart';
 import 'package:flutter/gestures.dart';
+import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:vector_math/vector_math_64.dart' as vm;
 
 import '../../models/space_scene.dart';
 import '../../theme/space_shift_colors.dart';
+
+/// scene 크기에 맞춘 near plane 거리 — 카메라가 벽에 아주 가깝게 붙어도
+/// (줌인/pan 이후) 그 벽의 정점이 near plane보다 앞에 있다고 착각해
+/// 극단적으로 왜곡된 좌표로 투영되지 않도록 한다. [Space3DView]와
+/// 테스트가 정확히 같은 값을 쓰도록 공개 함수로 뺐다.
+double nearPlaneDistanceFor(double boundingRadius) {
+  final radius = boundingRadius <= 0 ? 1000.0 : boundingRadius;
+  return math.max(1.0, radius * 0.01);
+}
+
+double _farPlaneDistanceFor(double boundingRadius, double eyeToTarget) {
+  final radius = boundingRadius <= 0 ? 1000.0 : boundingRadius;
+  return radius * 20 + eyeToTarget * 2;
+}
+
+/// 현재 카메라(eye/target)로부터 원근 투영 행렬(view * projection)을
+/// 만든다 — [Space3DView]의 실제 렌더링과 테스트가 정확히 같은 카메라
+/// 수학을 쓰도록 공개 함수로 뺐다(NOMPASS V1 실기 재현 — 벽면 거대
+/// 삼각형 artifact의 근본 원인을 재현/검증하는 데 쓰인다).
+vm.Matrix4 buildViewProjectionMatrix({
+  required vm.Vector3 eye,
+  required vm.Vector3 target,
+  required double boundingRadius,
+  required double aspect,
+}) {
+  final near = nearPlaneDistanceFor(boundingRadius);
+  final far = _farPlaneDistanceFor(boundingRadius, (eye - target).length);
+  final proj = vm.makePerspectiveMatrix(45 * math.pi / 180, aspect, near, far);
+  final view = vm.makeViewMatrix(eye, target, vm.Vector3(0, 1, 0));
+  return proj * view;
+}
+
+/// world 좌표 [v]를 [size] 크기의 화면 픽셀 좌표로 투영한다. 카메라
+/// 뒤(또는 near plane 바로 앞, clip.w가 0에 아주 가까움)에 있으면 null —
+/// 호출부가 이 null을 그냥 무시하면 삼각형의 나머지 두 점만으로 이상한
+/// 모양이 그려질 수 있으므로, [Space3DView]는 세 점 중 하나라도
+/// null이거나 near plane보다 앞이면 삼각형 자체를 그리지 않는다.
+Offset? projectToScreen(vm.Matrix4 viewProj, vm.Vector3 v, Size size) {
+  final clip = viewProj.transform(vm.Vector4(v.x, v.y, v.z, 1));
+  if (clip.w <= 0.0001) return null;
+  final ndcX = clip.x / clip.w;
+  final ndcY = clip.y / clip.w;
+  return Offset(
+    (ndcX * 0.5 + 0.5) * size.width,
+    (1 - (ndcY * 0.5 + 0.5)) * size.height,
+  );
+}
+
+/// 카메라 pitch(고도각) 허용 범위 — 정확히 수직으로 내려다보면
+/// makeViewMatrix의 forward·up이 평행해져 view 행렬이 특이(degenerate)
+/// 해지므로, 완전한 90도 대신 약간의 여유를 둔다. [Space3DView]와
+/// [ViewPreset.angles]가 정확히 같은 값을 쓰도록 공개 상수로 뺐다.
+const double kMinCameraPitch = 0.08;
+const double kMaxCameraPitch = math.pi / 2 - 0.08;
+
+/// View Preset — 고정 이미지가 아니라 같은 실제 [SpaceScene]의 카메라
+/// 위치(yaw/pitch)만 바꾼다(WO 15번). preset 적용 뒤에도 사용자는 즉시
+/// 자유롭게 orbit할 수 있다 — 어떤 값도 잠그지 않는다.
+enum ViewPreset { isoDefault, isoLeft, isoRight, isoBack, top }
+
+extension ViewPresetX on ViewPreset {
+  String get label => switch (this) {
+    ViewPreset.isoDefault => '기본 아이소',
+    ViewPreset.isoLeft => '좌측 아이소',
+    ViewPreset.isoRight => '우측 아이소',
+    ViewPreset.isoBack => '후면 아이소',
+    ViewPreset.top => '상면',
+  };
+
+  /// (yaw, pitch) — [_Space3DViewState._eye]와 동일한 구면좌표 규약.
+  (double, double) get angles {
+    final isoPitch = math.atan(1 / math.sqrt2);
+    return switch (this) {
+      ViewPreset.isoDefault => (math.pi / 4, isoPitch),
+      ViewPreset.isoLeft => (-math.pi / 4, isoPitch),
+      ViewPreset.isoRight => (3 * math.pi / 4, isoPitch),
+      ViewPreset.isoBack => (5 * math.pi / 4, isoPitch),
+      ViewPreset.top => (math.pi / 4, kMaxCameraPitch),
+    };
+  }
+}
 
 /// 실제로 조작 가능한 3D 아이소 뷰 — 정적 이미지/pre-render가 아니라
 /// [SpaceScene]의 삼각형을 매 프레임 실제로 투영해서 그린다(WO 12번:
@@ -16,18 +98,23 @@ import '../../theme/space_shift_colors.dart';
 /// 그리는 소프트웨어 래스터라이저다 — Windows/Android/Web 어디서도 추가
 /// 플랫폼 설정 없이 완전히 동일하게 동작한다(WO 10번 1~3 조건).
 class Space3DView extends StatefulWidget {
-  const Space3DView({super.key, required this.scene});
+  const Space3DView({
+    super.key,
+    required this.scene,
+    this.isFullscreenRoute = false,
+  });
 
   final SpaceScene scene;
+
+  /// true면 이미 전체 화면 라우트 안이라 "전체 화면" 버튼을 다시
+  /// 보여주지 않는다(WO 13번, 전체 화면 안에서 또 전체 화면 진입 방지).
+  final bool isFullscreenRoute;
 
   @override
   State<Space3DView> createState() => _Space3DViewState();
 }
 
 class _Space3DViewState extends State<Space3DView> {
-  static const double _minPitch = 0.08;
-  static const double _maxPitch = math.pi / 2 - 0.08;
-
   late double _yaw;
   late double _pitch;
   late double _distance;
@@ -35,6 +122,13 @@ class _Space3DViewState extends State<Space3DView> {
 
   double? _dragScaleStart;
   Offset? _lastFocalPoint;
+
+  /// Desktop/Web — 오른쪽 마우스 버튼을 누른 채 드래그하면 회전 대신
+  /// pan으로 처리한다(WO 14번 "우클릭 drag → pan"). [_onPointerDown]이
+  /// 그 시작 시점의 버튼 상태를 기록해 둔다 — GestureDetector의
+  /// scale/pan 인식기는 버튼 종류를 구분하지 않으므로 Listener로 먼저
+  /// 확인한다.
+  bool _panningWithMouse = false;
 
   @override
   void initState() {
@@ -69,6 +163,28 @@ class _Space3DViewState extends State<Space3DView> {
         );
   }
 
+  /// View Preset — 카메라 위치(yaw/pitch)만 바꾸고, target/scene은 그대로
+  /// 둔다. 적용 뒤에도 계속 자유 orbit 가능하다(값을 잠그지 않음, WO
+  /// 15번).
+  void _applyPreset(ViewPreset preset) {
+    final (yaw, pitch) = preset.angles;
+    setState(() {
+      _yaw = yaw;
+      _pitch = pitch;
+    });
+  }
+
+  void _onPointerDown(PointerDownEvent event) {
+    if (event.kind == PointerDeviceKind.mouse &&
+        (event.buttons & kSecondaryMouseButton) != 0) {
+      _panningWithMouse = true;
+    }
+  }
+
+  void _onPointerUp(PointerUpEvent event) {
+    _panningWithMouse = false;
+  }
+
   void _onScaleStart(ScaleStartDetails details) {
     _dragScaleStart = _distance;
     _lastFocalPoint = details.focalPoint;
@@ -90,10 +206,16 @@ class _Space3DViewState extends State<Space3DView> {
           );
         }
         _panBy(delta);
+      } else if (_panningWithMouse) {
+        // Desktop/Web 우클릭 드래그 — pan(WO 14번).
+        _panBy(delta);
       } else {
-        // 한 손가락 — 궤도 회전.
+        // 한 손가락/마우스 좌클릭 드래그 — 궤도 회전.
         _yaw -= delta.dx * 0.01;
-        _pitch = (_pitch + delta.dy * 0.01).clamp(_minPitch, _maxPitch);
+        _pitch = (_pitch + delta.dy * 0.01).clamp(
+          kMinCameraPitch,
+          kMaxCameraPitch,
+        );
       }
     });
   }
@@ -125,12 +247,28 @@ class _Space3DViewState extends State<Space3DView> {
     });
   }
 
+  Future<void> _enterFullscreen() async {
+    await Navigator.of(context).push(
+      PageRouteBuilder<void>(
+        opaque: true,
+        barrierColor: Colors.black,
+        transitionDuration: const Duration(milliseconds: 150),
+        pageBuilder: (context, animation, secondaryAnimation) => FadeTransition(
+          opacity: animation,
+          child: _FullscreenSpace3DPage(scene: widget.scene),
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Stack(
       children: [
         Positioned.fill(
           child: Listener(
+            onPointerDown: _onPointerDown,
+            onPointerUp: _onPointerUp,
             onPointerSignal: (event) {
               if (event is PointerScrollEvent) _onPointerScroll(event);
             },
@@ -150,18 +288,91 @@ class _Space3DViewState extends State<Space3DView> {
           ),
         ),
         Positioned(
+          left: 12,
+          bottom: 12,
+          right: 12,
+          child: _ViewPresetBar(onSelected: _applyPreset),
+        ),
+        Positioned(
+          right: 12,
+          bottom: 60,
+          child: _OrientationCompass(yaw: _yaw),
+        ),
+        Positioned(
           right: 12,
           top: 12,
-          child: _FitViewButton(onTap: () => setState(_fitToScene)),
+          child: Row(
+            children: [
+              if (!widget.isFullscreenRoute) ...[
+                _IconLabelButton(
+                  icon: Icons.fullscreen_rounded,
+                  label: '전체 화면',
+                  onTap: _enterFullscreen,
+                ),
+                const SizedBox(width: 8),
+              ],
+              _IconLabelButton(
+                icon: Icons.center_focus_strong_rounded,
+                label: '화면 맞춤',
+                onTap: () => setState(_fitToScene),
+              ),
+            ],
+          ),
         ),
       ],
     );
   }
 }
 
-class _FitViewButton extends StatelessWidget {
-  const _FitViewButton({required this.onTap});
+/// 3D 아이소 전체 화면 — 좌/우 작업 패널 없이 공간만 최대한 크게
+/// 본다(WO 13번). ESC 또는 "닫기" 버튼으로 돌아간다.
+class _FullscreenSpace3DPage extends StatelessWidget {
+  const _FullscreenSpace3DPage({required this.scene});
 
+  final SpaceScene scene;
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: Colors.black,
+      body: CallbackShortcuts(
+        bindings: {
+          const SingleActivator(LogicalKeyboardKey.escape): () =>
+              Navigator.of(context).maybePop(),
+        },
+        child: Focus(
+          autofocus: true,
+          child: Stack(
+            children: [
+              Positioned.fill(
+                child: Space3DView(scene: scene, isFullscreenRoute: true),
+              ),
+              Positioned(
+                left: 12,
+                top: 12,
+                child: _IconLabelButton(
+                  icon: Icons.close_rounded,
+                  label: '닫기(ESC)',
+                  onTap: () => Navigator.of(context).maybePop(),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _IconLabelButton extends StatelessWidget {
+  const _IconLabelButton({
+    required this.icon,
+    required this.label,
+    required this.onTap,
+  });
+
+  final IconData icon;
+  final String label;
   final VoidCallback onTap;
 
   @override
@@ -175,20 +386,16 @@ class _FitViewButton extends StatelessWidget {
       child: InkWell(
         onTap: onTap,
         borderRadius: BorderRadius.circular(10),
-        child: const Padding(
-          padding: EdgeInsets.symmetric(horizontal: 12, vertical: 9),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
           child: Row(
             mainAxisSize: MainAxisSize.min,
             children: [
-              Icon(
-                Icons.center_focus_strong_rounded,
-                size: 16,
-                color: SpaceShiftColors.textSecondary,
-              ),
-              SizedBox(width: 6),
+              Icon(icon, size: 16, color: SpaceShiftColors.textSecondary),
+              const SizedBox(width: 6),
               Text(
-                '화면 맞춤',
-                style: TextStyle(
+                label,
+                style: const TextStyle(
                   fontSize: 12,
                   fontWeight: FontWeight.w600,
                   color: SpaceShiftColors.textPrimary,
@@ -200,6 +407,122 @@ class _FitViewButton extends StatelessWidget {
       ),
     );
   }
+}
+
+/// View Preset 선택 바 — 같은 scene의 카메라 위치만 바꾼다(WO 15번).
+class _ViewPresetBar extends StatelessWidget {
+  const _ViewPresetBar({required this.onSelected});
+
+  final ValueChanged<ViewPreset> onSelected;
+
+  @override
+  Widget build(BuildContext context) {
+    return Align(
+      alignment: Alignment.bottomCenter,
+      child: SingleChildScrollView(
+        scrollDirection: Axis.horizontal,
+        child: Container(
+          padding: const EdgeInsets.all(4),
+          decoration: BoxDecoration(
+            color: Colors.white.withValues(alpha: 0.92),
+            borderRadius: BorderRadius.circular(10),
+            border: Border.all(color: SpaceShiftColors.border),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              for (final preset in ViewPreset.values)
+                InkWell(
+                  onTap: () => onSelected(preset),
+                  borderRadius: BorderRadius.circular(8),
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 10,
+                      vertical: 7,
+                    ),
+                    child: Text(
+                      preset.label,
+                      style: const TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w600,
+                        color: SpaceShiftColors.textPrimary,
+                      ),
+                    ),
+                  ),
+                ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// 현재 카메라가 어느 방향을 바라보는지 알 수 있는 최소한의 방향
+/// 표시(WO 16번) — 장식용 3D 큐브 대신, 실제 [_Space3DViewState._yaw]
+/// 값과 그대로 연결된 나침반(위가 항상 "북"이 아니라 지금 바라보는
+/// 방향)을 2D로 그린다. 완전한 3D view-cube(각 면 클릭으로 카메라 스냅,
+/// 자체 조명/피킹)는 이번 범위에서 만들지 않는다 — 구현 비용 대비
+/// 가치가 낮다고 판단해 제외했다(WO 16번 "비용이 과도하면 제외하고
+/// 이유를 보고").
+class _OrientationCompass extends StatelessWidget {
+  const _OrientationCompass({required this.yaw});
+
+  final double yaw;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: 44,
+      height: 44,
+      decoration: BoxDecoration(
+        color: Colors.white.withValues(alpha: 0.92),
+        shape: BoxShape.circle,
+        border: Border.all(color: SpaceShiftColors.border),
+      ),
+      child: CustomPaint(painter: _CompassPainter(yaw: yaw)),
+    );
+  }
+}
+
+class _CompassPainter extends CustomPainter {
+  _CompassPainter({required this.yaw});
+
+  final double yaw;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final center = Offset(size.width / 2, size.height / 2);
+    final radius = size.width / 2 - 6;
+
+    // 카메라가 바라보는 방향(북=화면 위)을 가리키는 바늘 — yaw가
+    // 그대로 회전각이라, 사용자가 궤도를 돌리면 이 바늘도 실시간으로
+    // 함께 돈다(장식이 아니라 실제 카메라 상태를 반영).
+    final angle = -yaw;
+    final tip = center + Offset(math.sin(angle), -math.cos(angle)) * radius;
+    final tail =
+        center +
+        Offset(math.sin(angle + math.pi), -math.cos(angle + math.pi)) *
+            (radius * 0.5);
+
+    final needlePaint = Paint()
+      ..color = SpaceShiftColors.selectionAccent
+      ..strokeWidth = 2.5
+      ..strokeCap = StrokeCap.round;
+    canvas.drawLine(tail, tip, needlePaint);
+
+    final dotPaint = Paint()..color = SpaceShiftColors.selectionAccent;
+    canvas.drawCircle(tip, 3, dotPaint);
+    canvas.drawCircle(
+      center,
+      2,
+      Paint()..color = SpaceShiftColors.textSecondary,
+    );
+  }
+
+  @override
+  bool shouldRepaint(covariant _CompassPainter oldDelegate) =>
+      oldDelegate.yaw != yaw;
 }
 
 class _Space3DPainter extends CustomPainter {
@@ -223,29 +546,27 @@ class _Space3DPainter extends CustomPainter {
     );
     if (scene.isEmpty || size.width <= 0 || size.height <= 0) return;
 
-    final radius = scene.boundingRadius <= 0 ? 1000.0 : scene.boundingRadius;
-    final near = math.max(1.0, radius * 0.01);
-    final far = radius * 20 + (eye - target).length * 2;
-    final aspect = size.width / size.height;
-    final proj = vm.makePerspectiveMatrix(
-      45 * math.pi / 180,
-      aspect,
-      near,
-      far,
+    final viewProj = buildViewProjectionMatrix(
+      eye: eye,
+      target: target,
+      boundingRadius: scene.boundingRadius,
+      aspect: size.width / size.height,
     );
-    final view = vm.makeViewMatrix(eye, target, vm.Vector3(0, 1, 0));
-    final viewProj = proj * view;
 
-    Offset? project(vm.Vector3 v) {
-      final clip = viewProj.transform(vm.Vector4(v.x, v.y, v.z, 1));
-      if (clip.w <= 0.0001) return null;
-      final ndcX = clip.x / clip.w;
-      final ndcY = clip.y / clip.w;
-      return Offset(
-        (ndcX * 0.5 + 0.5) * size.width,
-        (1 - (ndcY * 0.5 + 0.5)) * size.height,
-      );
-    }
+    Offset? project(vm.Vector3 v) => projectToScreen(viewProj, v, size);
+
+    // NOMPASS V1 실기 재현 — Windows 3D 아이소에서 벽면에 거대한 삼각형이
+    // 나타나는 사고: near plane에 아주 가깝지만 완전히 뒤는 아닌
+    // (0 < clip.w < near 수준) 정점이 project()를 그대로 통과해 극단적으로
+    // 먼 화면 좌표로 나비넥타이(모래시계)처럼 왜곡됐다. 삼각형 전체를
+    // 화면 밖 극단으로 밀어내는 대신, near plane과 실제로 교차하는
+    // 삼각형은 아예 그리지 않는다(안전한 방향 — 한 프레임 누락이
+    // 잘못된 거대 삼각형보다 낫다). eye 기준 카메라 forward축 성분
+    // (뷰 공간 z가 아니라 world 공간에서 근사)으로 near 미달 정점을
+    // 미리 걸러 project() 호출 자체를 줄인다.
+    final forward = (target - eye).normalized();
+    final near = nearPlaneDistanceFor(scene.boundingRadius);
+    bool behindNear(vm.Vector3 v) => (v - eye).dot(forward) <= near;
 
     final ordered = [...scene.triangles]
       ..sort((t1, t2) {
@@ -262,10 +583,18 @@ class _Space3DPainter extends CustomPainter {
     _drawGroundGrid(canvas, project, gridPaint);
 
     for (final tri in ordered) {
+      if (behindNear(tri.a) || behindNear(tri.b) || behindNear(tri.c)) {
+        continue;
+      }
       final pa = project(tri.a);
       final pb = project(tri.b);
       final pc = project(tri.c);
       if (pa == null || pb == null || pc == null) continue;
+      if (!_isFiniteOffset(pa) ||
+          !_isFiniteOffset(pb) ||
+          !_isFiniteOffset(pc)) {
+        continue;
+      }
 
       final shade = (0.35 + 0.65 * tri.normal.dot(_lightDir).clamp(0.0, 1.0))
           .clamp(0.0, 1.0);
@@ -278,6 +607,8 @@ class _Space3DPainter extends CustomPainter {
       canvas.drawPath(path, paint);
     }
   }
+
+  static bool _isFiniteOffset(Offset o) => o.dx.isFinite && o.dy.isFinite;
 
   void _drawGroundGrid(
     Canvas canvas,

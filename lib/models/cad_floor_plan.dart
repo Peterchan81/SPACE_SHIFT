@@ -126,6 +126,11 @@ class CadOpening {
 }
 
 /// 편집 가능한 CAD 공간(방) 후보.
+///
+/// 2D 정확도 개선 WO(4번) — 분석 결과만으로는 "거실"/"방 1" 같은 실제
+/// 공간 이름을 알 수 없다(OCR/AI 없음, 거짓으로 단정하지 않는다). [name]이
+/// null이면 화면이 "공간 N"(N=목록 순번)으로 표시하고, 사용자가 직접
+/// 이름을 지으면 그 값이 저장된다.
 @immutable
 class CadRoom {
   const CadRoom({
@@ -135,6 +140,7 @@ class CadRoom {
     required this.confidence,
     this.closed = true,
     this.source = CadElementSource.analyzed,
+    this.name,
   });
 
   final String id;
@@ -143,6 +149,7 @@ class CadRoom {
   final double confidence;
   final bool closed;
   final CadElementSource source;
+  final String? name;
 
   bool containsPoint(Point2 p) {
     var inside = false;
@@ -156,7 +163,56 @@ class CadRoom {
     }
     return inside;
   }
+
+  /// 이름만 바꾼 새 [CadRoom]을 만든다. [name]이 비어 있거나 null이면
+  /// 자동 이름("공간 N")으로 되돌아간다 — 이 메서드는 이름 전용이라
+  /// null을 "값을 바꾸지 않음"이 아니라 "자동 이름으로 초기화"로
+  /// 취급한다.
+  CadRoom withName(String? name) {
+    return CadRoom(
+      id: id,
+      polygon: polygon,
+      areaNormalized: areaNormalized,
+      confidence: confidence,
+      closed: closed,
+      source: source,
+      name: name,
+    );
+  }
 }
+
+/// 1평(3.305785㎡) 기준 ㎡→평 변환 — 이 프로젝트 전체에서 이 공식 하나만
+/// 쓴다(2D 정확도 개선 WO — 5번, 일관된 공식).
+const double kSquareMetersPerPyeong = 3.305785;
+
+double squareMetersToPyeong(double m2) => m2 / kSquareMetersPerPyeong;
+
+/// [room]의 실제 면적(㎡) — [scale]이 있어야 계산 가능하다(WO 9번, 축척
+/// 없이 임의 mm 추정 금지). 정규화 면적(이미지 전체 대비 비율)에 실제
+/// 픽셀 면적과 mmPerPixel²을 곱해 mm²→㎡로 변환한다.
+double? roomAreaM2(CadFloorPlan plan, CadRoom room, FloorPlanScale? scale) {
+  if (scale == null) return null;
+  final imageAreaPx2 = (plan.sourceWidthPx * plan.sourceHeightPx).toDouble();
+  final areaPx2 = room.areaNormalized * imageAreaPx2;
+  final mm2PerPx2 = scale.mmPerPixel * scale.mmPerPixel;
+  return areaPx2 * mm2PerPx2 / 1e6;
+}
+
+/// [plan]의 모든 공간 면적 합(㎡). 공간이 없거나 축척이 없으면 null.
+double? totalAreaM2(CadFloorPlan plan, FloorPlanScale? scale) {
+  if (scale == null || plan.rooms.isEmpty) return null;
+  var total = 0.0;
+  for (final room in plan.rooms) {
+    total += roomAreaM2(plan, room, scale) ?? 0;
+  }
+  return total;
+}
+
+/// 사용자에게 보여줄 공간 이름 — 실제로 알 수 없는 이름을 "거실"/"방"으로
+/// 거짓 단정하지 않고, [index](0부터 시작, 화면에는 1부터)로 "공간 N"을
+/// 만든다(WO 4번).
+String displayRoomName(CadRoom room, int index) =>
+    room.name?.trim().isNotEmpty == true ? room.name! : '공간 ${index + 1}';
 
 /// [FloorPlanScale]이 실제로 어떻게 얻어졌는지 — 화면이 "실측값"과
 /// "대략적인 추정값"을 절대 같은 것처럼 보여주지 않기 위한 구분이다(2D
@@ -221,30 +277,39 @@ class FloorPlanScale {
 const double kAssumedDoorWidthMm = 900;
 
 /// 문 후보(gap 폭 기반, 항상 [FloorPlanObjectStatus.needsReview])로부터
-/// 축척을 추정한다. 가장 신뢰도가 높은 문 하나를 골라 [kAssumedDoorWidthMm]
-/// 로 역산한다 — 여러 문의 평균을 내지 않는 이유는, 서로 다른 신뢰도의
-/// 후보를 섞으면 어느 쪽이 실제로 얼마나 기여했는지 사용자에게 설명할 수
-/// 없기 때문이다(단순하고 설명 가능한 쪽을 택함).
+/// 축척을 추정한다.
+///
+/// 2D 정확도 개선 WO(6번) — "문 하나의 900mm 가정만으로 정확한 현장
+/// 치수라고 표현하지 않는다... 가능하면 복수 door/opening geometry
+/// consistency를 사용해 추정 신뢰도를 개선한다." 문 후보가 여러 개면
+/// 각 문을 [kAssumedDoorWidthMm] 기준으로 독립적으로 역산한 mmPerPixel의
+/// **중앙값(median)**을 쓴다 — 평균 대신 중앙값을 쓰는 이유는 잘못
+/// 검출된 극단값(gap을 문으로 오인한 경우 등) 하나가 전체 추정을
+/// 크게 왜곡하지 않게 하기 위해서다. 문이 하나뿐이면 그 값 그대로다
+/// (기존 동작과 동일).
 ///
 /// 문 후보가 하나도 없거나, 있어도 폭을 계산할 수 없으면(0 이하) null —
 /// 호출부는 이 경우 [ScaleSource.unknown] 폴백으로 넘어가야 한다(4번:
 /// "정확한 치수인 것처럼 거짓 값을 만들지 않는다").
 FloorPlanScale? estimateScaleFromDoors(CadFloorPlan plan) {
-  final doors = plan.openings.where((o) => o.type == OpeningType.door);
+  final doors = plan.openings.where((o) => o.type == OpeningType.door).toList();
   if (doors.isEmpty) return null;
 
-  CadOpening best = doors.first;
+  final candidates = <(CadOpening door, double mmPerPixel)>[];
   for (final door in doors) {
-    if (door.confidence > best.confidence) best = door;
+    final widthPx = door.widthNormalized * plan.diagonalPx;
+    if (widthPx <= 0) continue;
+    candidates.add((door, kAssumedDoorWidthMm / widthPx));
   }
+  if (candidates.isEmpty) return null;
 
-  final widthPx = best.widthNormalized * plan.diagonalPx;
-  if (widthPx <= 0) return null;
+  candidates.sort((a, b) => a.$2.compareTo(b.$2));
+  final median = candidates[candidates.length ~/ 2];
 
   return FloorPlanScale(
-    mmPerPixel: kAssumedDoorWidthMm / widthPx,
-    referenceStart: best.center,
-    referenceEnd: best.center,
+    mmPerPixel: median.$2,
+    referenceStart: median.$1.center,
+    referenceEnd: median.$1.center,
     referenceLengthMm: kAssumedDoorWidthMm,
     source: ScaleSource.estimatedFromDoor,
   );

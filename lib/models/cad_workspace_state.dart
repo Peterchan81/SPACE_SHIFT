@@ -74,7 +74,9 @@ class CadWorkspaceCallbacks {
     required this.onCalibrationTap,
     required this.onStartCalibration,
     required this.onSetCeilingHeight,
+    required this.onCeilingHeightPresetSelected,
     required this.onGenerate3D,
+    required this.onRenameRoom,
   });
 
   final ValueChanged<String?> onSelectObject;
@@ -84,6 +86,18 @@ class CadWorkspaceCallbacks {
   final VoidCallback onToggleDebugOverlay;
   final ValueChanged<Point2> onCalibrationTap;
   final VoidCallback onStartCalibration;
+
+  /// "직접 입력" — 기존 천장고 바텀시트(프리셋+직접입력+validation)를 연다.
   final VoidCallback onSetCeilingHeight;
+
+  /// 2D 정확도 개선 WO(9번) — 천장 높이 프리셋 칩을 한 번 눌러 바로
+  /// 선택한다(바텀시트를 열지 않는 가장 빠른 경로).
+  final ValueChanged<double> onCeilingHeightPresetSelected;
+
   final VoidCallback onGenerate3D;
+
+  /// 2D 정확도 개선 WO(4번) — 공간 이름을 사용자가 직접 바꾼다("공간 N"
+  /// 자동 이름은 분석이 실제로 알아낸 값이 아니므로, 바꾸고 싶은 사용자를
+  /// 위한 구조를 지금부터 만들어 둔다).
+  final void Function(String roomId, String name) onRenameRoom;
 }
