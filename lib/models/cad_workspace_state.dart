@@ -27,7 +27,10 @@ class CadWorkspaceState {
     this.displayMode = FloorPlanDisplayMode.cad,
     this.debugOverlay = false,
     this.calibrating = false,
-    this.calibrationPoints = const [],
+    this.calibrationWallId,
+    this.calibrationStart,
+    this.calibrationEnd,
+    this.calibrationPixelLength,
     this.scale,
     this.ceilingHeightMm,
   });
@@ -37,10 +40,25 @@ class CadWorkspaceState {
   final FloorPlanDisplayMode displayMode;
   final bool debugOverlay;
 
-  /// true면 "기준 치수 설정" 두 점 찍기 모드 — geometry 선택 대신
-  /// 캔버스 탭을 기준점으로 기록한다(WO 9번).
+  /// true면 "치수 보정" 드래그 선택 모드 — geometry 선택 대신 캔버스
+  /// drag로 벽 구간을 고른다(실기 FAIL 재수정 WO 11/12번).
   final bool calibrating;
-  final List<Point2> calibrationPoints;
+
+  /// 드래그로 실제 [CadWall]을 찾았으면 그 id(우선, WO 15번) — 못 찾아
+  /// 두 점 직선 거리로 폴백했으면 null.
+  final String? calibrationWallId;
+
+  /// 지금 선택된 보정 대상의 시작/끝점(정규화 좌표) — 벽을 찾았으면
+  /// 그 벽의 start/end, 폴백이면 드래그 시작/끝점.
+  final Point2? calibrationStart;
+  final Point2? calibrationEnd;
+
+  /// 위 두 점의 실제 픽셀 거리 — 지금 축척(추정이든 실측이든)으로 본
+  /// "현재 추정 길이" 계산과, 사용자가 실제 mm를 입력했을 때 새 축척을
+  /// 만드는 데 함께 쓰인다.
+  final double? calibrationPixelLength;
+
+  bool get hasCalibrationSelection => calibrationPixelLength != null;
 
   final FloorPlanScale? scale;
   final double? ceilingHeightMm;
@@ -71,8 +89,10 @@ class CadWorkspaceCallbacks {
     required this.onWallEndpointChanged,
     required this.onDisplayModeChanged,
     required this.onToggleDebugOverlay,
-    required this.onCalibrationTap,
+    required this.onCalibrationDragEnd,
     required this.onStartCalibration,
+    required this.onApplyCalibrationLength,
+    required this.onCancelCalibrationSelection,
     required this.onSetCeilingHeight,
     required this.onCeilingHeightPresetSelected,
     required this.onGenerate3D,
@@ -84,8 +104,21 @@ class CadWorkspaceCallbacks {
   onWallEndpointChanged;
   final ValueChanged<FloorPlanDisplayMode> onDisplayModeChanged;
   final VoidCallback onToggleDebugOverlay;
-  final ValueChanged<Point2> onCalibrationTap;
+
+  /// 치수 보정 drag가 끝났을 때 호출된다 — [String?]는 hit-test로 찾은
+  /// 실제 CadWall id(우선), 못 찾았으면 null(두 점 거리 폴백, WO 15번).
+  final void Function(Point2 dragStart, Point2 dragEnd, String? nearestWallId)
+  onCalibrationDragEnd;
+
   final VoidCallback onStartCalibration;
+
+  /// 사용자가 입력한 실제 길이(mm)로 축척을 확정한다 — 벽/공간별·전체
+  /// 면적·3D 크기가 전부 새 축척으로 다시 계산된다(WO 14번).
+  final ValueChanged<double> onApplyCalibrationLength;
+
+  /// 지금 고른 보정 대상(벽 또는 두 점)을 취소하고 다시 드래그할 수
+  /// 있게 한다.
+  final VoidCallback onCancelCalibrationSelection;
 
   /// "직접 입력" — 기존 천장고 바텀시트(프리셋+직접입력+validation)를 연다.
   final VoidCallback onSetCeilingHeight;

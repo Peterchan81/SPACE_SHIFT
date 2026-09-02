@@ -20,6 +20,7 @@ class SpaceTriangle {
     required this.color,
     required this.sourceKind,
     required this.sourceId,
+    this.isExteriorWall = false,
   });
 
   final Vector3 a;
@@ -33,6 +34,12 @@ class SpaceTriangle {
   /// 값을 채워 둔다.
   final SpaceElementKind sourceKind;
   final String sourceId;
+
+  /// 실기 FAIL 재수정 WO(20번) — "집을 위에서 비스듬히 잘라서 내부가
+  /// 보이는" 아이소를 만들기 위해, 렌더러가 카메라 쪽을 향한 외벽만
+  /// 선택적으로 숨긴다(cutaway). 바닥/내벽은 절대 숨기지 않는다 — 항상
+  /// false.
+  final bool isExteriorWall;
 
   Vector3 get normal {
     final ab = b - a;

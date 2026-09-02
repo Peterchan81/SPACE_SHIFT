@@ -55,6 +55,61 @@ Offset? projectToScreen(vm.Matrix4 viewProj, vm.Vector3 v, Size size) {
   );
 }
 
+/// 실기 FAIL 재수정 WO(20번) — "집을 위에서 비스듬히 잘라서 내부가
+/// 보이는 인테리어 아이소"를 만들기 위해, 카메라 쪽을 정면으로 향한
+/// 외벽(측면만, 상단 테두리는 항상 남긴다)을 숨긴다. 순수 함수로 빼서
+/// [Space3DView]와 테스트가 정확히 같은 규칙을 쓰게 한다.
+///
+/// - 바닥/내벽은 절대 숨기지 않는다([SpaceTriangle.isExteriorWall]이
+///   false면 무조건 false).
+/// - 벽의 상단(윗면, 법선이 거의 수직)도 숨기지 않는다 — 근접 외벽의
+///   테두리 실루엣이 남아 있으면 "벽이 통째로 사라진" 것처럼 보이지
+///   않고 실내 구조를 이해하는 데 오히려 도움이 된다.
+/// - 나머지(수직에 가까운 외벽 측면)는 그 면의 바깥쪽 법선이 카메라
+///   방향을 향하면(수평 성분만 비교 — 위/아래가 아니라 "어느 쪽에서
+///   보는지"만 판단) 숨긴다. 매 프레임 카메라 위치로 다시 계산하므로
+///   회전하면 숨겨지는 벽도 함께 바뀐다(정적으로 고정하지 않는다).
+///
+/// [sceneCenter]가 필요한 이유 — 외벽은 두께가 있는 얇은 상자라 4개
+/// 측면이 전부 `isExteriorWall=true`로 표시된다(진짜 바깥쪽 피부뿐
+/// 아니라, 그 벽의 "안쪽을 향한" 반대쪽 면과 양 끝 마구리 면도 포함).
+/// 카메라와 법선만으로 판단하면, 안쪽 벽면인데 우연히 법선이 카메라
+/// 쪽을 향하는 경우(특히 반대편에서 바라볼 때 "뒷벽의 실내쪽 면")까지
+/// 잘못 숨겨진다 — 뒷벽은 정확히 보여야 할 배경인데 사라지는 버그.
+/// 그래서 "법선이 건물 중심에서 바깥으로 향하는 면"인지 먼저 확인한
+/// 뒤에야 카메라 방향 검사를 적용한다 — 진짜 바깥쪽 피부만 cutaway
+/// 대상이 된다.
+bool isCutawayHidden(
+  SpaceTriangle tri,
+  vm.Vector3 eye, [
+  vm.Vector3? sceneCenter,
+]) {
+  if (!tri.isExteriorWall) return false;
+  final normal = tri.normal;
+  if (normal.y.abs() > 0.5) return false; // 상단/바닥에 가까운 면은 제외.
+
+  final horizontalNormal = vm.Vector2(normal.x, normal.z);
+  if (horizontalNormal.length2 == 0) return false;
+  final unitNormal = horizontalNormal.normalized();
+
+  if (sceneCenter != null) {
+    final outward = vm.Vector2(
+      tri.centroid.x - sceneCenter.x,
+      tri.centroid.z - sceneCenter.z,
+    );
+    if (outward.length2 == 0) return false;
+    // 진짜 바깥쪽 피부가 아니면(안쪽 면·마구리 면) cutaway 대상에서
+    // 제외한다 — 60도 이내로 바깥 방향과 일치할 때만 "바깥쪽 면"으로
+    // 인정.
+    if (unitNormal.dot(outward.normalized()) <= 0.5) return false;
+  }
+
+  final toCamera = eye - tri.centroid;
+  final horizontalToCamera = vm.Vector2(toCamera.x, toCamera.z);
+  if (horizontalToCamera.length2 == 0) return false;
+  return unitNormal.dot(horizontalToCamera.normalized()) > 0;
+}
+
 /// 카메라 pitch(고도각) 허용 범위 — 정확히 수직으로 내려다보면
 /// makeViewMatrix의 forward·up이 평행해져 view 행렬이 특이(degenerate)
 /// 해지므로, 완전한 90도 대신 약간의 여유를 둔다. [Space3DView]와
@@ -102,6 +157,7 @@ class Space3DView extends StatefulWidget {
     super.key,
     required this.scene,
     this.isFullscreenRoute = false,
+    this.onExitTo2D,
   });
 
   final SpaceScene scene;
@@ -109,6 +165,11 @@ class Space3DView extends StatefulWidget {
   /// true면 이미 전체 화면 라우트 안이라 "전체 화면" 버튼을 다시
   /// 보여주지 않는다(WO 13번, 전체 화면 안에서 또 전체 화면 진입 방지).
   final bool isFullscreenRoute;
+
+  /// 실기 FAIL 재수정 WO(2번) — "3D 아이소 → 2D 평면도로 돌아가기"가
+  /// 상단 View 탭 전환에만 있어 눈에 띄지 않았다는 실사용 신고 대응.
+  /// null이면(전체 화면 라우트 안 등) 버튼을 보여주지 않는다.
+  final VoidCallback? onExitTo2D;
 
   @override
   State<Space3DView> createState() => _Space3DViewState();
@@ -298,6 +359,16 @@ class _Space3DViewState extends State<Space3DView> {
           bottom: 60,
           child: _OrientationCompass(yaw: _yaw),
         ),
+        if (widget.onExitTo2D != null)
+          Positioned(
+            left: 12,
+            top: 12,
+            child: _IconLabelButton(
+              icon: Icons.arrow_back_rounded,
+              label: '2D 평면도로 돌아가기',
+              onTap: widget.onExitTo2D!,
+            ),
+          ),
         Positioned(
           right: 12,
           top: 12,
@@ -586,6 +657,10 @@ class _Space3DPainter extends CustomPainter {
       if (behindNear(tri.a) || behindNear(tri.b) || behindNear(tri.c)) {
         continue;
       }
+      // WO 20번 — 카메라를 정면으로 막는 근접 외벽을 숨겨 내부가 보이는
+      // "인테리어 아이소"를 만든다(정적 판단이 아니라 매 프레임 현재
+      // eye 기준으로 다시 계산 — 회전하면 숨겨지는 벽도 함께 바뀐다).
+      if (isCutawayHidden(tri, eye, scene.center)) continue;
       final pa = project(tri.a);
       final pb = project(tri.b);
       final pc = project(tri.c);

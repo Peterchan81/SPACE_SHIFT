@@ -50,6 +50,35 @@ Uint8List _buildRectangularFloorPlan({bool withInteriorWall = false}) {
   return _encodePng(image);
 }
 
+/// 2D 정확도 개선 WO(8/9번) — 사각형 외곽 안에 한쪽 모서리를 막는 내부
+/// 벽을 더해, 남는 실내 공간이 L자(오목 다각형)가 되는 synthetic floor
+/// plan. 실제 픽셀 경계 추적(contour)이 "경계 사각형 근사"가 아니라
+/// 진짜 L자 모양을 만드는지 끝까지(이미지 → 분석 → polygon) 검증하는
+/// 데 쓴다.
+Uint8List _buildLShapedFloorPlan() {
+  final image = img.Image(width: 400, height: 300);
+  img.fill(image, color: img.ColorRgb8(255, 255, 255));
+  final black = img.ColorRgb8(0, 0, 0);
+
+  img.fillRect(image, x1: 10, y1: 10, x2: 390, y2: 20, color: black); // top
+  img.fillRect(
+    image,
+    x1: 10,
+    y1: 280,
+    x2: 390,
+    y2: 290,
+    color: black,
+  ); // bottom
+  img.fillRect(image, x1: 10, y1: 10, x2: 20, y2: 290, color: black); // left
+  img.fillRect(image, x1: 380, y1: 10, x2: 390, y2: 290, color: black); // right
+
+  // 우측 상단 모서리를 통째로 막아(외벽에 맞닿게) 남는 실내가 L자가
+  // 되게 한다.
+  img.fillRect(image, x1: 200, y1: 10, x2: 390, y2: 150, color: black);
+
+  return _encodePng(image);
+}
+
 Uint8List _buildBlankImage() {
   final image = img.Image(width: 400, height: 300);
   img.fill(image, color: img.ColorRgb8(255, 255, 255));
@@ -168,5 +197,65 @@ void main() {
     final result = detectWallsAndOpenings(WallStageInput(_encodePng(tiny)));
     expect(result.isSuccess, isFalse);
     expect(result.failureReason, FloorPlanAnalysisFailureReason.tooSmall);
+  });
+
+  group('M/N — 2D 정확도 개선 WO(8/9번): 실제 픽셀 경계(contour) 추적', () {
+    test('사각형 방은 (근사) 4개 모서리를 가진 polygon을 만든다 — 경계 '
+        '사각형과 크게 다르지 않아야 한다', () {
+      final wallStage = detectWallsAndOpenings(
+        WallStageInput(_buildRectangularFloorPlan()),
+      );
+      final roomStage = detectRooms(
+        RoomStageInput(
+          mask: wallStage.mask!,
+          width: wallStage.analysisWidthPx,
+          height: wallStage.analysisHeightPx,
+        ),
+      );
+      expect(roomStage.rooms, hasLength(1));
+      final room = roomStage.rooms.single;
+      // 직사각형이므로 방향이 바뀌는 진짜 꼭짓점은 4개뿐이어야 한다.
+      expect(room.polygon.length, 4);
+      for (final p in room.polygon) {
+        expect(p.x, inInclusiveRange(0.0, 1.0));
+        expect(p.y, inInclusiveRange(0.0, 1.0));
+      }
+    });
+
+    test('L자 모양 실내는 bounding box(4점)가 아니라 실제 윤곽(6점 이상)을 '
+        '만든다 — "CAD가 원본과 대응하지 않는다" 문제의 핵심 수정 대상', () {
+      final wallStage = detectWallsAndOpenings(
+        WallStageInput(_buildLShapedFloorPlan()),
+      );
+      final roomStage = detectRooms(
+        RoomStageInput(
+          mask: wallStage.mask!,
+          width: wallStage.analysisWidthPx,
+          height: wallStage.analysisHeightPx,
+        ),
+      );
+      expect(roomStage.rooms, hasLength(1));
+      final room = roomStage.rooms.single;
+
+      // L자는 실제 꼭짓점이 6개다(직사각형이 4개인 것과 대비) — 이것이
+      // bounding box 근사가 아니라 실제 contour를 추적했다는 증거다.
+      expect(room.polygon.length, greaterThanOrEqualTo(6));
+
+      // 막힌 모서리(우측 상단, 이미지 기준 x>0.5·y<0.5 부근)는 실제
+      // room polygon에 포함되지 않아야 한다 — bounding box였다면
+      // 포함됐을 자리다.
+      expect(room.containsPoint(const Point2(0.85, 0.2)), isFalse);
+      // 반대로 L자의 실제 남은 공간(좌측 하단 넓은 영역)은 포함된다.
+      expect(room.containsPoint(const Point2(0.3, 0.7)), isTrue);
+
+      // 실제 면적(픽셀 카운트 기반)은 항상 정직하므로, "막힌 모서리
+      // 만큼 bounding box보다 작다"는 것도 함께 확인한다.
+      final minX = room.polygon.map((p) => p.x).reduce(min);
+      final maxX = room.polygon.map((p) => p.x).reduce(max);
+      final minY = room.polygon.map((p) => p.y).reduce(min);
+      final maxY = room.polygon.map((p) => p.y).reduce(max);
+      final boundingBoxArea = (maxX - minX) * (maxY - minY);
+      expect(room.areaNormalized, lessThan(boundingBoxArea));
+    });
   });
 }

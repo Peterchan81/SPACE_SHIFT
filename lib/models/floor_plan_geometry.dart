@@ -143,9 +143,14 @@ class OpeningCandidate {
   }
 }
 
-/// 닫힌 영역(방/공간) 후보. 이번 1차 구현은 연결 요소의 경계 사각형을
-/// polygon으로 사용한다(정교한 컨투어 추출은 후속 과제) — 그 사실을
-/// 그대로 보고한다.
+/// 닫힌 영역(방/공간) 후보.
+///
+/// 2D 정확도 개선 WO(8번) — [FloorPlanAnalysisEngine]이 flood-fill로 찾은
+/// 실제 픽셀 경계를 추적해(rectilinear contour, L자 등 오목 형태 포함)
+/// polygon으로 담는다. 추적이 실패하는 예상 밖 경우(구멍이 있는 영역 등,
+/// 방어적으로만 발생)에만 기존 경계 사각형(4점)으로 폴백한다 — 어느
+/// 쪽이든 polygon은 항상 실제로 검출된 형태를 그대로 반영하며, 임의로
+/// 지어내지 않는다.
 @immutable
 class RoomCandidate {
   const RoomCandidate({
@@ -158,9 +163,10 @@ class RoomCandidate {
 
   final String id;
 
-  /// 시계 방향 4점(경계 사각형) — polygon으로 두는 이유는 후속에서 실제
-  /// 컨투어 기반 다각형으로 교체해도 사용하는 쪽 코드가 바뀌지 않게
-  /// 하기 위함이다.
+  /// 실제 픽셀 경계를 따라간 polygon(보통 4점보다 많을 수 있다) — 추적에
+  /// 실패했을 때만 경계 사각형(4점) 폴백. 시계 방향이 보장되지는 않는다
+  /// (호출부는 [containsPoint]/삼각분할처럼 방향에 의존하지 않는 방식만
+  /// 쓴다).
   final List<Point2> polygon;
 
   /// 전체 이미지 면적 대비 비율(0.0~1.0).

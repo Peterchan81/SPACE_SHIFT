@@ -33,8 +33,7 @@ class CadFloorPlanOverlay extends StatefulWidget {
     required this.onSelect,
     required this.onWallEndpointChanged,
     this.calibrating = false,
-    this.calibrationPoints = const [],
-    this.onCalibrationTap,
+    this.onCalibrationDragEnd,
   });
 
   final CadFloorPlan floorPlan;
@@ -46,20 +45,27 @@ class CadFloorPlanOverlay extends StatefulWidget {
   final void Function(String wallId, bool isStart, Point2 newPosition)
   onWallEndpointChanged;
 
-  /// true면 geometry 선택 대신 "기준 치수 설정"용 두 점 찍기 모드로
-  /// 동작한다(WO 9번) — 탭한 위치를 geometry 히트테스트 없이 그대로
-  /// [onCalibrationTap]으로 전달한다.
+  /// true면 geometry 선택 대신 "치수 보정" 드래그 선택 모드로 동작한다
+  /// (실기 FAIL 재수정 WO 11/12번 — 기준점 2개를 따로따로 탭하는 대신,
+  /// 펜/마우스로 벽 구간을 직접 drag해서 고른다).
   final bool calibrating;
 
-  /// 지금까지 찍은 기준점(0~2개) — painter가 점/보조선을 그리는 데 쓴다.
-  final List<Point2> calibrationPoints;
-  final ValueChanged<Point2>? onCalibrationTap;
+  /// 드래그가 끝났을 때 호출된다 — [nearestWallId]는 드래그 시작점 근처의
+  /// 실제 [CadWall]을 찾았으면 그 id(우선), 못 찾았으면 null(호출부가
+  /// 두 점 사이 직선 거리로 폴백, WO 15번).
+  final void Function(Point2 dragStart, Point2 dragEnd, String? nearestWallId)?
+  onCalibrationDragEnd;
 
   @override
   State<CadFloorPlanOverlay> createState() => _CadFloorPlanOverlayState();
 }
 
 class _CadFloorPlanOverlayState extends State<CadFloorPlanOverlay> {
+  /// 지금 진행 중인 치수 보정 드래그의 시작/현재 위치(정규화 좌표) —
+  /// painter 미리보기 선용. 드래그가 끝나면 비운다.
+  Point2? _dragStart;
+  Point2? _dragCurrent;
+
   CadWall? get _selectedWall {
     final id = widget.selectedId;
     if (id == null) return null;
@@ -81,27 +87,37 @@ class _CadFloorPlanOverlayState extends State<CadFloorPlanOverlay> {
         final container = Size(constraints.maxWidth, constraints.maxHeight);
         final transform = ContainFitTransform.compute(container, imageSize);
         final selectedWall = _selectedWall;
+        final dragStart = _dragStart;
+        final dragCurrent = _dragCurrent;
+        final previewPoints =
+            widget.calibrating && dragStart != null && dragCurrent != null
+            ? [dragStart, dragCurrent]
+            : const <Point2>[];
 
         return Stack(
           fit: StackFit.expand,
           children: [
             GestureDetector(
               behavior: HitTestBehavior.translucent,
-              onTapUp: (details) {
-                if (widget.calibrating) {
-                  final point = transform.inverse(details.localPosition);
-                  if (point != null) widget.onCalibrationTap?.call(point);
-                  return;
-                }
-                _handleTap(details.localPosition, transform);
-              },
+              onTapUp: widget.calibrating
+                  ? null
+                  : (details) => _handleTap(details.localPosition, transform),
+              onPanStart: widget.calibrating
+                  ? (details) => _onCalibrationPanStart(details, transform)
+                  : null,
+              onPanUpdate: widget.calibrating
+                  ? (details) => _onCalibrationPanUpdate(details, transform)
+                  : null,
+              onPanEnd: widget.calibrating
+                  ? (details) => _onCalibrationPanEnd(transform)
+                  : null,
               child: CustomPaint(
                 size: container,
                 painter: _CadOverlayPainter(
                   floorPlan: widget.floorPlan,
                   transform: transform,
                   selectedId: widget.selectedId,
-                  calibrationPoints: widget.calibrationPoints,
+                  calibrationPoints: previewPoints,
                 ),
               ),
             ),
@@ -143,6 +159,59 @@ class _CadFloorPlanOverlayState extends State<CadFloorPlanOverlay> {
       (current.y + delta.dy / transform.rect.height).clamp(0.0, 1.0),
     );
     widget.onWallEndpointChanged(wall.id, isStart, updated);
+  }
+
+  void _onCalibrationPanStart(
+    DragStartDetails details,
+    ContainFitTransform transform,
+  ) {
+    final point = transform.inverse(details.localPosition);
+    if (point == null) return;
+    setState(() {
+      _dragStart = point;
+      _dragCurrent = point;
+    });
+  }
+
+  void _onCalibrationPanUpdate(
+    DragUpdateDetails details,
+    ContainFitTransform transform,
+  ) {
+    final point = transform.inverse(details.localPosition);
+    if (point == null || _dragStart == null) return;
+    setState(() => _dragCurrent = point);
+  }
+
+  void _onCalibrationPanEnd(ContainFitTransform transform) {
+    final start = _dragStart;
+    final end = _dragCurrent;
+    setState(() {
+      _dragStart = null;
+      _dragCurrent = null;
+    });
+    if (start == null || end == null) return;
+    // 실사용 실기 재현 — 짧은 오탭(사실상 제자리 클릭)은 의미 있는 벽
+    // 선택으로 취급하지 않는다(길이 0에 가까운 구간을 "선택한 벽 길이"로
+    // 잘못 보여주는 사고 방지).
+    if (start.distanceTo(end) < 0.002) return;
+    widget.onCalibrationDragEnd?.call(start, end, _nearestWallId(start));
+  }
+
+  /// [point] 근처(기존 [_handleTap]과 같은 tolerance)의 실제 [CadWall]을
+  /// 찾는다 — 치수 보정 드래그는 실제 CadWall 객체 선택을 우선한다(WO
+  /// 15번). 못 찾으면 null(호출부가 두 점 직선 거리로 폴백).
+  String? _nearestWallId(Point2 point) {
+    const tolerance = 0.03;
+    String? nearestId;
+    var bestDistance = double.infinity;
+    for (final wall in widget.floorPlan.walls) {
+      final distance = _distanceToSegment(point, wall.start, wall.end);
+      if (distance <= tolerance && distance < bestDistance) {
+        bestDistance = distance;
+        nearestId = wall.id;
+      }
+    }
+    return nearestId;
   }
 
   void _handleTap(Offset local, ContainFitTransform transform) {

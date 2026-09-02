@@ -298,6 +298,10 @@ RoomStageResult detectRooms(RoomStageInput input) {
       var touchesBorder = false;
       final stack = <int>[startIdx];
       visited[startIdx] = 1;
+      // 2D 정확도 개선 WO(8번) — bounding box만이 아니라 실제 픽셀
+      // 좌표도 모아 둔다. 분석이 끝난 뒤 이 좌표들로 실제 윤곽(contour)을
+      // 추적해, 직사각형이 아닌 방(L자 등)도 실제 모양에 가깝게 만든다.
+      final regionPixels = <int>[startIdx];
 
       while (stack.isNotEmpty) {
         final idx = stack.removeLast();
@@ -316,6 +320,7 @@ RoomStageResult detectRooms(RoomStageInput input) {
           if (mask[nIdx] == 1 || visited[nIdx] == 1) return;
           visited[nIdx] = 1;
           stack.add(nIdx);
+          regionPixels.add(nIdx);
         }
 
         tryPush(x - 1, y);
@@ -326,12 +331,26 @@ RoomStageResult detectRooms(RoomStageInput input) {
 
       if (area < minAreaPx || touchesBorder) continue;
 
-      final polygon = [
+      final boundingBoxPolygon = [
         Point2(minX / w, minY / h),
         Point2(maxX / w, minY / h),
         Point2(maxX / w, maxY / h),
         Point2(minX / w, maxY / h),
       ];
+      // 실제 윤곽 추적이 실패하면(구멍/예상 밖 topology 등, 방어적으로만
+      // 발생) 기존 bounding box로 안전하게 폴백한다 — 절대 자기교차하는
+      // 폴리곤을 만들지 않는다.
+      final polygon =
+          _traceRoomBoundary(
+            pixels: regionPixels,
+            minX: minX,
+            minY: minY,
+            maxX: maxX,
+            maxY: maxY,
+            width: w,
+            height: h,
+          ) ??
+          boundingBoxPolygon;
       final boxArea = (maxX - minX + 1) * (maxY - minY + 1);
       final fillRatio = boxArea > 0 ? area / boxArea : 0.0;
       rooms.add(
@@ -351,6 +370,102 @@ RoomStageResult detectRooms(RoomStageInput input) {
     rooms: rooms,
     elapsedMs: stopwatch.elapsedMilliseconds,
   );
+}
+
+/// 2D 정확도 개선 WO(8번) — flood-fill로 찾은 연결 요소(방)의 실제
+/// 픽셀 경계를 rectilinear(축 정렬) 폴리곤으로 추적한다. 각 픽셀의 4면
+/// 중 "영역 밖과 맞닿은 면"만 경계 edge로 모으고, 각 격자 정점에서
+/// edge를 하나씩만 따라가며 닫힌 루프 하나를 만든다 — 구멍이 없는 단순
+/// 연결 영역(이 CV 파이프라인이 실제로 만드는 형태)이면 항상 성공한다.
+///
+/// 안전 설계: 예상 밖 topology(각 정점의 edge가 1개가 아님, 루프가 안
+/// 닫힘 등 — 이론상 이 파이프라인에서는 나오지 않아야 하지만 방어적으로
+/// 확인한다)를 만나면 즉시 null을 반환해 호출부가 기존 bounding box로
+/// 안전하게 폴백하게 한다. 잘못된(자기교차) 폴리곤을 만드느니 차라리
+/// 덜 정확한 사각형을 쓴다.
+List<Point2>? _traceRoomBoundary({
+  required List<int> pixels,
+  required int minX,
+  required int minY,
+  required int maxX,
+  required int maxY,
+  required int width,
+  required int height,
+}) {
+  final localWidth = maxX - minX + 1;
+  final localHeight = maxY - minY + 1;
+  if (localWidth <= 0 || localHeight <= 0) return null;
+
+  final region = <int>{};
+  for (final idx in pixels) {
+    final x = idx % width - minX;
+    final y = idx ~/ width - minY;
+    region.add(y * localWidth + x);
+  }
+
+  bool inRegion(int x, int y) {
+    if (x < 0 || y < 0 || x >= localWidth || y >= localHeight) return false;
+    return region.contains(y * localWidth + x);
+  }
+
+  // 격자 정점(픽셀 코너) 좌표계 — (localWidth+1) x (localHeight+1)개.
+  int vKey(int x, int y) => y * (localWidth + 1) + x;
+  final nextVertex = <int, int>{};
+
+  void addEdge(int x1, int y1, int x2, int y2) {
+    nextVertex[vKey(x1, y1)] = vKey(x2, y2);
+  }
+
+  for (var y = 0; y < localHeight; y++) {
+    for (var x = 0; x < localWidth; x++) {
+      if (!inRegion(x, y)) continue;
+      if (!inRegion(x, y - 1)) addEdge(x, y, x + 1, y); // top, 왼→오.
+      if (!inRegion(x + 1, y)) addEdge(x + 1, y, x + 1, y + 1); // right, 위→아래.
+      if (!inRegion(x, y + 1)) {
+        addEdge(x + 1, y + 1, x, y + 1); // bottom, 오→왼.
+      }
+      if (!inRegion(x - 1, y)) addEdge(x, y + 1, x, y); // left, 아래→위.
+    }
+  }
+  if (nextVertex.isEmpty) return null;
+
+  final startKey = nextVertex.keys.first;
+  final loopKeys = <int>[startKey];
+  final seen = <int>{startKey};
+  var current = startKey;
+  final maxSteps = (localWidth + 1) * (localHeight + 1) * 4 + 8;
+  while (loopKeys.length <= maxSteps) {
+    final next = nextVertex[current];
+    if (next == null) return null; // edge가 안 이어짐 — 예상 밖 topology.
+    if (next == startKey) break; // 루프 완성.
+    if (!seen.add(next)) return null; // 이미 지나간 정점 — 예상 밖 분기.
+    loopKeys.add(next);
+    current = next;
+  }
+  if (loopKeys.length < 3) return null;
+
+  // 직선 위의 중간 정점(방향이 안 바뀌는 점)은 제거해 폴리곤을
+  // 단순화한다 — 실제 모서리(꼭짓점)만 남긴다.
+  final gridPoints = [
+    for (final k in loopKeys)
+      (x: k % (localWidth + 1), y: k ~/ (localWidth + 1)),
+  ];
+  final corners = <({int x, int y})>[];
+  for (var i = 0; i < gridPoints.length; i++) {
+    final prev = gridPoints[(i - 1 + gridPoints.length) % gridPoints.length];
+    final cur = gridPoints[i];
+    final next = gridPoints[(i + 1) % gridPoints.length];
+    final dx1 = cur.x - prev.x, dy1 = cur.y - prev.y;
+    final dx2 = next.x - cur.x, dy2 = next.y - cur.y;
+    if (dx1 * dy2 - dy1 * dx2 != 0) corners.add(cur);
+  }
+  final finalPoints = corners.length >= 3 ? corners : gridPoints;
+  if (finalPoints.length < 3) return null;
+
+  return [
+    for (final p in finalPoints)
+      Point2((p.x + minX) / width, (p.y + minY) / height),
+  ];
 }
 
 /// Otsu 방법 — 클래스 내 분산이 최소(클래스 간 분산이 최대)가 되는

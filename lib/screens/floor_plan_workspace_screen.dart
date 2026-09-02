@@ -1,5 +1,3 @@
-import 'dart:math' as math;
-
 import 'package:flutter/material.dart';
 
 import '../models/cad_floor_plan.dart';
@@ -13,7 +11,6 @@ import '../services/floor_plan_upload_service.dart';
 import '../services/space_scene_builder.dart';
 import '../theme/space_shift_colors.dart';
 import '../widgets/workspace/ceiling_height_sheet.dart';
-import '../widgets/workspace/scale_calibration_sheet.dart';
 import '../widgets/workspace/settings_entry_button.dart';
 import '../widgets/workspace/start_method_panel.dart';
 import '../widgets/workspace/user_workspace_panel.dart';
@@ -95,7 +92,10 @@ class _FloorPlanWorkspaceScreenState extends State<FloorPlanWorkspaceScreen> {
   bool _debugOverlay = false;
 
   bool _calibrating = false;
-  final List<Point2> _calibrationPoints = [];
+  String? _calibrationWallId;
+  Point2? _calibrationStart;
+  Point2? _calibrationEnd;
+  double? _calibrationPixelLength;
   FloorPlanScale? _scale;
   double? _ceilingHeightMm;
 
@@ -135,7 +135,10 @@ class _FloorPlanWorkspaceScreenState extends State<FloorPlanWorkspaceScreen> {
       _displayMode = FloorPlanDisplayMode.cad;
       _debugOverlay = false;
       _calibrating = false;
-      _calibrationPoints.clear();
+      _calibrationWallId = null;
+      _calibrationStart = null;
+      _calibrationEnd = null;
+      _calibrationPixelLength = null;
       _scale = null;
       _ceilingHeightMm = null;
       _spaceScene = null;
@@ -369,39 +372,82 @@ class _FloorPlanWorkspaceScreenState extends State<FloorPlanWorkspaceScreen> {
   void _onStartCalibration() {
     setState(() {
       _calibrating = !_calibrating;
-      _calibrationPoints.clear();
+      _calibrationWallId = null;
+      _calibrationStart = null;
+      _calibrationEnd = null;
+      _calibrationPixelLength = null;
     });
   }
 
-  Future<void> _onCalibrationTap(Point2 point) async {
-    setState(() => _calibrationPoints.add(point));
-    if (_calibrationPoints.length < 2) return;
+  /// 실기 FAIL 재수정 WO(11/12번) — 기준점 2개를 따로따로 탭하던 방식을
+  /// 버리고, 벽 구간을 직접 drag해서 고른다. 실제 [CadWall]을 찾았으면
+  /// 그 벽 전체 길이를 쓰고(WO 15번 — wall 객체 우선), 못 찾았을 때만
+  /// 드래그 두 점의 직선 거리로 폴백한다.
+  void _onCalibrationDragEnd(Point2 dragStart, Point2 dragEnd, String? wallId) {
+    final plan = _cadFloorPlan;
+    if (plan == null) return;
 
-    final p1 = _calibrationPoints[0];
-    final p2 = _calibrationPoints[1];
-    final plan = _cadFloorPlan!;
-    final pixelDistance = math.sqrt(
-      math.pow((p2.x - p1.x) * plan.sourceWidthPx, 2) +
-          math.pow((p2.y - p1.y) * plan.sourceHeightPx, 2),
-    );
+    CadWall? wall;
+    if (wallId != null) {
+      for (final w in plan.walls) {
+        if (w.id == wallId) {
+          wall = w;
+          break;
+        }
+      }
+    }
 
-    final mm = await showScaleReferenceLengthSheet(context);
-    if (!mounted) return;
+    final start = wall?.start ?? dragStart;
+    final end = wall?.end ?? dragEnd;
+    final pixelLength = plan.pixelDistance(start, end);
+    if (pixelLength <= 0) return;
 
-    if (mm != null && pixelDistance > 0) {
-      setState(() {
-        _scale = FloorPlanScale(
-          mmPerPixel: mm / pixelDistance,
-          referenceStart: p1,
-          referenceEnd: p2,
-          referenceLengthMm: mm,
-          source: ScaleSource.measured,
-        );
-      });
+    setState(() {
+      _calibrationWallId = wall?.id;
+      _calibrationStart = start;
+      _calibrationEnd = end;
+      _calibrationPixelLength = pixelLength;
+      // 찾은 벽을 화면에도 강조 표시한다(기존 선택 하이라이트 재사용).
+      _selectedCadObjectId = wall?.id;
+    });
+  }
+
+  void _onCancelCalibrationSelection() {
+    setState(() {
+      _calibrationWallId = null;
+      _calibrationStart = null;
+      _calibrationEnd = null;
+      _calibrationPixelLength = null;
+    });
+  }
+
+  /// 사용자가 실제 치수(mm)를 입력해 [치수 적용]을 눌렀을 때 — 벽/공간별·
+  /// 전체 면적·3D 크기가 전부 이 새 축척(measured)으로 다시 계산된다
+  /// (같은 [_scale] 필드를 참조하는 모든 계산이 자동으로 갱신됨, WO
+  /// 14번).
+  void _onApplyCalibrationLength(double realMm) {
+    final start = _calibrationStart;
+    final end = _calibrationEnd;
+    final pixelLength = _calibrationPixelLength;
+    if (start == null ||
+        end == null ||
+        pixelLength == null ||
+        pixelLength <= 0) {
+      return;
     }
     setState(() {
+      _scale = FloorPlanScale(
+        mmPerPixel: realMm / pixelLength,
+        referenceStart: start,
+        referenceEnd: end,
+        referenceLengthMm: realMm,
+        source: ScaleSource.measured,
+      );
       _calibrating = false;
-      _calibrationPoints.clear();
+      _calibrationWallId = null;
+      _calibrationStart = null;
+      _calibrationEnd = null;
+      _calibrationPixelLength = null;
     });
   }
 
@@ -517,7 +563,10 @@ class _FloorPlanWorkspaceScreenState extends State<FloorPlanWorkspaceScreen> {
     displayMode: _displayMode,
     debugOverlay: _debugOverlay,
     calibrating: _calibrating,
-    calibrationPoints: _calibrationPoints,
+    calibrationWallId: _calibrationWallId,
+    calibrationStart: _calibrationStart,
+    calibrationEnd: _calibrationEnd,
+    calibrationPixelLength: _calibrationPixelLength,
     scale: _scale,
     ceilingHeightMm: _ceilingHeightMm,
   );
@@ -527,8 +576,10 @@ class _FloorPlanWorkspaceScreenState extends State<FloorPlanWorkspaceScreen> {
     onWallEndpointChanged: _onWallEndpointChanged,
     onDisplayModeChanged: _onDisplayModeChanged,
     onToggleDebugOverlay: _onToggleDebugOverlay,
-    onCalibrationTap: _onCalibrationTap,
+    onCalibrationDragEnd: _onCalibrationDragEnd,
     onStartCalibration: _onStartCalibration,
+    onApplyCalibrationLength: _onApplyCalibrationLength,
+    onCancelCalibrationSelection: _onCancelCalibrationSelection,
     onSetCeilingHeight: _onSetCeilingHeight,
     onCeilingHeightPresetSelected: _onCeilingHeightPresetSelected,
     onGenerate3D: _onGenerate3D,
@@ -684,65 +735,41 @@ class _FloorPlanWorkspaceScreenState extends State<FloorPlanWorkspaceScreen> {
     ).push(MaterialPageRoute(builder: (context) => SettingsScreen()));
   }
 
-  void _onAiAssistantTap() {
-    showModalBottomSheet<void>(
-      context: context,
-      backgroundColor: Colors.white,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-      ),
-      builder: (context) => const Padding(
-        padding: EdgeInsets.all(24),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Icon(
-              Icons.smart_toy_outlined,
-              size: 28,
-              color: SpaceShiftColors.textPrimary,
-            ),
-            SizedBox(height: 12),
-            Text(
-              'AI 어시스턴트',
-              style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
-            ),
-            SizedBox(height: 8),
-            Text(
-              'AI 어시스턴트 대화 기능은 현재 준비 중입니다.\nAI 렌더링(생성/재생성)과는 별도로 이후 연결될 예정입니다.',
-              style: TextStyle(
-                fontSize: 13,
-                color: SpaceShiftColors.textSecondary,
-                height: 1.5,
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
   @override
   Widget build(BuildContext context) {
     final task = _selectedTask;
 
-    return Scaffold(
-      backgroundColor: SpaceShiftColors.background,
-      appBar: AppBar(
-        title: const Text('평면도 업로드 작업실'),
+    // 실기 FAIL 재수정 WO(2번) — "3D 아이소 → 2D 평면도로 돌아가기"를
+    // Android system back(제스처/버튼)에서도 지원한다. 3D 상태일 때는
+    // 화면을 나가지 않고 2D로만 되돌린다 — 이미 분석/생성된 데이터는
+    // 그대로 유지된다(canPop=false로 상위 pop 자체를 막고, 여기서
+    // "단계만" 이동한다).
+    return PopScope(
+      canPop: _viewMode == WorkspaceViewMode.plan2d,
+      onPopInvokedWithResult: (didPop, result) {
+        if (didPop) return;
+        if (_viewMode != WorkspaceViewMode.plan2d) {
+          setState(() => _viewMode = WorkspaceViewMode.plan2d);
+        }
+      },
+      child: Scaffold(
         backgroundColor: SpaceShiftColors.background,
-        foregroundColor: SpaceShiftColors.textPrimary,
-        elevation: 0,
-        surfaceTintColor: Colors.transparent,
-      ),
-      body: SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.all(16),
-          child: LayoutBuilder(
-            builder: (context, constraints) {
-              final isWide = constraints.maxWidth >= 800;
-              return isWide ? _buildWideBody(task) : _buildNarrowBody(task);
-            },
+        appBar: AppBar(
+          title: const Text('평면도 업로드 작업실'),
+          backgroundColor: SpaceShiftColors.background,
+          foregroundColor: SpaceShiftColors.textPrimary,
+          elevation: 0,
+          surfaceTintColor: Colors.transparent,
+        ),
+        body: SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.all(16),
+            child: LayoutBuilder(
+              builder: (context, constraints) {
+                final isWide = constraints.maxWidth >= 800;
+                return isWide ? _buildWideBody(task) : _buildNarrowBody(task);
+              },
+            ),
           ),
         ),
       ),
@@ -815,7 +842,6 @@ class _FloorPlanWorkspaceScreenState extends State<FloorPlanWorkspaceScreen> {
             canRedo: _redoStack.isNotEmpty,
             onUndo: _undo,
             onRedo: _redo,
-            onAiAssistantTap: _onAiAssistantTap,
             analysisDebugStats: _analysisResult?.debugStats,
             selectedCadWall: _selectedCadWall,
             selectedCadOpening: _selectedCadOpening,
@@ -871,6 +897,8 @@ class _FloorPlanWorkspaceScreenState extends State<FloorPlanWorkspaceScreen> {
               onPickFloorPlanFile: _pickFloorPlan,
               spaceScene: _spaceScene,
               spaceGenerationFailureMessage: _spaceGenerationFailureMessage,
+              onExitTo2D: () =>
+                  setState(() => _viewMode = WorkspaceViewMode.plan2d),
             ),
           ),
           const SizedBox(height: 12),
@@ -928,7 +956,6 @@ class _FloorPlanWorkspaceScreenState extends State<FloorPlanWorkspaceScreen> {
               canRedo: _redoStack.isNotEmpty,
               onUndo: _undo,
               onRedo: _redo,
-              onAiAssistantTap: _onAiAssistantTap,
               analysisDebugStats: _analysisResult?.debugStats,
             ),
           ),
@@ -964,6 +991,8 @@ class _FloorPlanWorkspaceScreenState extends State<FloorPlanWorkspaceScreen> {
             onPickFloorPlanFile: _pickFloorPlan,
             spaceScene: _spaceScene,
             spaceGenerationFailureMessage: _spaceGenerationFailureMessage,
+            onExitTo2D: () =>
+                setState(() => _viewMode = WorkspaceViewMode.plan2d),
           ),
         ),
         const SizedBox(height: 12),

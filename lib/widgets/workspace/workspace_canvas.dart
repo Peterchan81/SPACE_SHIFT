@@ -1,11 +1,13 @@
 import 'package:flutter/material.dart';
 
+import '../../models/cad_floor_plan.dart';
 import '../../models/cad_workspace_state.dart';
 import '../../models/floor_plan_file.dart';
 import '../../models/floor_plan_geometry.dart';
 import '../../models/space_scene.dart';
 import '../../models/workspace_task_item.dart';
 import '../../theme/space_shift_colors.dart';
+import 'floor_plan_analysis_overlay.dart' show ContainFitTransform;
 import 'floor_plan_preview.dart';
 
 /// 중앙 공간 이미지/3D 작업 화면.
@@ -36,6 +38,7 @@ class WorkspaceCanvas extends StatelessWidget {
     required this.onPickFloorPlanFile,
     this.spaceScene,
     this.spaceGenerationFailureMessage,
+    this.onExitTo2D,
   });
 
   final List<WorkspaceTaskItem> tasks;
@@ -53,6 +56,7 @@ class WorkspaceCanvas extends StatelessWidget {
   /// null이면(아직 생성 전) [FloorPlanPreview]가 준비 상태 안내를 보여준다.
   final SpaceScene? spaceScene;
   final String? spaceGenerationFailureMessage;
+  final VoidCallback? onExitTo2D;
 
   @override
   Widget build(BuildContext context) {
@@ -65,6 +69,21 @@ class WorkspaceCanvas extends StatelessWidget {
       clipBehavior: Clip.antiAlias,
       child: LayoutBuilder(
         builder: (context, constraints) {
+          final floorPlan = cad.floorPlan;
+          final showRoomMarkers =
+              viewMode == WorkspaceViewMode.plan2d &&
+              floorPlan != null &&
+              !cad.calibrating;
+          final transform = showRoomMarkers
+              ? ContainFitTransform.compute(
+                  Size(constraints.maxWidth, constraints.maxHeight),
+                  Size(
+                    floorPlan.sourceWidthPx.toDouble(),
+                    floorPlan.sourceHeightPx.toDouble(),
+                  ),
+                )
+              : null;
+
           return Stack(
             fit: StackFit.expand,
             children: [
@@ -77,7 +96,32 @@ class WorkspaceCanvas extends StatelessWidget {
                 onPickFile: onPickFloorPlanFile,
                 spaceScene: spaceScene,
                 spaceGenerationFailureMessage: spaceGenerationFailureMessage,
+                onExitTo2D: onExitTo2D,
               ),
+              // 실기 FAIL 재수정 WO(3번) — "각 공간이 도면의 어디인지 알 수
+              // 없다"는 신고 대응. 우측 목록과 같은 번호(①②③...)를 room
+              // polygon 중심에 표시하고, 탭하면 같은 selectObject 콜백으로
+              // 선택돼 우측 목록과 자동으로 동기화된다(별도 selection 상태를
+              // 새로 만들지 않는다 — 기존 CadFloorPlanOverlay 선택 하이라이트
+              // 재사용).
+              if (transform != null && floorPlan != null)
+                for (var i = 0; i < floorPlan.rooms.length; i++)
+                  Builder(
+                    builder: (context) {
+                      final room = floorPlan.rooms[i];
+                      final centroid = _polygonCentroid(room.polygon);
+                      final screenPos = transform.mapNormalized(centroid);
+                      return Positioned(
+                        left: screenPos.dx - 14,
+                        top: screenPos.dy - 14,
+                        child: _RoomNumberMarker(
+                          number: i + 1,
+                          selected: room.id == cad.selectedObjectId,
+                          onTap: () => cadCallbacks.onSelectObject(room.id),
+                        ),
+                      );
+                    },
+                  ),
               for (final task in tasks)
                 if (task.visible)
                   Positioned(
@@ -92,6 +136,66 @@ class WorkspaceCanvas extends StatelessWidget {
             ],
           );
         },
+      ),
+    );
+  }
+}
+
+/// polygon의 산술 평균(중심) — [CadRoom.polygon]이 지금은 항상 4점
+/// 경계 사각형이라 정확히 기하 중심과 같지만, 향후 실제 윤곽(N점)으로
+/// 바뀌어도 그대로 동작하도록 점 개수에 의존하지 않게 계산한다.
+Point2 _polygonCentroid(List<Point2> polygon) {
+  if (polygon.isEmpty) return const Point2(0.5, 0.5);
+  var sx = 0.0, sy = 0.0;
+  for (final p in polygon) {
+    sx += p.x;
+    sy += p.y;
+  }
+  return Point2(sx / polygon.length, sy / polygon.length);
+}
+
+class _RoomNumberMarker extends StatelessWidget {
+  const _RoomNumberMarker({
+    required this.number,
+    required this.selected,
+    required this.onTap,
+  });
+
+  final int number;
+  final bool selected;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: onTap,
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 150),
+        width: 28,
+        height: 28,
+        alignment: Alignment.center,
+        decoration: BoxDecoration(
+          color: selected ? SpaceShiftColors.selectionAccent : Colors.white,
+          shape: BoxShape.circle,
+          border: Border.all(
+            color: selected ? Colors.white : SpaceShiftColors.selectionAccent,
+            width: selected ? 2.5 : 1.5,
+          ),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withValues(alpha: 0.18),
+              blurRadius: 4,
+            ),
+          ],
+        ),
+        child: Text(
+          '$number',
+          style: TextStyle(
+            color: selected ? Colors.white : SpaceShiftColors.selectionAccent,
+            fontSize: 13,
+            fontWeight: FontWeight.bold,
+          ),
+        ),
       ),
     );
   }

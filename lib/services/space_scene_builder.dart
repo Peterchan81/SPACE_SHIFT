@@ -28,6 +28,85 @@ double _mmX(Point2 p, int sourceWidthPx, double mmPerPixel) =>
 double _mmZ(Point2 p, int sourceHeightPx, double mmPerPixel) =>
     p.y * sourceHeightPx * mmPerPixel;
 
+/// 단순 다각형(오목 가능, 자기교차 없음)을 삼각형 인덱스 목록(원본
+/// [polygon] 기준)으로 분할한다(ear clipping) — 2D 정확도 개선 WO(8번),
+/// 방 polygon이 이제 항상 사각형이 아니라 실제 윤곽(오목 형태 포함)일
+/// 수 있어 바닥 생성에 일반적인 다각형 삼각분할이 필요하다. 예상 밖
+/// 입력(자기교차 등)을 만나면 그때까지 만든 삼각형만 반환한다(전체를
+/// 포기하지 않는다 — 부분적으로라도 실제 바닥을 보여주는 쪽이 안전).
+List<List<int>> _earClipTriangulate(List<Point2> polygon) {
+  final n = polygon.length;
+  if (n < 3) return const [];
+  if (n == 3) {
+    return [
+      [0, 1, 2],
+    ];
+  }
+
+  double signedArea() {
+    var sum = 0.0;
+    for (var i = 0; i < n; i++) {
+      final a = polygon[i];
+      final b = polygon[(i + 1) % n];
+      sum += a.x * b.y - b.x * a.y;
+    }
+    return sum / 2;
+  }
+
+  final ccw = signedArea() > 0;
+
+  bool isConvexCorner(Point2 a, Point2 b, Point2 c) {
+    final cross = (b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x);
+    return ccw ? cross > 0 : cross < 0;
+  }
+
+  bool pointInTriangle(Point2 p, Point2 a, Point2 b, Point2 c) {
+    double sign(Point2 p1, Point2 p2, Point2 p3) =>
+        (p1.x - p3.x) * (p2.y - p3.y) - (p2.x - p3.x) * (p1.y - p3.y);
+    final d1 = sign(p, a, b);
+    final d2 = sign(p, b, c);
+    final d3 = sign(p, c, a);
+    final hasNeg = d1 < 0 || d2 < 0 || d3 < 0;
+    final hasPos = d1 > 0 || d2 > 0 || d3 > 0;
+    return !(hasNeg && hasPos);
+  }
+
+  final indices = List<int>.generate(n, (i) => i);
+  final triangles = <List<int>>[];
+  var guard = 0;
+  while (indices.length > 3 && guard < n * n + 8) {
+    guard++;
+    var earFound = false;
+    for (var i = 0; i < indices.length; i++) {
+      final prevI = indices[(i - 1 + indices.length) % indices.length];
+      final curI = indices[i];
+      final nextI = indices[(i + 1) % indices.length];
+      final a = polygon[prevI], b = polygon[curI], c = polygon[nextI];
+      if (!isConvexCorner(a, b, c)) continue;
+
+      var containsOther = false;
+      for (final idx in indices) {
+        if (idx == prevI || idx == curI || idx == nextI) continue;
+        if (pointInTriangle(polygon[idx], a, b, c)) {
+          containsOther = true;
+          break;
+        }
+      }
+      if (containsOther) continue;
+
+      triangles.add([prevI, curI, nextI]);
+      indices.removeAt(i);
+      earFound = true;
+      break;
+    }
+    if (!earFound) break; // 예상 밖(자기교차 등) — 지금까지 만든 것만 쓴다.
+  }
+  if (indices.length == 3) {
+    triangles.add([indices[0], indices[1], indices[2]]);
+  }
+  return triangles;
+}
+
 /// [plan]의 벽/공간을 [scale]과 [ceilingHeightMm] 기준으로 실제 3D
 /// geometry로 변환한다. [scale]은 호출부([resolveAutoScale] 등)가 이미
 /// "측정/추정/알 수 없음" 중 하나로 확정해 넘겨야 한다 — 여기서는 값을
@@ -63,8 +142,9 @@ SpaceScene buildSpaceScene({
     Vector3 p3,
     Color color,
     SpaceElementKind kind,
-    String id,
-  ) {
+    String id, {
+    bool isExteriorWall = false,
+  }) {
     triangles.add(
       SpaceTriangle(
         a: p0,
@@ -73,6 +153,7 @@ SpaceScene buildSpaceScene({
         color: color,
         sourceKind: kind,
         sourceId: id,
+        isExteriorWall: isExteriorWall,
       ),
     );
     triangles.add(
@@ -83,6 +164,7 @@ SpaceScene buildSpaceScene({
         color: color,
         sourceKind: kind,
         sourceId: id,
+        isExteriorWall: isExteriorWall,
       ),
     );
     for (final v in [p0, p1, p2, p3]) {
@@ -99,11 +181,12 @@ SpaceScene buildSpaceScene({
 
     final bottom = [for (final p in footprint) toVec(p, 0)];
     final top = [for (final p in footprint) toVec(p, heightMm)];
-    final color = wall.wallType == CadWallType.exterior
-        ? _wallColors[0]
-        : _wallColors[1];
+    final isExterior = wall.wallType == CadWallType.exterior;
+    final color = isExterior ? _wallColors[0] : _wallColors[1];
 
-    // 상단(천장과 맞닿는 면).
+    // 상단(천장과 맞닿는 면) — cutaway(WO 20번) 대상에서 제외한다(항상
+    // 보임): 근접 외벽의 측면만 숨겨도 상단 테두리가 남아 있으면 실내
+    // 구조를 이해하는 데 오히려 도움이 된다.
     addQuad(
       top[0],
       top[1],
@@ -113,7 +196,9 @@ SpaceScene buildSpaceScene({
       SpaceElementKind.wall,
       wall.id,
     );
-    // 4개 측면.
+    // 4개 측면 — 외벽이면 cutaway 대상 표시(isExteriorWall)만 남기고,
+    // 실제로 숨길지는 렌더러가 카메라 방향을 보고 매 프레임 판단한다
+    // (WO 20번 — 정적으로 결정하지 않는다, 회전하면 다른 벽이 숨겨진다).
     for (var i = 0; i < 4; i++) {
       final j = (i + 1) % 4;
       addQuad(
@@ -124,6 +209,7 @@ SpaceScene buildSpaceScene({
         color,
         SpaceElementKind.wall,
         wall.id,
+        isExteriorWall: isExterior,
       );
     }
     wallCount++;
@@ -131,17 +217,31 @@ SpaceScene buildSpaceScene({
 
   var floorCount = 0;
   for (final room in plan.rooms) {
-    if (room.polygon.length != 4) continue;
+    // 2D 정확도 개선 WO(8번) — room.polygon이 이제 항상 사각형이 아니라
+    // 실제 윤곽(N점, L자 등 오목 형태 포함)일 수 있다. ear clipping으로
+    // 일반 단순 다각형을 삼각형으로 분할한다(사각형도 이 경로로 그대로
+    // 처리된다 — 특수 케이스를 따로 두지 않는다).
+    final earTriangles = _earClipTriangulate(room.polygon);
+    if (earTriangles.isEmpty) continue;
     final pts = [for (final p in room.polygon) toVec(p, 0)];
-    addQuad(
-      pts[0],
-      pts[1],
-      pts[2],
-      pts[3],
-      _floorColor,
-      SpaceElementKind.floor,
-      room.id,
-    );
+    for (final tri in earTriangles) {
+      final a = pts[tri[0]];
+      final b = pts[tri[1]];
+      final c = pts[tri[2]];
+      triangles.add(
+        SpaceTriangle(
+          a: a,
+          b: b,
+          c: c,
+          color: _floorColor,
+          sourceKind: SpaceElementKind.floor,
+          sourceId: room.id,
+        ),
+      );
+      for (final v in [a, b, c]) {
+        extend(v);
+      }
+    }
     floorCount++;
   }
 

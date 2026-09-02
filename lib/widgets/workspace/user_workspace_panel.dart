@@ -36,8 +36,12 @@ extension on _PanelTab {
 /// 정확히 4개 탭(작업/가구/디스플레이/정보)만 둔다 — "속성"은 "작업"으로
 /// 이름을 바꾸고, 별도 "조명" 탭은 두지 않고 디스플레이 탭 안에 흡수한다
 /// (WO 10번). Undo/Redo는 화면 좌측 상단의 옛 플로팅 툴바 대신 이 패널
-/// 안으로 옮기고, AI 어시스턴트는 항상 열려있는 채팅이 아니라 이 패널
-/// 하단의 진입 버튼 하나로 분리한다(WO 21번, AI 렌더링과는 별개 기능).
+/// 안으로 옮겼다.
+///
+/// 실기 FAIL 재수정 WO(16번) — 이 2D/CAD 준비 단계에서는 AI 어시스턴트가
+/// 핵심 기능이 아니라는 실사용 피드백에 따라 진입 버튼을 제거했다.
+/// AI는 이후 3D 인테리어 작업 단계(디자인/재질/가구 추천)에서 다시
+/// 제공할 계획이다 — 지금 여기서 만들지 않는다.
 class UserWorkspacePanel extends StatefulWidget {
   const UserWorkspacePanel({
     super.key,
@@ -70,7 +74,6 @@ class UserWorkspacePanel extends StatefulWidget {
     required this.canRedo,
     required this.onUndo,
     required this.onRedo,
-    required this.onAiAssistantTap,
     this.analysisDebugStats,
     this.selectedCadWall,
     this.selectedCadOpening,
@@ -135,7 +138,6 @@ class UserWorkspacePanel extends StatefulWidget {
   final bool canRedo;
   final VoidCallback onUndo;
   final VoidCallback onRedo;
-  final VoidCallback onAiAssistantTap;
 
   @override
   State<UserWorkspacePanel> createState() => _UserWorkspacePanelState();
@@ -201,11 +203,6 @@ class _UserWorkspacePanelState extends State<UserWorkspacePanel> {
           ),
           const Divider(height: 1, color: SpaceShiftColors.border),
           Expanded(child: _buildTabContent()),
-          const Divider(height: 1, color: SpaceShiftColors.border),
-          Padding(
-            padding: const EdgeInsets.all(12),
-            child: _AiAssistantButton(onTap: widget.onAiAssistantTap),
-          ),
         ],
       ),
     );
@@ -255,7 +252,9 @@ class _UserWorkspacePanelState extends State<UserWorkspacePanel> {
   Widget _buildSelectionContent() {
     final task = widget.task;
     final cadSelected =
-        widget.selectedCadWall ?? widget.selectedCadOpening ?? widget.selectedCadRoom;
+        widget.selectedCadWall ??
+        widget.selectedCadOpening ??
+        widget.selectedCadRoom;
     if (task == null && cadSelected != null) {
       return CadStructureTab(
         wall: widget.selectedCadWall,
@@ -444,46 +443,6 @@ class _EmptySelectionNotice extends StatelessWidget {
               ),
             ],
           ],
-        ),
-      ),
-    );
-  }
-}
-
-class _AiAssistantButton extends StatelessWidget {
-  const _AiAssistantButton({required this.onTap});
-
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    return Material(
-      color: Colors.transparent,
-      borderRadius: BorderRadius.circular(14),
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(14),
-        child: Container(
-          padding: const EdgeInsets.symmetric(vertical: 12),
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(14),
-            gradient: SpaceShiftColors.spectrum,
-          ),
-          child: const Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Icon(Icons.smart_toy_outlined, size: 18, color: Colors.white),
-              SizedBox(width: 8),
-              Text(
-                'AI 어시스턴트',
-                style: TextStyle(
-                  fontSize: 14,
-                  fontWeight: FontWeight.bold,
-                  color: Colors.white,
-                ),
-              ),
-            ],
-          ),
         ),
       ),
     );

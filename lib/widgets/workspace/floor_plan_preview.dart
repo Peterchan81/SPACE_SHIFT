@@ -31,6 +31,7 @@ class FloorPlanPreview extends StatelessWidget {
     required this.onPickFile,
     this.spaceScene,
     this.spaceGenerationFailureMessage,
+    this.onExitTo2D,
   });
 
   final WorkspaceViewMode viewMode;
@@ -52,6 +53,11 @@ class FloorPlanPreview extends StatelessWidget {
   final SpaceScene? spaceScene;
   final String? spaceGenerationFailureMessage;
 
+  /// 실기 FAIL 재수정 WO(2번) — 3D 아이소 안에 명확한 "2D 평면도로
+  /// 돌아가기" 버튼을 항상 보여준다(상단 View 탭 전환만으로는 눈에
+  /// 띄지 않았다는 실사용 신고 대응).
+  final VoidCallback? onExitTo2D;
+
   @override
   Widget build(BuildContext context) {
     if (viewMode != WorkspaceViewMode.plan2d) {
@@ -62,7 +68,9 @@ class FloorPlanPreview extends StatelessWidget {
       final scene = viewMode == WorkspaceViewMode.isometric3d
           ? spaceScene
           : null;
-      if (scene != null) return Space3DView(scene: scene);
+      if (scene != null) {
+        return Space3DView(scene: scene, onExitTo2D: onExitTo2D);
+      }
       return _Cad3DReadinessPlaceholder(
         cad: cad,
         callbacks: cadCallbacks,
@@ -129,8 +137,7 @@ class FloorPlanPreview extends StatelessWidget {
               onSelect: cadCallbacks.onSelectObject,
               onWallEndpointChanged: cadCallbacks.onWallEndpointChanged,
               calibrating: cad.calibrating,
-              calibrationPoints: cad.calibrationPoints,
-              onCalibrationTap: cadCallbacks.onCalibrationTap,
+              onCalibrationDragEnd: cadCallbacks.onCalibrationDragEnd,
             ),
           ),
       ],
@@ -868,6 +875,8 @@ class _SpaceSummaryCard extends StatelessWidget {
               room: plan.rooms[i],
               index: i,
               scale: scale,
+              selected: plan.rooms[i].id == cad.selectedObjectId,
+              onSelect: () => callbacks.onSelectObject(plan.rooms[i].id),
               onRename: (name) =>
                   callbacks.onRenameRoom(plan.rooms[i].id, name),
             ),
@@ -932,18 +941,138 @@ class _SpaceSummaryCard extends StatelessWidget {
           ),
         ),
         if (cad.calibrating) ...[
-          const SizedBox(height: 6),
+          const SizedBox(height: 8),
+          if (!cad.hasCalibrationSelection)
+            const Text(
+              '평면도에서 치수를 알고 싶은 벽 구간을 마우스(또는 펜/손가락)로 '
+              '눌러서 그대로 드래그해주세요.',
+              style: TextStyle(
+                fontSize: 12,
+                color: SpaceShiftColors.selectionAccent,
+                fontWeight: FontWeight.w600,
+                height: 1.4,
+              ),
+            )
+          else
+            _CalibrationSelectionPanel(cad: cad, callbacks: callbacks),
+        ],
+      ],
+    );
+  }
+}
+
+/// 실기 FAIL 재수정 WO(13/14번) — 벽을 드래그로 선택하면 즉시 현재
+/// 축척 기준 추정 길이를 보여주고, 사용자가 실제 치수를 알면 입력해
+/// 축척을 확정할 수 있게 한다.
+class _CalibrationSelectionPanel extends StatefulWidget {
+  const _CalibrationSelectionPanel({
+    required this.cad,
+    required this.callbacks,
+  });
+
+  final CadWorkspaceState cad;
+  final CadWorkspaceCallbacks callbacks;
+
+  @override
+  State<_CalibrationSelectionPanel> createState() =>
+      _CalibrationSelectionPanelState();
+}
+
+class _CalibrationSelectionPanelState
+    extends State<_CalibrationSelectionPanel> {
+  final _controller = TextEditingController();
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final cad = widget.cad;
+    final pixelLength = cad.calibrationPixelLength!;
+    final scale = cad.scale;
+    final estimatedMm = scale != null ? pixelLength * scale.mmPerPixel : null;
+    final estimated = scale == null || !scale.source.isReliable;
+    final label = cad.calibrationWallId != null ? '선택한 벽' : '선택한 구간';
+
+    return Container(
+      padding: const EdgeInsets.all(10),
+      decoration: BoxDecoration(
+        color: SpaceShiftColors.selectionAccent.withValues(alpha: 0.06),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(
+          color: SpaceShiftColors.selectionAccent.withValues(alpha: 0.4),
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
           Text(
-            '기준점 ${cad.calibrationPoints.length}/2 선택됨 — 평면도에서 실제 길이를 '
-            '아는 두 지점을 눌러주세요.',
+            label,
             style: const TextStyle(
-              fontSize: 12,
-              color: SpaceShiftColors.selectionAccent,
-              fontWeight: FontWeight.w600,
+              fontSize: 11.5,
+              color: SpaceShiftColors.textSecondary,
+            ),
+          ),
+          const SizedBox(height: 2),
+          Text(
+            estimatedMm == null
+                ? '현재 추정 길이를 계산할 수 없습니다'
+                : '약 ${(estimatedMm / 1000).toStringAsFixed(2)}m'
+                      '${estimated ? " (추정)" : ""}',
+            style: const TextStyle(
+              fontSize: 15,
+              fontWeight: FontWeight.bold,
+              color: SpaceShiftColors.textPrimary,
+            ),
+          ),
+          const SizedBox(height: 10),
+          const Text(
+            '실제 치수를 알고 있다면 입력해 정확하게 보정할 수 있습니다.',
+            style: TextStyle(
+              fontSize: 11.5,
+              color: SpaceShiftColors.textSecondary,
+              height: 1.4,
+            ),
+          ),
+          const SizedBox(height: 6),
+          Row(
+            children: [
+              Expanded(
+                child: TextField(
+                  controller: _controller,
+                  keyboardType: const TextInputType.numberWithOptions(),
+                  decoration: const InputDecoration(
+                    isDense: true,
+                    hintText: '예: 4000',
+                    suffixText: 'mm',
+                    border: OutlineInputBorder(),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 8),
+              FilledButton(
+                onPressed: () {
+                  final mm = double.tryParse(_controller.text.trim());
+                  if (mm == null || mm <= 0) return;
+                  widget.callbacks.onApplyCalibrationLength(mm);
+                },
+                child: const Text('치수 적용'),
+              ),
+            ],
+          ),
+          const SizedBox(height: 6),
+          Align(
+            alignment: Alignment.centerLeft,
+            child: TextButton(
+              onPressed: widget.callbacks.onCancelCalibrationSelection,
+              child: const Text('다시 선택'),
             ),
           ),
         ],
-      ],
+      ),
     );
   }
 }
@@ -954,6 +1083,8 @@ class _RoomAreaRow extends StatelessWidget {
     required this.room,
     required this.index,
     required this.scale,
+    required this.selected,
+    required this.onSelect,
     required this.onRename,
   });
 
@@ -961,6 +1092,8 @@ class _RoomAreaRow extends StatelessWidget {
   final CadRoom room;
   final int index;
   final FloorPlanScale? scale;
+  final bool selected;
+  final VoidCallback onSelect;
   final ValueChanged<String> onRename;
 
   Future<void> _promptRename(BuildContext context) async {
@@ -997,46 +1130,104 @@ class _RoomAreaRow extends StatelessWidget {
     final pyeong = m2 == null ? null : squareMetersToPyeong(m2);
     final estimated = scale != null && !scale!.source.isReliable;
     return Padding(
-      padding: const EdgeInsets.only(bottom: 10),
+      padding: const EdgeInsets.only(bottom: 8),
       child: InkWell(
-        onTap: () => _promptRename(context),
-        borderRadius: BorderRadius.circular(6),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                Flexible(
-                  child: Text(
-                    displayRoomName(room, index),
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(
-                      fontSize: 13.5,
-                      fontWeight: FontWeight.w600,
-                      color: SpaceShiftColors.textPrimary,
-                    ),
+        // 실기 FAIL 재수정 WO(3번) — 행을 누르면(이름/아이콘이 아닌 곳)
+        // 중앙 도면의 같은 번호 marker가 highlight된다(양방향 동기화).
+        onTap: onSelect,
+        borderRadius: BorderRadius.circular(8),
+        child: Container(
+          padding: const EdgeInsets.all(8),
+          decoration: BoxDecoration(
+            color: selected
+                ? SpaceShiftColors.selectionAccent.withValues(alpha: 0.08)
+                : Colors.transparent,
+            borderRadius: BorderRadius.circular(8),
+            border: Border.all(
+              color: selected
+                  ? SpaceShiftColors.selectionAccent
+                  : Colors.transparent,
+            ),
+          ),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Container(
+                width: 20,
+                height: 20,
+                margin: const EdgeInsets.only(top: 1),
+                alignment: Alignment.center,
+                decoration: BoxDecoration(
+                  color: selected
+                      ? SpaceShiftColors.selectionAccent
+                      : Colors.white,
+                  shape: BoxShape.circle,
+                  border: Border.all(
+                    color: SpaceShiftColors.selectionAccent,
+                    width: selected ? 0 : 1.2,
                   ),
                 ),
-                const SizedBox(width: 4),
-                const Icon(
-                  Icons.edit_outlined,
-                  size: 13,
-                  color: SpaceShiftColors.textSecondary,
+                child: Text(
+                  '${index + 1}',
+                  style: TextStyle(
+                    fontSize: 11,
+                    fontWeight: FontWeight.bold,
+                    color: selected
+                        ? Colors.white
+                        : SpaceShiftColors.selectionAccent,
+                  ),
                 ),
-              ],
-            ),
-            const SizedBox(height: 2),
-            Text(
-              m2 == null
-                  ? '계산 불가'
-                  : '약 ${m2.toStringAsFixed(1)}㎡ · 약 ${pyeong!.toStringAsFixed(1)}평'
-                        '${estimated ? " (추정)" : ""}',
-              style: const TextStyle(
-                fontSize: 12.5,
-                color: SpaceShiftColors.textSecondary,
               ),
-            ),
-          ],
+              const SizedBox(width: 8),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Flexible(
+                          child: Text(
+                            displayRoomName(room, index),
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                              fontSize: 13.5,
+                              fontWeight: FontWeight.w600,
+                              color: SpaceShiftColors.textPrimary,
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 4),
+                        InkWell(
+                          onTap: () => _promptRename(context),
+                          borderRadius: BorderRadius.circular(4),
+                          child: const Padding(
+                            padding: EdgeInsets.all(2),
+                            child: Icon(
+                              Icons.edit_outlined,
+                              size: 13,
+                              color: SpaceShiftColors.textSecondary,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      m2 == null
+                          ? '계산 불가'
+                          : '약 ${m2.toStringAsFixed(1)}㎡ · 약 '
+                                '${pyeong!.toStringAsFixed(1)}평'
+                                '${estimated ? " (추정)" : ""}',
+                      style: const TextStyle(
+                        fontSize: 12.5,
+                        color: SpaceShiftColors.textSecondary,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     );

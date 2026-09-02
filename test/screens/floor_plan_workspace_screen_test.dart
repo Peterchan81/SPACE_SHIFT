@@ -464,6 +464,26 @@ void main() {
     await tester.pumpAndSettle();
   }
 
+  /// 실기 FAIL 재수정 WO(11/12번) — "치수 보정" 모드에서 벽 구간을
+  /// 실제로 press+drag+release해 선택하는 것을 재현한다.
+  Future<void> dragOverWall(
+    WidgetTester tester,
+    Point2 fromNormalized,
+    Point2 toNormalized,
+  ) async {
+    final overlayRect = tester.getRect(find.byType(CadFloorPlanOverlay));
+    final transform = ContainFitTransform.compute(
+      overlayRect.size,
+      const Size(800, 600),
+    );
+    final from = overlayRect.topLeft + transform.mapNormalized(fromNormalized);
+    final to = overlayRect.topLeft + transform.mapNormalized(toNormalized);
+    final gesture = await tester.startGesture(from);
+    await gesture.moveTo(to);
+    await gesture.up();
+    await tester.pumpAndSettle();
+  }
+
   testWidgets('분석이 성공해도 번호 marker/작업 목록은 비어 있고 CAD geometry만 표시된다', (
     tester,
   ) async {
@@ -663,9 +683,9 @@ void main() {
     expect(find.textContaining('3D 아이소 생성 준비가 완료'), findsNothing);
   });
 
-  testWidgets('2D 단순화 — "공간 크기" 카드가 자동 추정값임을 알리고(추정), "치수 '
-      '보정"으로 실측값을 입력하면 그 값으로 교체된다(기존 수동 보정 기능 '
-      '유지, WO 3/7번 — 필수 단계에서만 제거)', (tester) async {
+  testWidgets('실기 FAIL 재수정 WO(11~14번) — "치수 보정"에서 벽 구간을 실제로 '
+      'drag해서 선택하면 즉시 현재 추정 길이가 보이고, 실제 치수를 입력해 '
+      '[치수 적용]하면 그 값으로 축척이 교체되어 "추정" 문구가 사라진다', (tester) async {
     await pumpAnalyzed(tester);
 
     expect(find.textContaining('추정'), findsWidgets);
@@ -676,18 +696,57 @@ void main() {
     await tester.tap(calibrationButton);
     await tester.pumpAndSettle();
 
-    await tapWall(tester, const Point2(0.1, 0.1));
-    await tapWall(tester, const Point2(0.9, 0.1));
-    await tester.pumpAndSettle();
+    // wall-ext-1: (0.05,0.05)~(0.95,0.05) 위를 따라 drag한다.
+    await dragOverWall(
+      tester,
+      const Point2(0.2, 0.05),
+      const Point2(0.7, 0.05),
+    );
 
-    await tester.enterText(find.byType(TextField).last, '3200');
-    await tester.tap(find.widgetWithText(FilledButton, '축척 적용'));
+    // drag가 끝나자마자 "선택한 벽" + 현재 추정 길이가 보인다(WO 13번).
+    expect(find.text('선택한 벽', skipOffstage: false), findsOneWidget);
+    final approxLength = find.textContaining('m (추정)', skipOffstage: false);
+    await tester.ensureVisible(approxLength);
+    await tester.pumpAndSettle();
+    expect(approxLength, findsOneWidget);
+
+    final input = find.byType(TextField, skipOffstage: false);
+    await tester.ensureVisible(input);
+    await tester.pumpAndSettle();
+    await tester.enterText(input, '3200');
+    await tester.pumpAndSettle();
+    final applyButton = find.widgetWithText(
+      FilledButton,
+      '치수 적용',
+      skipOffstage: false,
+    );
+    await tester.ensureVisible(applyButton);
+    await tester.pumpAndSettle();
+    await tester.tap(applyButton);
     await tester.pumpAndSettle();
 
     // 실측값으로 교체된 뒤에는 더 이상 "추정" 문구가 공간 크기 옆에
-    // 붙지 않는다.
+    // 붙지 않는다(치수 보정 모드도 자동으로 종료된다).
     final areaLabel = find.textContaining('㎡', skipOffstage: false);
     await tester.ensureVisible(areaLabel);
     expect(find.textContaining('㎡ (추정)', skipOffstage: false), findsNothing);
+    expect(find.text('선택한 벽', skipOffstage: false), findsNothing);
+  });
+
+  testWidgets('실기 FAIL 재수정 WO(15번) — 벽 근처가 아닌 곳을 drag하면 실제 CadWall '
+      '대신 두 점 사이 직선 거리로 폴백한다("선택한 구간"으로 표시)', (tester) async {
+    await pumpAnalyzed(tester);
+
+    final calibrationButton = find.text('치수 보정', skipOffstage: false);
+    await tester.ensureVisible(calibrationButton);
+    await tester.pumpAndSettle();
+    await tester.tap(calibrationButton);
+    await tester.pumpAndSettle();
+
+    // 벽이 없는 빈 영역(중앙 부근)을 drag한다 — wall-ext-1(y=0.05)/
+    // wall-int-1(x=0.5)에서 충분히 떨어진 지점.
+    await dragOverWall(tester, const Point2(0.2, 0.5), const Point2(0.35, 0.6));
+
+    expect(find.text('선택한 구간', skipOffstage: false), findsOneWidget);
   });
 }

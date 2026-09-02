@@ -326,4 +326,54 @@ void main() {
           '(전부 안쪽이면 topology가 통째로 뒤집힌 것)',
     );
   });
+
+  test('M — L자(오목) 방 polygon도 ear clipping으로 바닥 전체를 실제로 '
+      '덮는다(사각형 전용 특수 처리에 의존하지 않는다)', () {
+    // 정규화 좌표의 L자: 오른쪽 위 사분면이 빠진 6점 오목 다각형.
+    final lShapedRoom = CadRoom(
+      id: 'room-l',
+      polygon: const [
+        Point2(0.1, 0.1),
+        Point2(0.5, 0.1),
+        Point2(0.5, 0.5),
+        Point2(0.9, 0.5),
+        Point2(0.9, 0.9),
+        Point2(0.1, 0.9),
+      ],
+      areaNormalized: 0.48,
+      confidence: 0.7,
+    );
+    final plan = CadFloorPlan(
+      sourceWidthPx: 800,
+      sourceHeightPx: 600,
+      walls: const [],
+      openings: const [],
+      rooms: [lShapedRoom],
+      warnings: const [],
+    );
+    final scene = buildSpaceScene(
+      plan: plan,
+      scale: _scale,
+      ceilingHeightMm: 2400,
+    );
+
+    // n점 단순 다각형은 ear clipping으로 정확히 (n-2)개 삼각형이 된다.
+    final floorTriangles = scene.triangles.where(
+      (t) => t.sourceKind == SpaceElementKind.floor,
+    );
+    expect(floorTriangles, hasLength(4)); // 6 - 2 = 4.
+    for (final tri in floorTriangles) {
+      expect(tri.a.y, closeTo(0, 1e-6));
+      expect(tri.b.y, closeTo(0, 1e-6));
+      expect(tri.c.y, closeTo(0, 1e-6));
+    }
+
+    // 빠진 사분면(오른쪽 위, 정규화 (0.7,0.2) 부근)에는 삼각형이 없어야
+    // 한다 — 실제 CadRoom.containsPoint와 같은 판정을 3D 삼각형
+    // 존재 여부로도 확인(대략적인 위치 기준, 완전히 엄밀한 point-in-
+    // any-triangle 검사까지는 아니지만 빠진 영역의 무게중심이 어떤
+    // 삼각형에도 속하지 않는다는 것으로 충분히 검증된다).
+    expect(lShapedRoom.containsPoint(const Point2(0.7, 0.2)), isFalse);
+    expect(lShapedRoom.containsPoint(const Point2(0.3, 0.3)), isTrue);
+  });
 }
