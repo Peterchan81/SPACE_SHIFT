@@ -6,9 +6,11 @@ import '../models/cad_floor_plan.dart';
 import '../models/cad_workspace_state.dart';
 import '../models/floor_plan_file.dart';
 import '../models/floor_plan_geometry.dart';
+import '../models/space_scene.dart';
 import '../models/workspace_task_item.dart';
 import '../services/floor_plan_analysis_service.dart';
 import '../services/floor_plan_upload_service.dart';
+import '../services/space_scene_builder.dart';
 import '../theme/space_shift_colors.dart';
 import '../widgets/workspace/ceiling_height_sheet.dart';
 import '../widgets/workspace/scale_calibration_sheet.dart';
@@ -62,6 +64,12 @@ class FloorPlanWorkspaceScreen extends StatefulWidget {
       _FloorPlanWorkspaceScreenState();
 }
 
+/// 2D 단순화 WO(6번) — "천장 높이 확인" 기본값. 기존 [ceilingHeightPresetsMm]
+/// (2300/2400/2500/2700mm) 중 가장 널리 쓰이는 값을 골라, 분석 직후
+/// 자동으로 채워 넣는다 — 사용자는 "확인"만 하면 되고, 다르면 기존
+/// "천장고 입력" 시트에서 바꿀 수 있다.
+const double kDefaultCeilingHeightMm = 2400;
+
 class _FloorPlanWorkspaceScreenState extends State<FloorPlanWorkspaceScreen> {
   WorkspaceStartMethod _startMethod = WorkspaceStartMethod.floorPlanUpload;
   WorkspaceViewMode _viewMode = WorkspaceViewMode.plan2d;
@@ -90,6 +98,12 @@ class _FloorPlanWorkspaceScreenState extends State<FloorPlanWorkspaceScreen> {
   final List<Point2> _calibrationPoints = [];
   FloorPlanScale? _scale;
   double? _ceilingHeightMm;
+
+  /// 실제로 생성된 3D 공간 — [_onGenerate3D]가 성공했을 때만 채워진다.
+  /// viewMode가 3D여도 이 값이 null이면 아직 생성 전(또는 생성 실패)
+  /// 이라는 뜻이라 [FloorPlanPreview]가 준비 상태 안내를 계속 보여준다.
+  SpaceScene? _spaceScene;
+  String? _spaceGenerationFailureMessage;
 
   final List<List<WorkspaceTaskItem>> _undoStack = [];
   final List<List<WorkspaceTaskItem>> _redoStack = [];
@@ -124,6 +138,9 @@ class _FloorPlanWorkspaceScreenState extends State<FloorPlanWorkspaceScreen> {
       _calibrationPoints.clear();
       _scale = null;
       _ceilingHeightMm = null;
+      _spaceScene = null;
+      _spaceGenerationFailureMessage = null;
+      _viewMode = WorkspaceViewMode.plan2d;
     });
   }
 
@@ -153,13 +170,26 @@ class _FloorPlanWorkspaceScreenState extends State<FloorPlanWorkspaceScreen> {
 
     if (outcome.isSuccess) {
       final result = outcome.result!;
+      final cadFloorPlan = buildCadFloorPlan(result);
       setState(() {
         _analysisPhase = FloorPlanAnalysisPhase.completed;
         _analysisResult = result;
         _analysisStep = null;
-        _cadFloorPlan = buildCadFloorPlan(result);
+        _cadFloorPlan = cadFloorPlan;
         _selectedCadObjectId = null;
         _cadUndoStack.clear();
+        // 2D 단순화 WO — 사용자가 이미 직접 보정한 축척은 절대 덮어쓰지
+        // 않는다([resolveAutoScale] 참고). 처음 분석이라면 문 기준
+        // 추정 또는(그마저 없으면) "알 수 없음" 임시 기준으로 자동
+        // 채워, 사용자가 기준점을 직접 찍지 않아도 3D로 진행할 수 있게
+        // 한다(핵심 원칙: "일단 만들어주고 정확도는 나중에").
+        _scale = resolveAutoScale(cadFloorPlan, _scale);
+        _ceilingHeightMm ??= kDefaultCeilingHeightMm;
+        // 재분석으로 geometry 자체가 바뀌었을 수 있어, 이전 3D 결과는
+        // 더 이상 지금 도면과 일치한다고 보장할 수 없다 — 다시 만들어야
+        // 한다(가짜로 그대로 두지 않는다).
+        _spaceScene = null;
+        _spaceGenerationFailureMessage = null;
       });
     } else {
       setState(() {
@@ -365,6 +395,7 @@ class _FloorPlanWorkspaceScreenState extends State<FloorPlanWorkspaceScreen> {
           referenceStart: p1,
           referenceEnd: p2,
           referenceLengthMm: mm,
+          source: ScaleSource.measured,
         );
       });
     }
@@ -383,17 +414,74 @@ class _FloorPlanWorkspaceScreenState extends State<FloorPlanWorkspaceScreen> {
     setState(() => _ceilingHeightMm = value);
   }
 
-  /// [3D 공간 생성] — 실제 3D 렌더러는 이번 범위 밖이다(가짜 3D 이미지를
-  /// 만들지 않는다). geometry/축척/천장고가 모두 준비됐을 때만 눌릴 수
-  /// 있으며, 지금은 그 입력 데이터가 갖춰졌음을 확인해 주는 것까지만
-  /// 한다.
+  /// [3D 아이소 만들기] — geometry/축척/천장고가 모두 준비됐을 때만
+  /// 눌릴 수 있다. 이제 단순 viewMode 전환이 아니라, 실제로
+  /// [buildSpaceScene]을 실행해 벽/바닥 3D geometry를 만든다(WO 9/12번
+  /// — 실제 scene 생성이 성공해야 3D 아이소 화면으로 진입한다). 생성에
+  /// 실패하면(예: geometry가 비정상) 2D 화면을 유지하고 이유를 보여준다
+  /// (WO 9번, viewMode를 바꾸지 않는다).
   void _onGenerate3D() {
-    if (!_cadWorkspaceState.isReadyFor3D) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text('3D 생성 입력 데이터(도면 geometry·축척·천장고)가 준비되었습니다.'),
-      ),
+    final plan = _cadFloorPlan;
+    final scale = _scale;
+    final ceilingHeightMm = _ceilingHeightMm;
+    if (!_cadWorkspaceState.isReadyFor3D ||
+        plan == null ||
+        scale == null ||
+        ceilingHeightMm == null) {
+      return;
+    }
+
+    final scene = buildSpaceScene(
+      plan: plan,
+      scale: scale,
+      ceilingHeightMm: ceilingHeightMm,
     );
+    if (scene.isEmpty) {
+      setState(() {
+        _spaceScene = null;
+        _spaceGenerationFailureMessage =
+            '벽/바닥 geometry를 3D로 옮기지 못했습니다 — 도면에서 실제로 인식된 '
+            '벽/공간이 없는 것 같습니다.';
+      });
+      return;
+    }
+
+    setState(() {
+      _spaceScene = scene;
+      _spaceGenerationFailureMessage = null;
+      _viewMode = WorkspaceViewMode.isometric3d;
+    });
+  }
+
+  /// "다시 분석" — 이미 CAD를 사용자가 보정한 적이 있다면(실행취소 스택이
+  /// 비어있지 않다면) 재분석으로 그 보정 내용이 사라질 수 있으므로 먼저
+  /// 확인을 받는다(WO 22번). 보정 이력이 없으면 바로 분석을 다시
+  /// 시작한다.
+  Future<void> _onReanalyzeRequested() async {
+    if (_cadUndoStack.isNotEmpty) {
+      final confirmed = await showDialog<bool>(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: const Text('다시 분석하시겠습니까?'),
+          content: const Text(
+            '다시 분석하면 지금까지 보정한 CAD 내용(벽 끝점 이동, 삭제 등)이 사라지고 '
+            '새 분석 결과로 다시 채워집니다. 계속할까요?',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(false),
+              child: const Text('취소'),
+            ),
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(true),
+              child: const Text('다시 분석'),
+            ),
+          ],
+        ),
+      );
+      if (confirmed != true || !mounted) return;
+    }
+    await _startAnalysis();
   }
 
   CadWorkspaceState get _cadWorkspaceState => CadWorkspaceState(
@@ -666,6 +754,15 @@ class _FloorPlanWorkspaceScreenState extends State<FloorPlanWorkspaceScreen> {
             projectName: widget.projectName,
             taskCount: _tasks.length,
             visibleTaskCount: _tasks.where((t) => t.visible).length,
+            viewMode: _viewMode,
+            hasFloorPlanFile: _floorPlanFile != null,
+            analysisPhase: _analysisPhase,
+            analysisStep: _analysisStep,
+            analysisResult: _analysisResult,
+            analysisFailureMessage: _analysisFailureMessage,
+            onReanalyze: _onReanalyzeRequested,
+            cad: _cadWorkspaceState,
+            cadCallbacks: _cadWorkspaceCallbacks,
             selectedTool: _tool,
             onToolSelected: (tool) => setState(() => _tool = tool),
             onToggleVisible: () =>
@@ -739,14 +836,12 @@ class _FloorPlanWorkspaceScreenState extends State<FloorPlanWorkspaceScreen> {
               }),
               viewMode: _viewMode,
               floorPlanFile: _floorPlanFile,
-              analysisPhase: _analysisPhase,
-              analysisStep: _analysisStep,
               analysisResult: _analysisResult,
-              analysisFailureMessage: _analysisFailureMessage,
               cad: _cadWorkspaceState,
               cadCallbacks: _cadWorkspaceCallbacks,
               onPickFloorPlanFile: _pickFloorPlan,
-              onStartAnalysis: _startAnalysis,
+              spaceScene: _spaceScene,
+              spaceGenerationFailureMessage: _spaceGenerationFailureMessage,
             ),
           ),
           const SizedBox(height: 12),
@@ -772,6 +867,15 @@ class _FloorPlanWorkspaceScreenState extends State<FloorPlanWorkspaceScreen> {
               projectName: widget.projectName,
               taskCount: _tasks.length,
               visibleTaskCount: _tasks.where((t) => t.visible).length,
+              viewMode: _viewMode,
+              hasFloorPlanFile: _floorPlanFile != null,
+              analysisPhase: _analysisPhase,
+              analysisStep: _analysisStep,
+              analysisResult: _analysisResult,
+              analysisFailureMessage: _analysisFailureMessage,
+              onReanalyze: _onReanalyzeRequested,
+              cad: _cadWorkspaceState,
+              cadCallbacks: _cadWorkspaceCallbacks,
               selectedTool: _tool,
               onToolSelected: (tool) => setState(() => _tool = tool),
               onToggleVisible: () =>
@@ -825,14 +929,12 @@ class _FloorPlanWorkspaceScreenState extends State<FloorPlanWorkspaceScreen> {
             }),
             viewMode: _viewMode,
             floorPlanFile: _floorPlanFile,
-            analysisPhase: _analysisPhase,
-            analysisStep: _analysisStep,
             analysisResult: _analysisResult,
-            analysisFailureMessage: _analysisFailureMessage,
             cad: _cadWorkspaceState,
             cadCallbacks: _cadWorkspaceCallbacks,
             onPickFloorPlanFile: _pickFloorPlan,
-            onStartAnalysis: _startAnalysis,
+            spaceScene: _spaceScene,
+            spaceGenerationFailureMessage: _spaceGenerationFailureMessage,
           ),
         ),
         const SizedBox(height: 12),

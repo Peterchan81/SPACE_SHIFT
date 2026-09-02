@@ -43,15 +43,25 @@ class WorkspaceColorPicker extends StatelessWidget {
             ),
           ),
           const SizedBox(height: 10),
-          ColorPicker(
-            pickerColor: color,
-            onColorChanged: onColorChanged,
-            enableAlpha: false,
-            displayThumbColor: true,
-            paletteType: PaletteType.hsv,
-            pickerAreaHeightPercent: 0.55,
-            labelTypes: const [ColorLabelType.hex, ColorLabelType.rgb],
-            pickerAreaBorderRadius: BorderRadius.circular(12),
+          // flutter_colorpicker의 hex+rgb 라벨 Row는 좁은 사이드 패널
+          // 폭(약 256px)보다 넓은 고정 레이아웃을 요구해 그대로 두면
+          // RenderFlex overflow가 난다 — 가로 스크롤로 감싸 잘리지 않게
+          // 한다.
+          SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            child: SizedBox(
+              width: 640,
+              child: ColorPicker(
+                pickerColor: color,
+                onColorChanged: onColorChanged,
+                enableAlpha: false,
+                displayThumbColor: true,
+                paletteType: PaletteType.hsv,
+                pickerAreaHeightPercent: 0.55,
+                labelTypes: const [ColorLabelType.hex, ColorLabelType.rgb],
+                pickerAreaBorderRadius: BorderRadius.circular(12),
+              ),
+            ),
           ),
         ],
       ),

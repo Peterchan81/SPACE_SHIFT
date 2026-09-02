@@ -181,4 +181,157 @@ void main() {
     expect(settings.heightForRoom('room-0'), 2700);
     expect(settings.heightForRoom('room-1'), 2400);
   });
+
+  group('2D 단순화 WO — 자동 축척(ScaleSource/estimateScaleFromDoors)', () {
+    test('A(대조군) — 사용자가 직접 입력한 실측값은 source가 measured다', () {
+      const scale = FloorPlanScale(
+        mmPerPixel: 2.0,
+        referenceStart: Point2(0, 0),
+        referenceEnd: Point2(1, 0),
+        referenceLengthMm: 1600,
+      );
+      expect(scale.source, ScaleSource.measured);
+      expect(scale.source.isReliable, isTrue);
+    });
+
+    test('B — 문 후보가 있으면 표준 문 폭(kAssumedDoorWidthMm)으로 역산해 '
+        'estimatedFromDoor로 표시한다(정확한 값처럼 위장하지 않는다)', () {
+      final cad = buildCadFloorPlan(_sampleAnalysisResult());
+      final estimated = estimateScaleFromDoors(cad);
+
+      expect(estimated, isNotNull);
+      expect(estimated!.source, ScaleSource.estimatedFromDoor);
+      expect(estimated.source.isReliable, isFalse);
+
+      // 대각선 1000px(sqrt(800^2+600^2)) × widthNormalized 0.05 = 50px
+      // → mmPerPixel = 900 / 50 = 18.
+      final widthPx = 0.05 * cad.diagonalPx;
+      expect(
+        estimated.mmPerPixel,
+        closeTo(kAssumedDoorWidthMm / widthPx, 1e-9),
+      );
+    });
+
+    test('B — 문 후보가 여러 개면 신뢰도가 가장 높은 문 하나만 기준으로 삼는다', () {
+      const result = FloorPlanAnalysisResult(
+        sourceWidthPx: 800,
+        sourceHeightPx: 600,
+        walls: [],
+        openings: [
+          OpeningCandidate(
+            id: 'low-confidence-door',
+            type: OpeningType.door,
+            center: Point2(0.2, 0.2),
+            widthNormalized: 0.03,
+            confidence: 0.2,
+          ),
+          OpeningCandidate(
+            id: 'high-confidence-door',
+            type: OpeningType.door,
+            center: Point2(0.7, 0.7),
+            widthNormalized: 0.08,
+            confidence: 0.6,
+          ),
+        ],
+        rooms: [],
+        warnings: [],
+        debugStats: FloorPlanAnalysisDebugStats(
+          sourceWidthPx: 800,
+          sourceHeightPx: 600,
+          analysisWidthPx: 800,
+          analysisHeightPx: 600,
+          rawHorizontalRuns: 0,
+          rawVerticalRuns: 0,
+          mergedWallCount: 0,
+          roomCandidateCount: 0,
+          openingCandidateCount: 2,
+          durationMs: 1,
+        ),
+      );
+      final cad = buildCadFloorPlan(result);
+      final estimated = estimateScaleFromDoors(cad);
+
+      expect(estimated, isNotNull);
+      expect(estimated!.referenceStart, const Point2(0.7, 0.7));
+    });
+
+    test('C — 문 후보가 없으면 estimateScaleFromDoors는 null(거짓 값을 만들지 않는다)', () {
+      const result = FloorPlanAnalysisResult(
+        sourceWidthPx: 800,
+        sourceHeightPx: 600,
+        walls: [],
+        openings: [],
+        rooms: [],
+        warnings: [],
+        debugStats: FloorPlanAnalysisDebugStats(
+          sourceWidthPx: 800,
+          sourceHeightPx: 600,
+          analysisWidthPx: 800,
+          analysisHeightPx: 600,
+          rawHorizontalRuns: 0,
+          rawVerticalRuns: 0,
+          mergedWallCount: 0,
+          roomCandidateCount: 0,
+          openingCandidateCount: 0,
+          durationMs: 1,
+        ),
+      );
+      final cad = buildCadFloorPlan(result);
+      expect(estimateScaleFromDoors(cad), isNull);
+    });
+
+    test('C — 문도 없을 때 unknownFallbackScale은 source=unknown인 임시 '
+        '기준을 만들어 3D 생성 자체는 막지 않는다', () {
+      final cad = buildCadFloorPlan(_sampleAnalysisResult().copyWithWalls([]));
+      final fallback = unknownFallbackScale(cad);
+      expect(fallback.source, ScaleSource.unknown);
+      expect(fallback.source.isReliable, isFalse);
+      expect(fallback.mmPerPixel, greaterThan(0));
+    });
+
+    test('resolveAutoScale — 이미 축척이 있으면(사용자가 직접 보정) 절대 덮어쓰지 않는다', () {
+      final cad = buildCadFloorPlan(_sampleAnalysisResult());
+      const existing = FloorPlanScale(
+        mmPerPixel: 5.0,
+        referenceStart: Point2(0, 0),
+        referenceEnd: Point2(1, 0),
+        referenceLengthMm: 4000,
+      );
+
+      final resolved = resolveAutoScale(cad, existing);
+      expect(identical(resolved, existing), isTrue);
+    });
+
+    test('resolveAutoScale — 축척이 없으면 문 기준 추정을 우선 적용한다', () {
+      final cad = buildCadFloorPlan(_sampleAnalysisResult());
+      final resolved = resolveAutoScale(cad, null);
+      expect(resolved.source, ScaleSource.estimatedFromDoor);
+    });
+
+    test('resolveAutoScale — 문도 없으면 unknown 폴백을 적용해 3D 생성을 막지 않는다', () {
+      const noOpeningsResult = FloorPlanAnalysisResult(
+        sourceWidthPx: 800,
+        sourceHeightPx: 600,
+        walls: [],
+        openings: [],
+        rooms: [],
+        warnings: [],
+        debugStats: FloorPlanAnalysisDebugStats(
+          sourceWidthPx: 800,
+          sourceHeightPx: 600,
+          analysisWidthPx: 800,
+          analysisHeightPx: 600,
+          rawHorizontalRuns: 0,
+          rawVerticalRuns: 0,
+          mergedWallCount: 0,
+          roomCandidateCount: 0,
+          openingCandidateCount: 0,
+          durationMs: 1,
+        ),
+      );
+      final cad = buildCadFloorPlan(noOpeningsResult);
+      final resolved = resolveAutoScale(cad, null);
+      expect(resolved.source, ScaleSource.unknown);
+    });
+  });
 }

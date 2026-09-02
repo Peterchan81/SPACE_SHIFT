@@ -158,9 +158,44 @@ class CadRoom {
   }
 }
 
-/// 사용자가 도면에서 두 점을 고르고 실제 길이(mm)를 입력해 만든 기준
-/// 축척. 언제든 다시 설정할 수 있고, 재설정되면 이 값을 참조하는 모든
-/// 실측값이 자동으로 다시 계산된다(따로 캐시하지 않기 때문 — WO 9번).
+/// [FloorPlanScale]이 실제로 어떻게 얻어졌는지 — 화면이 "실측값"과
+/// "대략적인 추정값"을 절대 같은 것처럼 보여주지 않기 위한 구분이다(2D
+/// 단순화 WO — 5번 "하나의 고정 숫자를 실측값으로 취급하지 않는다").
+enum ScaleSource {
+  /// 사용자가 "치수 보정"에서 두 점 + 실제 길이(mm)를 직접 입력함.
+  measured,
+
+  /// 도면 자체에 있는 치수 텍스트/치수선에서 읽어냄. 이번 1차 구현에는
+  /// 그런 파서가 없어 아직 실제로 만들어지지 않는다 — 향후 과제로만
+  /// 자리를 남겨 둔다.
+  drawingDimension,
+
+  /// 문 gap 폭(널리 쓰이는 표준 문 폭 가정)으로부터 역산함 — "실측"이
+  /// 아니라 "추정"임을 항상 함께 표시해야 한다.
+  estimatedFromDoor,
+
+  /// 실측도 추정도 불가능해, 3D를 일단 보여주기 위한 임의 기준 축척.
+  /// 실제 크기와 무관할 수 있다는 점을 반드시 사용자에게 알려야 한다.
+  unknown,
+}
+
+extension ScaleSourceX on ScaleSource {
+  bool get isReliable =>
+      this == ScaleSource.measured || this == ScaleSource.drawingDimension;
+
+  String get label => switch (this) {
+    ScaleSource.measured => '직접 입력한 실측값',
+    ScaleSource.drawingDimension => '도면 치수 표기',
+    ScaleSource.estimatedFromDoor => '문 크기 기준 추정값',
+    ScaleSource.unknown => '크기를 추정할 수 없음(임시 기준)',
+  };
+}
+
+/// 도면의 실제 크기를 아는 유일한 값 — 사용자가 도면에서 두 점을 고르고
+/// 실제 길이(mm)를 입력해 만들거나([ScaleSource.measured]), 문 폭 등으로
+/// 자동 추정한다([ScaleSource.estimatedFromDoor]). 언제든 다시 설정할 수
+/// 있고, 재설정되면 이 값을 참조하는 모든 실측값이 자동으로 다시
+/// 계산된다(따로 캐시하지 않기 때문 — WO 9번).
 @immutable
 class FloorPlanScale {
   const FloorPlanScale({
@@ -168,12 +203,85 @@ class FloorPlanScale {
     required this.referenceStart,
     required this.referenceEnd,
     required this.referenceLengthMm,
+    this.source = ScaleSource.measured,
   });
 
   final double mmPerPixel;
   final Point2 referenceStart;
   final Point2 referenceEnd;
   final double referenceLengthMm;
+
+  final ScaleSource source;
+}
+
+/// 일반적으로 쓰이는 실내 여닫이문(단짝문) 폭 — 문 gap을 실제 치수로
+/// 역산할 때만 쓰는 내부 추정 기준이다. 실측값이 아니므로 이 값으로
+/// 계산한 [FloorPlanScale]은 항상 [ScaleSource.estimatedFromDoor]로
+/// 표시한다(2D 단순화 WO — 5번).
+const double kAssumedDoorWidthMm = 900;
+
+/// 문 후보(gap 폭 기반, 항상 [FloorPlanObjectStatus.needsReview])로부터
+/// 축척을 추정한다. 가장 신뢰도가 높은 문 하나를 골라 [kAssumedDoorWidthMm]
+/// 로 역산한다 — 여러 문의 평균을 내지 않는 이유는, 서로 다른 신뢰도의
+/// 후보를 섞으면 어느 쪽이 실제로 얼마나 기여했는지 사용자에게 설명할 수
+/// 없기 때문이다(단순하고 설명 가능한 쪽을 택함).
+///
+/// 문 후보가 하나도 없거나, 있어도 폭을 계산할 수 없으면(0 이하) null —
+/// 호출부는 이 경우 [ScaleSource.unknown] 폴백으로 넘어가야 한다(4번:
+/// "정확한 치수인 것처럼 거짓 값을 만들지 않는다").
+FloorPlanScale? estimateScaleFromDoors(CadFloorPlan plan) {
+  final doors = plan.openings.where((o) => o.type == OpeningType.door);
+  if (doors.isEmpty) return null;
+
+  CadOpening best = doors.first;
+  for (final door in doors) {
+    if (door.confidence > best.confidence) best = door;
+  }
+
+  final widthPx = best.widthNormalized * plan.diagonalPx;
+  if (widthPx <= 0) return null;
+
+  return FloorPlanScale(
+    mmPerPixel: kAssumedDoorWidthMm / widthPx,
+    referenceStart: best.center,
+    referenceEnd: best.center,
+    referenceLengthMm: kAssumedDoorWidthMm,
+    source: ScaleSource.estimatedFromDoor,
+  );
+}
+
+/// 실측도 문 기준 추정도 불가능할 때 3D 생성을 막지 않기 위한 마지막
+/// 폴백 — 도면 전체 대각선이 "일반적인 작은 주거 공간" 정도의 실제
+/// 크기([kUnknownScaleFallbackDiagonalMm])라고 가정한다. 절대 실측값처럼
+/// 보이면 안 되므로 [ScaleSource.unknown]으로만 만들어진다 — 화면은 이
+/// source를 보고 "크기를 추정할 수 없습니다" 같은 명시적 경고를 반드시
+/// 함께 보여줘야 한다(4번).
+const double kUnknownScaleFallbackDiagonalMm = 8000;
+
+FloorPlanScale unknownFallbackScale(CadFloorPlan plan) {
+  final diagonalPx = plan.diagonalPx;
+  final mmPerPixel = diagonalPx > 0
+      ? kUnknownScaleFallbackDiagonalMm / diagonalPx
+      : 1.0;
+  return FloorPlanScale(
+    mmPerPixel: mmPerPixel,
+    referenceStart: const Point2(0, 0),
+    referenceEnd: const Point2(1, 1),
+    referenceLengthMm: kUnknownScaleFallbackDiagonalMm,
+    source: ScaleSource.unknown,
+  );
+}
+
+/// 평면도 분석 직후 자동으로 적용할 축척을 우선순위(WO 4번 A→B→C)대로
+/// 결정한다. [existing]이 이미 있으면(사용자가 직접 보정했거나 이전
+/// 분석에서 이미 추정됨) 절대 덮어쓰지 않는다 — 자동 추정은 오직 "아직
+/// 축척이 전혀 없을 때"만 적용된다.
+///
+/// A(도면 자체 치수 텍스트)는 이번 1차 구현에 해당 파서가 없어 시도하지
+/// 않는다 — 없는 기능을 있는 것처럼 흉내내지 않는다.
+FloorPlanScale resolveAutoScale(CadFloorPlan plan, FloorPlanScale? existing) {
+  if (existing != null) return existing;
+  return estimateScaleFromDoors(plan) ?? unknownFallbackScale(plan);
 }
 
 /// 천장고 설정 — 자동 추정하지 않고 사용자 입력만 반영한다(WO 10번).

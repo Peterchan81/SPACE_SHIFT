@@ -3,18 +3,10 @@ import 'package:flutter/material.dart';
 import '../../models/cad_workspace_state.dart';
 import '../../models/floor_plan_file.dart';
 import '../../models/floor_plan_geometry.dart';
+import '../../models/space_scene.dart';
 import '../../models/workspace_task_item.dart';
 import '../../theme/space_shift_colors.dart';
 import 'floor_plan_preview.dart';
-
-/// [FloorPlanPreview]가 그리는 2D 캔버스와 헤더(CAD 도구모음/상태 배너)
-/// 사이의 경계가, 아래 [WorkspaceCanvas]가 헤더를 캔버스 위에 겹쳐
-/// 그리지 않고 별도 레이아웃 공간에 그리도록 이 함수로 판단한다 —
-/// [FloorPlanPreview] 내부의 조건과 정확히 같아야 한다(2D 뷰 + 파일
-/// 있음일 때만 헤더가 있다).
-bool _showsCanvasHeader(WorkspaceViewMode viewMode, FloorPlanFile? file) {
-  return viewMode == WorkspaceViewMode.plan2d && file != null;
-}
 
 /// 중앙 공간 이미지/3D 작업 화면.
 ///
@@ -25,6 +17,11 @@ bool _showsCanvasHeader(WorkspaceViewMode viewMode, FloorPlanFile? file) {
 /// 사용자 작업이 아니므로 여기서 번호를 붙이지 않는다 — CAD
 /// geometry 자체의 표시/선택은 [FloorPlanPreview] 안의 CAD 오버레이가
 /// 담당한다.
+///
+/// CAD 표시 도구모음/분석 상태 안내는 더 이상 이 캔버스 위에 그리지
+/// 않는다 — 도면을 가리는 문제가 있어 우측 "사용자 작업 환경"의
+/// [FloorPlanStatusSection]으로 옮겼다. 중앙은 평면도 자체를 보는 화면으로
+/// 최대한 단순하게 유지한다.
 class WorkspaceCanvas extends StatelessWidget {
   const WorkspaceCanvas({
     super.key,
@@ -33,14 +30,12 @@ class WorkspaceCanvas extends StatelessWidget {
     required this.onSelect,
     required this.viewMode,
     required this.floorPlanFile,
-    required this.analysisPhase,
-    required this.analysisStep,
     required this.analysisResult,
-    required this.analysisFailureMessage,
     required this.cad,
     required this.cadCallbacks,
     required this.onPickFloorPlanFile,
-    required this.onStartAnalysis,
+    this.spaceScene,
+    this.spaceGenerationFailureMessage,
   });
 
   final List<WorkspaceTaskItem> tasks;
@@ -49,19 +44,18 @@ class WorkspaceCanvas extends StatelessWidget {
 
   final WorkspaceViewMode viewMode;
   final FloorPlanFile? floorPlanFile;
-  final FloorPlanAnalysisPhase analysisPhase;
-  final FloorPlanAnalysisStep? analysisStep;
   final FloorPlanAnalysisResult? analysisResult;
-  final String? analysisFailureMessage;
   final CadWorkspaceState cad;
   final CadWorkspaceCallbacks cadCallbacks;
   final VoidCallback onPickFloorPlanFile;
-  final VoidCallback onStartAnalysis;
+
+  /// [CadWorkspaceCallbacks.onGenerate3D]가 실제로 만든 3D geometry —
+  /// null이면(아직 생성 전) [FloorPlanPreview]가 준비 상태 안내를 보여준다.
+  final SpaceScene? spaceScene;
+  final String? spaceGenerationFailureMessage;
 
   @override
   Widget build(BuildContext context) {
-    final showsHeader = _showsCanvasHeader(viewMode, floorPlanFile);
-
     return Container(
       decoration: BoxDecoration(
         color: Colors.white,
@@ -69,60 +63,35 @@ class WorkspaceCanvas extends StatelessWidget {
         border: Border.all(color: SpaceShiftColors.border),
       ),
       clipBehavior: Clip.antiAlias,
-      child: Column(
-        children: [
-          if (showsHeader)
-            Padding(
-              padding: const EdgeInsets.fromLTRB(16, 16, 16, 0),
-              child: cad.floorPlan != null
-                  ? Align(
-                      alignment: Alignment.topLeft,
-                      child: CadToolbar(cad: cad, callbacks: cadCallbacks),
-                    )
-                  : FloorPlanStatusBanner(
-                      file: floorPlanFile!,
-                      result: analysisResult,
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          return Stack(
+            fit: StackFit.expand,
+            children: [
+              FloorPlanPreview(
+                viewMode: viewMode,
+                file: floorPlanFile,
+                analysisResult: analysisResult,
+                cad: cad,
+                cadCallbacks: cadCallbacks,
+                onPickFile: onPickFloorPlanFile,
+                spaceScene: spaceScene,
+                spaceGenerationFailureMessage: spaceGenerationFailureMessage,
+              ),
+              for (final task in tasks)
+                if (task.visible)
+                  Positioned(
+                    left: task.markerPosition.dx * constraints.maxWidth - 16,
+                    top: task.markerPosition.dy * constraints.maxHeight - 16,
+                    child: _CanvasMarker(
+                      task: task,
+                      selected: task.id == selectedId,
+                      onTap: () => onSelect(task.id),
                     ),
-            ),
-          Expanded(
-            child: LayoutBuilder(
-              builder: (context, constraints) {
-                return Stack(
-                  fit: StackFit.expand,
-                  children: [
-                    FloorPlanPreview(
-                      viewMode: viewMode,
-                      file: floorPlanFile,
-                      analysisPhase: analysisPhase,
-                      analysisStep: analysisStep,
-                      analysisResult: analysisResult,
-                      failureMessage: analysisFailureMessage,
-                      cad: cad,
-                      cadCallbacks: cadCallbacks,
-                      onPickFile: onPickFloorPlanFile,
-                      onStartAnalysis: onStartAnalysis,
-                    ),
-                    for (final task in tasks)
-                      if (task.visible)
-                        Positioned(
-                          left:
-                              task.markerPosition.dx * constraints.maxWidth -
-                              16,
-                          top:
-                              task.markerPosition.dy * constraints.maxHeight -
-                              16,
-                          child: _CanvasMarker(
-                            task: task,
-                            selected: task.id == selectedId,
-                            onTap: () => onSelect(task.id),
-                          ),
-                        ),
-                  ],
-                );
-              },
-            ),
-          ),
-        ],
+                  ),
+            ],
+          );
+        },
       ),
     );
   }

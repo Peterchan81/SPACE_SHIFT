@@ -46,8 +46,8 @@ class WorkTab extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return ListView(
-      padding: const EdgeInsets.all(16),
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         SelectedItemHeader(
           task: task,

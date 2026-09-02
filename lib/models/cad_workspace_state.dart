@@ -49,12 +49,15 @@ class CadWorkspaceState {
   bool get hasScale => scale != null;
   bool get hasCeilingHeight => ceilingHeightMm != null;
 
-  /// [3D 공간 생성] 버튼 활성화 조건을 만족하지 못하는 이유들(WO 11번) —
-  /// 비어 있으면 3D 준비가 끝난 것이다.
+  /// [3D 아이소 만들기] 버튼 활성화 조건을 만족하지 못하는 이유들(WO
+  /// 11번) — 비어 있으면 3D 준비가 끝난 것이다. 축척/천장고는 분석
+  /// 직후 자동으로 채워지므로(2D 단순화 WO — [resolveAutoScale]/
+  /// [kDefaultCeilingHeightMm]), 실사용에서는 사실상 항상 만족된다 —
+  /// 그래도 아직 채워지지 않은 예외적인 순간을 위해 안내 문구는 남긴다.
   List<String> get missing3DReasons => [
     if (!hasGeometry) '평면도 분석을 먼저 진행해주세요.',
-    if (!hasScale) '기준 치수(축척)를 설정해주세요.',
-    if (!hasCeilingHeight) '천장고를 입력해주세요.',
+    if (!hasScale) '공간 크기를 계산하지 못했습니다.',
+    if (!hasCeilingHeight) '천장 높이를 확인해주세요.',
   ];
 
   bool get isReadyFor3D => missing3DReasons.isEmpty;

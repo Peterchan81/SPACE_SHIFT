@@ -55,6 +55,14 @@ dependencies:
   # 다른 의존성(flutter_launcher_icons)을 통해 간접 포함되어 있던 것을
   # 직접 의존성으로 승격한다.
   image: ^4.9.2
+  # 2D 단순화 + 실제 3D 아이소 WO — 벽/바닥 geometry를 3D 공간 좌표로
+  # 옮기고 궤도 카메라(회전/확대/이동) 행렬을 계산하는 데 쓰는 순수
+  # Dart 벡터/행렬 라이브러리(Flutter SDK 자체가 이미 간접 포함하고
+  # 있던 것을 직접 의존성으로 승격). flutter_gl/three_dart 같은 네이티브
+  # GL 바인딩은 쓰지 않는다 — CustomPainter로 직접 그리는 소프트웨어
+  # 래스터라이저라 Windows/Android/Web에서 추가 플랫폼 설정 없이 동일하게
+  # 동작한다.
+  vector_math: ^2.2.0
 
 dev_dependencies:
   flutter_test:

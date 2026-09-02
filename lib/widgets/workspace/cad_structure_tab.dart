@@ -44,8 +44,8 @@ class CadStructureTab extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return ListView(
-      padding: const EdgeInsets.all(16),
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         _Card(title: '선택된 도면 요소', child: _buildBody()),
         const SizedBox(height: 16),
