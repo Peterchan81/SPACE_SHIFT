@@ -1,0 +1,119 @@
+{
+  "spaces": [
+    {
+      "id": "S01",
+      "label": "부부거실",
+      "semanticType": "living room",
+      "approxRegion": {"x0": 0.0, "y0": 0.1, "x1": 0.2, "y1": 0.35},
+      "neighborSpaceIds": ["S02", "S12"],
+      "exteriorSides": ["left"]
+    },
+    {
+      "id": "S02",
+      "label": "드레스룸",
+      "semanticType": "dressing room",
+      "approxRegion": {"x0": 0.2, "y0": 0.0, "x1": 0.35, "y1": 0.2},
+      "neighborSpaceIds": ["S01", "S03"],
+      "exteriorSides": ["top"]
+    },
+    {
+      "id": "S03",
+      "label": "욕실2",
+      "semanticType": "bathroom",
+      "approxRegion": {"x0": 0.35, "y0": 0.0, "x1": 0.45, "y1": 0.2},
+      "neighborSpaceIds": ["S02", "S04"],
+      "exteriorSides": ["top"]
+    },
+    {
+      "id": "S04",
+      "label": "주방/식당",
+      "semanticType": "kitchen/dining",
+      "approxRegion": {"x0": 0.45, "y0": 0.0, "x1": 0.75, "y1": 0.3},
+      "neighborSpaceIds": ["S03", "S05"],
+      "exteriorSides": ["top"]
+    },
+    {
+      "id": "S05",
+      "label": "발코니",
+      "semanticType": "balcony",
+      "approxRegion": {"x0": 0.75, "y0": 0.0, "x1": 0.9, "y1": 0.2},
+      "neighborSpaceIds": ["S04"],
+      "exteriorSides": ["top", "right"]
+    },
+    {
+      "id": "S06",
+      "label": "펜트리",
+      "semanticType": "pantry",
+      "approxRegion": {"x0": 0.6, "y0": 0.3, "x1": 0.65, "y1": 0.4},
+      "neighborSpaceIds": ["S04", "S07"],
+      "exteriorSides": []
+    },
+    {
+      "id": "S07",
+      "label": "현관",
+      "semanticType": "entrance",
+      "approxRegion": {"x0": 0.75, "y0": 0.2, "x1": 0.9, "y1": 0.4},
+      "neighborSpaceIds": ["S06", "S08"],
+      "exteriorSides": ["right"]
+    },
+    {
+      "id": "S08",
+      "label": "욕실1",
+      "semanticType": "bathroom",
+      "approxRegion": {"x0": 0.9, "y0": 0.2, "x1": 1.0, "y1": 0.4},
+      "neighborSpaceIds": ["S07", "S13"],
+      "exteriorSides": ["right"]
+    },
+    {
+      "id": "S09",
+      "label": "실외기실",
+      "semanticType": "outdoor unit room",
+      "approxRegion": {"x0": 0.0, "y0": 0.35, "x1": 0.15, "y1": 0.5},
+      "neighborSpaceIds": ["S10"],
+      "exteriorSides": ["left"]
+    },
+    {
+      "id": "S10",
+      "label": "안방",
+      "semanticType": "master bedroom",
+      "approxRegion": {"x0": 0.15, "y0": 0.35, "x1": 0.4, "y1": 0.6},
+      "neighborSpaceIds": ["S09", "S11"],
+      "exteriorSides": []
+    },
+    {
+      "id": "S11",
+      "label": "거실",
+      "semanticType": "living room",
+      "approxRegion": {"x0": 0.4, "y0": 0.4, "x1": 0.65, "y1": 0.7},
+      "neighborSpaceIds": ["S10", "S12", "S13"],
+      "exteriorSides": []
+    },
+    {
+      "id": "S12",
+      "label": "침실2",
+      "semanticType": "bedroom",
+      "approxRegion": {"x0": 0.65, "y0": 0.4, "x1": 0.8, "y1": 0.6},
+      "neighborSpaceIds": ["S11"],
+      "exteriorSides": []
+    },
+    {
+      "id": "S13",
+      "label": "침실1",
+      "semanticType": "bedroom",
+      "approxRegion": {"x0": 0.8, "y0": 0.4, "x1": 1.0, "y1": 0.6},
+      "neighborSpaceIds": ["S11", "S08"],
+      "exteriorSides": ["right"]
+    }
+  ],
+  "openings": [
+    {"type": "door", "approxRegion": {"x0": 0.15, "y0": 0.35, "x1": 0.2, "y1": 0.36}, "adjacentSpaceId": "S10"},
+    {"type": "window", "approxRegion": {"x0": 0.85, "y0": 0.0, "x1": 0.9, "y1": 0.1}, "adjacentSpaceId": "S05"}
+  ],
+  "furnitureRegions": [
+    {"approxRegion": {"x0": 0.10, "y0": 0.45, "x1": 0.3, "y1": 0.55}, "note": "침대로 보임"},
+    {"approxRegion": {"x0": 0.5, "y0": 0.05, "x1": 0.6, "y1": 0.15}, "note": "주방 식탁"}
+  ],
+  "ambiguousRegions": [
+    {"approxRegion": {"x0": 0.6, "y0": 0.25, "x1": 0.65, "y1": 0.3}, "note": "구조가 불명확함"}
+  ]
+}
