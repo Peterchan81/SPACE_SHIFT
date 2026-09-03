@@ -1,0 +1,28 @@
+{
+  "spaces": [
+    {"id": "S01", "label": "부부거실", "semanticType": "living room", "confidence": 0.9, "isExterior": false},
+    {"id": "S02", "label": "드레스룸", "semanticType": "dressing room", "confidence": 0.9, "isExterior": false},
+    {"id": "S03", "label": "욕실2", "semanticType": "bathroom", "confidence": 0.9, "isExterior": false},
+    {"id": "S04", "label": "주방/식당", "semanticType": "kitchen/dining", "confidence": 0.9, "isExterior": false},
+    {"id": "S05", "label": "발코니", "semanticType": "balcony", "confidence": 0.9, "isExterior": true},
+    {"id": "S06", "label": "펜트리", "semanticType": "pantry", "confidence": 0.9, "isExterior": false},
+    {"id": "S07", "label": "현관", "semanticType": "entrance", "confidence": 0.9, "isExterior": false},
+    {"id": "S08", "label": "욕실1", "semanticType": "bathroom", "confidence": 0.9, "isExterior": false},
+    {"id": "S09", "label": "실외기실", "semanticType": "outdoor unit room", "confidence": 0.9, "isExterior": true},
+    {"id": "S10", "label": "안방", "semanticType": "master bedroom", "confidence": 0.9, "isExterior": false},
+    {"id": "S11", "label": "거실", "semanticType": "living room", "confidence": 0.9, "isExterior": false},
+    {"id": "S12", "label": "침실2", "semanticType": "bedroom", "confidence": 0.9, "isExterior": false},
+    {"id": "S13", "label": "침실1", "semanticType": "bedroom", "confidence": 0.9, "isExterior": false}
+  ],
+  "relationships": [
+    {"spaceIdA": "S01", "spaceIdB": "S10", "relation": "adjacent"},
+    {"spaceIdA": "S02", "spaceIdB": "S03", "relation": "connectedByDoor"},
+    {"spaceIdA": "S04", "spaceIdB": "S05", "relation": "connectedByOpening"},
+    {"spaceIdA": "S06", "spaceIdB": "S07", "relation": "adjacent"},
+    {"spaceIdA": "S08", "spaceIdB": "S13", "relation": "connectedByDoor"},
+    {"spaceIdA": "S09", "spaceIdB": "S10", "relation": "adjacent"},
+    {"spaceIdA": "S11", "spaceIdB": "S12", "relation": "adjacent"}
+  ],
+  "majorExteriorNotes": "왼쪽 상단 드레스룸과 부부거실 주변에 돌출부가 있고, 실외기실과 발코니 주변에 함몰부가 존재합니다.",
+  "reviewReasons": []
+}

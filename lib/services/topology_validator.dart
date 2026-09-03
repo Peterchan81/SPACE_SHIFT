@@ -321,6 +321,9 @@ class TopologyValidator {
   /// 추정한다 — POC 범위에서는 충분히 정직한 근사치다(임의로 "겹치지
   /// 않는다"고 단정하지 않는다).
   double _overlapAreaRatio(List<Point2> a, List<Point2> b) {
+    // 폴리곤 유도에 실패한 공간(설계상 bbox로 대체하지 않고 빈
+    // polygon으로 남긴다)은 겹침을 계산할 수 없다 — 0으로 처리한다.
+    if (a.length < 3 || b.length < 3) return 0;
     final minAx = a.map((p) => p.x).reduce(math.min);
     final maxAx = a.map((p) => p.x).reduce(math.max);
     final minAy = a.map((p) => p.y).reduce(math.min);

@@ -1,0 +1,34 @@
+{
+    "corners": [
+        {"id": "C001", "x": 50, "y": 50, "kind": "exteriorConvex", "confidence": 0.9},
+        {"id": "C002", "x": 200, "y": 50, "kind": "exteriorConvex", "confidence": 0.9},
+        {"id": "C003", "x": 200, "y": 100, "kind": "interiorJunction", "confidence": 0.9},
+        {"id": "C004", "x": 150, "y": 100, "kind": "tJunction", "confidence": 0.8},
+        {"id": "C005", "x": 150, "y": 200, "kind": "tJunction", "confidence": 0.8},
+        {"id": "C006", "x": 300, "y": 200, "kind": "exteriorConvex", "confidence": 0.9},
+        {"id": "C007", "x": 300, "y": 100, "kind": "tJunction", "confidence": 0.9}
+    ],
+    "walls": [
+        {"id": "W001", "startCornerId": "C001", "endCornerId": "C002", "type": "exterior", "adjacentSpaceIds": ["S01"], "confidence": 0.9, "notes": ""},
+        {"id": "W002", "startCornerId": "C002", "endCornerId": "C003", "type": "interior", "adjacentSpaceIds": ["S01", "S04"], "confidence": 0.9, "notes": ""},
+        {"id": "W003", "startCornerId": "C003", "endCornerId": "C004", "type": "interior", "adjacentSpaceIds": ["S02", "S04"], "confidence": 0.9, "notes": ""},
+        {"id": "W004", "startCornerId": "C004", "endCornerId": "C005", "type": "interior", "adjacentSpaceIds": ["S02", "S03"], "confidence": 0.9, "notes": ""},
+        {"id": "W005", "startCornerId": "C005", "endCornerId": "C006", "type": "exterior", "adjacentSpaceIds": ["S05"], "confidence": 0.9, "notes": ""},
+        {"id": "W006", "startCornerId": "C006", "endCornerId": "C007", "type": "interior", "adjacentSpaceIds": ["S06", "S10"], "confidence": 0.9, "notes": ""}
+    ],
+    "spaces": [
+        {"id": "S01", "label": "부부거실", "semanticType": "", "boundaryWallIds": ["W001", "W002"], "confidence": 0.9, "reviewReasons": []},
+        {"id": "S02", "label": "드레스룸", "semanticType": "", "boundaryWallIds": ["W003", "W004"], "confidence": 0.9, "reviewReasons": []},
+        {"id": "S03", "label": "욕실2", "semanticType": "", "boundaryWallIds": ["W004"], "confidence": 0.9, "reviewReasons": []},
+        {"id": "S04", "label": "주방/식당", "semanticType": "", "boundaryWallIds": ["W002", "W003"], "confidence": 0.9, "reviewReasons": []},
+        {"id": "S05", "label": "발코니", "semanticType": "", "boundaryWallIds": ["W005"], "confidence": 0.9, "reviewReasons": []},
+        {"id": "S06", "label": "펜트리", "semanticType": "", "boundaryWallIds": ["W006"], "confidence": 0.9, "reviewReasons": []},
+        {"id": "S07", "label": "현관", "semanticType": "", "boundaryWallIds": ["W005"], "confidence": 0.9, "reviewReasons": []},
+        {"id": "S08", "label": "욕실1", "semanticType": "", "boundaryWallIds": ["W006"], "confidence": 0.9, "reviewReasons": []},
+        {"id": "S09", "label": "실외기실", "semanticType": "", "boundaryWallIds": ["W006"], "confidence": 0.9, "reviewReasons": []},
+        {"id": "S10", "label": "안방", "semanticType": "", "boundaryWallIds": ["W006"], "confidence": 0.9, "reviewReasons": []},
+        {"id": "S11", "label": "거실", "semanticType": "", "boundaryWallIds": ["W002"], "confidence": 0.9, "reviewReasons": []},
+        {"id": "S12", "label": "침실2", "semanticType": "", "boundaryWallIds": ["W002"], "confidence": 0.9, "reviewReasons": []},
+        {"id": "S13", "label": "침실1", "semanticType": "", "boundaryWallIds": ["W006"], "confidence": 0.9, "reviewReasons": []}
+    ]
+}
