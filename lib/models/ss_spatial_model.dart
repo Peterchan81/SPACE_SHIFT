@@ -156,6 +156,7 @@ class SSSpace {
       source: source ?? this.source,
       reviewNeeded: reviewNeeded ?? this.reviewNeeded,
       reviewReasons: reviewReasons ?? this.reviewReasons,
+      label: label,
     );
   }
 }
