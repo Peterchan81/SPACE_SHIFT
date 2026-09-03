@@ -455,6 +455,16 @@ class CadFloorPlan {
 /// 후보를 "공간"으로 볼지 판단만 새로 더해졌다).
 CadFloorPlan buildCadFloorPlan(FloorPlanAnalysisResult result) {
   final spatialModel = const SSSpatialModelBuilder().build(result);
+  return buildCadFloorPlanFromSpatialModel(spatialModel);
+}
+
+/// Vision Guided CAD POC WO — [buildCadFloorPlan]에서 "[SSSpatialModel] →
+/// [CadFloorPlan]" 변환만 떼어낸 함수(순수 추출, 로직 변경 없음). 픽셀
+/// evidence([FloorPlanAnalysisResult]) 대신 Vision-guided 파이프라인이
+/// 직접 만든 [SSSpatialModel]도 반드시 이 동일한 변환을 거치게 해서,
+/// 화면/DXF/SVG/PDF/3D가 항상 하나의 캐노니컬 CAD geometry만 보게
+/// 한다(WO 절대 금지 — 별도 화면 전용 geometry를 만들지 않는다).
+CadFloorPlan buildCadFloorPlanFromSpatialModel(SSSpatialModel spatialModel) {
   return CadFloorPlan(
     sourceWidthPx: spatialModel.sourceWidthPx,
     sourceHeightPx: spatialModel.sourceHeightPx,
@@ -495,6 +505,7 @@ CadFloorPlan buildCadFloorPlan(FloorPlanAnalysisResult result) {
           areaNormalized: space.areaNormalized,
           confidence: space.confidence,
           closed: space.closed,
+          name: space.label,
         ),
     ],
     warnings: spatialModel.warnings,

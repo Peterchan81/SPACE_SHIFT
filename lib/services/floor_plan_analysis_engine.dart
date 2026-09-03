@@ -179,11 +179,11 @@ WallStageResult detectWallsAndOpenings(WallStageInput input) {
     }
   }
 
-  final threshold = _otsuThreshold(histogram, w * h);
+  final threshold = otsuThreshold(histogram, w * h);
   final mask = Uint8List(w * h);
   for (var i = 0; i < mask.length; i++) {
     // Otsu 임계값 t는 "값 <= t가 배경(어두운 픽셀) 클래스"로 누적
-    // 계산되므로(_otsuThreshold의 weightBackground 누적과 일치해야 함),
+    // 계산되므로(otsuThreshold의 weightBackground 누적과 일치해야 함),
     // 여기서도 <=로 나눠야 한다. <로 나누면 순수 이진(0/255) 이미지처럼
     // 임계값이 0으로 나올 때 어두운 픽셀이 전부 빠지는 문제가 있었다.
     mask[i] = luminance[i] <= threshold ? 1 : 0;
@@ -241,14 +241,14 @@ WallStageResult detectWallsAndOpenings(WallStageInput input) {
       ? 6
       : (workingDiagonal * 0.02).round();
 
-  final rawHorizontal = _scanRuns(
+  final rawHorizontal = scanRuns(
     workingMask,
     workingW,
     workingH,
     horizontal: true,
     minRunLen: minRunLen,
   );
-  final rawVertical = _scanRuns(
+  final rawVertical = scanRuns(
     workingMask,
     workingW,
     workingH,
@@ -257,14 +257,14 @@ WallStageResult detectWallsAndOpenings(WallStageInput input) {
   );
 
   final maxThicknessPx = (math.max(workingW, workingH) * 0.06).round();
-  final rejectedHorizontalBands = <_WallBand>[];
-  final rejectedVerticalBands = <_WallBand>[];
-  final horizontalBands = _mergeRunsToBands(
+  final rejectedHorizontalBands = <WallBand>[];
+  final rejectedVerticalBands = <WallBand>[];
+  final horizontalBands = mergeRunsToBands(
     rawHorizontal,
     maxThicknessPx: maxThicknessPx,
     rejectedOut: rejectedHorizontalBands,
   );
-  final verticalBands = _mergeRunsToBands(
+  final verticalBands = mergeRunsToBands(
     rawVertical,
     maxThicknessPx: maxThicknessPx,
     rejectedOut: rejectedVerticalBands,
@@ -327,7 +327,7 @@ WallStageResult detectWallsAndOpenings(WallStageInput input) {
 
   var idCounter = 0;
   final walls = <WallSegment>[];
-  final wallBandById = <String, _WallBand>{};
+  final wallBandById = <String, WallBand>{};
 
   for (final band in horizontalBands) {
     final id = 'wall-${idCounter++}';
@@ -694,7 +694,13 @@ List<Point2>? _traceRoomBoundary({
 
 /// Otsu 방법 — 클래스 내 분산이 최소(클래스 간 분산이 최대)가 되는
 /// 임계값을 히스토그램에서 실제로 계산한다(고정값 하드코딩이 아니다).
-int _otsuThreshold(List<int> histogram, int totalPixels) {
+///
+/// Vision Guided CAD POC WO — 이 함수와 [scanRuns]/[mergeRunsToBands]/
+/// [RawRun]/[WallBand]는 원래 이 파일 전용 private 헬퍼였지만, 전체
+/// 이미지 전역 분석이 아니라 "Vision이 지목한 좁은 영역 안에서만" 같은
+/// 저수준 계산을 재사용해야 하는 [HintedGeometryExtractor]를 위해
+/// public으로 바꿨다 — 동작은 전혀 바뀌지 않았고 가시성만 넓어졌다.
+int otsuThreshold(List<int> histogram, int totalPixels) {
   if (totalPixels == 0) return 128;
 
   var sumAll = 0.0;
@@ -731,8 +737,8 @@ int _otsuThreshold(List<int> histogram, int totalPixels) {
   return threshold;
 }
 
-class _RawRun {
-  const _RawRun(this.lineIndex, this.start, this.end);
+class RawRun {
+  const RawRun(this.lineIndex, this.start, this.end);
   final int lineIndex;
   final int start;
   final int end;
@@ -740,14 +746,14 @@ class _RawRun {
 
 /// 이진 마스크를 행(수평) 또는 열(수직) 방향으로 스캔해 연속된 "어두운
 /// 픽셀" run을 찾는다 — run-length 기반 축 정렬 직선 후보 추출.
-List<_RawRun> _scanRuns(
+List<RawRun> scanRuns(
   Uint8List mask,
   int w,
   int h, {
   required bool horizontal,
   required int minRunLen,
 }) {
-  final runs = <_RawRun>[];
+  final runs = <RawRun>[];
   final outerLen = horizontal ? h : w;
   final innerLen = horizontal ? w : h;
 
@@ -761,7 +767,7 @@ List<_RawRun> _scanRuns(
         runStart = runStart == -1 ? i : runStart;
       } else if (runStart != -1) {
         final len = i - runStart;
-        if (len >= minRunLen) runs.add(_RawRun(line, runStart, i - 1));
+        if (len >= minRunLen) runs.add(RawRun(line, runStart, i - 1));
         runStart = -1;
       }
     }
@@ -771,8 +777,8 @@ List<_RawRun> _scanRuns(
 
 /// 벽 band — 서로 인접한 여러 줄(행 또는 열)의 run이 겹쳐 병합된 결과.
 /// [crossCenter]는 두께 방향의 중심선, [thicknessPx]는 병합된 줄 수(두께).
-class _WallBand {
-  _WallBand({
+class WallBand {
+  WallBand({
     required this.crossMin,
     required this.crossMax,
     required this.alongMin,
@@ -791,15 +797,15 @@ class _WallBand {
 /// 인접한 줄(±1) + along-axis 겹침을 기준으로 raw run을 벽 band로
 /// 병합한다. 두께가 비정상적으로 큰(채워진 영역 같은) band는 벽이 아닌
 /// 노이즈로 간주해 제외한다.
-List<_WallBand> _mergeRunsToBands(
-  List<_RawRun> runs, {
+List<WallBand> mergeRunsToBands(
+  List<RawRun> runs, {
   required int maxThicknessPx,
-  List<_WallBand>? rejectedOut,
+  List<WallBand>? rejectedOut,
 }) {
   final sorted = [...runs]..sort((a, b) => a.lineIndex.compareTo(b.lineIndex));
-  final active = <_WallBand>[];
-  final activeLastLine = <_WallBand, int>{};
-  final finished = <_WallBand>[];
+  final active = <WallBand>[];
+  final activeLastLine = <WallBand, int>{};
+  final finished = <WallBand>[];
 
   for (final run in sorted) {
     active.removeWhere((b) {
@@ -811,7 +817,7 @@ List<_WallBand> _mergeRunsToBands(
       return false;
     });
 
-    _WallBand? match;
+    WallBand? match;
     for (final b in active) {
       final overlapStart = math.max(b.alongMin, run.start);
       final overlapEnd = math.min(b.alongMax, run.end);
@@ -836,7 +842,7 @@ List<_WallBand> _mergeRunsToBands(
       match.crossMax = run.lineIndex;
       activeLastLine[match] = run.lineIndex;
     } else {
-      final band = _WallBand(
+      final band = WallBand(
         crossMin: run.lineIndex,
         crossMax: run.lineIndex,
         alongMin: run.start,
@@ -862,8 +868,8 @@ List<_WallBand> _mergeRunsToBands(
 Uint8List _buildWallOnlyMask(
   int w,
   int h,
-  List<_WallBand> horizontalBands,
-  List<_WallBand> verticalBands,
+  List<WallBand> horizontalBands,
+  List<WallBand> verticalBands,
 ) {
   final mask = Uint8List(w * h);
   void fillRect(int xMin, int xMax, int yMin, int yMax) {
@@ -888,7 +894,7 @@ Uint8List _buildWallOnlyMask(
   return mask;
 }
 
-double _confidenceFor(_WallBand band, double diagonal) {
+double _confidenceFor(WallBand band, double diagonal) {
   final length = (band.alongMax - band.alongMin).toDouble();
   final lengthRatio = diagonal > 0 ? length / diagonal : 0.0;
   final scaled = (lengthRatio * 6).clamp(0.0, 1.0);
@@ -899,9 +905,9 @@ double _confidenceFor(_WallBand band, double diagonal) {
 /// 추출한다. 확신이 낮으므로 항상 [FloorPlanObjectStatus.needsReview]로
 /// 둔다(WO 8번).
 List<OpeningCandidate> _detectOpenings({
-  required List<_WallBand> horizontalBands,
-  required List<_WallBand> verticalBands,
-  required Map<String, _WallBand> wallIds,
+  required List<WallBand> horizontalBands,
+  required List<WallBand> verticalBands,
+  required Map<String, WallBand> wallIds,
   required double thresholdDiagonal,
   required double normalizationDiagonal,
   required int idStart,
@@ -913,7 +919,7 @@ List<OpeningCandidate> _detectOpenings({
   final maxGapPx = (thresholdDiagonal * 0.18).round();
   final idealDoorPx = thresholdDiagonal * 0.08;
 
-  void scanGroup(List<MapEntry<String, _WallBand>> group, bool horizontal) {
+  void scanGroup(List<MapEntry<String, WallBand>> group, bool horizontal) {
     final sorted = [...group]
       ..sort((a, b) => a.value.alongMin.compareTo(b.value.alongMin));
     for (var i = 0; i < sorted.length - 1; i++) {
