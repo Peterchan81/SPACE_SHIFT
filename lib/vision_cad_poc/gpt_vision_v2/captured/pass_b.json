@@ -1,0 +1,53 @@
+{  
+  "spaceBoundaryLoops": [
+    {
+      "spaceId": "S01",
+      "segments": [
+        {"id": "SB001", "start": {"x": 30, "y": 150}, "end": {"x": 30, "y": 90}, "kind": "wall", "sharedWithSpaceId": "S10", "confidence": 0.9},
+        {"id": "SB002", "start": {"x": 30, "y": 90}, "end": {"x": 100, "y": 90}, "kind": "wall", "sharedWithSpaceId": "S02", "confidence": 0.9},
+        {"id": "SB003", "start": {"x": 100, "y": 90}, "end": {"x": 100, "y": 150}, "kind": "wall", "sharedWithSpaceId": "S04", "confidence": 0.9},
+        {"id": "SB004", "start": {"x": 100, "y": 150}, "end": {"x": 30, "y": 150}, "kind": "opening", "sharedWithSpaceId": null, "confidence": 0.9}
+      ],
+      "closed": true,
+      "confidence": 0.8,
+      "reviewReasons": []
+    },
+    {
+      "spaceId": "S02",
+      "segments": [
+        {"id": "SB005", "start": {"x": 100, "y": 90}, "end": {"x": 140, "y": 90}, "kind": "wall", "sharedWithSpaceId": "S11", "confidence": 0.9},
+        {"id": "SB006", "start": {"x": 140, "y": 90}, "end": {"x": 140, "y": 40}, "kind": "wall", "sharedWithSpaceId": "S03", "confidence": 0.9},
+        {"id": "SB007", "start": {"x": 140, "y": 40}, "end": {"x": 100, "y": 40}, "kind": "wall", "sharedWithSpaceId": null, "confidence": 0.9},
+        {"id": "SB008", "start": {"x": 100, "y": 40}, "end": {"x": 100, "y": 90}, "kind": "wall", "sharedWithSpaceId": "S01", "confidence": 0.9}
+      ],
+      "closed": true,
+      "confidence": 0.8,
+      "reviewReasons": []
+    },
+    {
+      "spaceId": "S03",
+      "segments": [
+        {"id": "SB009", "start": {"x": 140, "y": 40}, "end": {"x": 180, "y": 40}, "kind": "wall", "sharedWithSpaceId": null, "confidence": 0.9},
+        {"id": "SB010", "start": {"x": 180, "y": 40}, "end": {"x": 180, "y": 10}, "kind": "exterior", "sharedWithSpaceId": null, "confidence": 0.9},
+        {"id": "SB011", "start": {"x": 180, "y": 10}, "end": {"x": 140, "y": 10}, "kind": "exterior", "sharedWithSpaceId": null, "confidence": 0.9},
+        {"id": "SB012", "start": {"x": 140, "y": 10}, "end": {"x": 140, "y": 40}, "kind": "wall", "sharedWithSpaceId": "S02", "confidence": 0.9}
+      ],
+      "closed": true,
+      "confidence": 0.8,
+      "reviewReasons": []
+    }
+    ,  
+    {
+      "spaceId": "S04",
+      "segments": [
+        {"id": "SB013", "start": {"x": 100, "y": 150}, "end": {"x": 180, "y": 150}, "kind": "wall", "sharedWithSpaceId": "S05", "confidence": 0.9},
+        {"id": "SB014", "start": {"x": 180, "y": 150}, "end": {"x": 180, "y": 90}, "kind": "wall", "sharedWithSpaceId": "S06", "confidence": 0.9},
+        {"id": "SB015", "start": {"x": 180, "y": 90}, "end": {"x": 100, "y": 90}, "kind": "wall", "sharedWithSpaceId": "S01", "confidence": 0.9},
+        {"id": "SB016", "start": {"x": 100, "y": 90}, "end": {"x": 100, "y": 150}, "kind": "opening", "sharedWithSpaceId": null, "confidence": 0.9}
+      ],
+      "closed": true,
+      "confidence": 0.8,
+      "reviewReasons": []
+    }
+  ]
+}

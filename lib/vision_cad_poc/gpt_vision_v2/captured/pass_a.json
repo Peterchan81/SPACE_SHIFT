@@ -1,0 +1,32 @@
+{
+  "spaces": [
+    {"id": "S01", "label": "부부거실", "semanticType": "livingRoom", "confidence": 0.9, "isExterior": false},
+    {"id": "S02", "label": "드레스룸", "semanticType": "closet", "confidence": 0.8, "isExterior": false},
+    {"id": "S03", "label": "욕실2", "semanticType": "bathroom", "confidence": 0.9, "isExterior": false},
+    {"id": "S04", "label": "주방/식당", "semanticType": "kitchenDining", "confidence": 0.9, "isExterior": false},
+    {"id": "S05", "label": "발코니", "semanticType": "balcony", "confidence": 0.9, "isExterior": true},
+    {"id": "S06", "label": "펜트리", "semanticType": "pantry", "confidence": 0.8, "isExterior": false},
+    {"id": "S07", "label": "현관", "semanticType": "entranceHall", "confidence": 0.9, "isExterior": false},
+    {"id": "S08", "label": "욕실1", "semanticType": "bathroom", "confidence": 0.9, "isExterior": false},
+    {"id": "S09", "label": "실외기실", "semanticType": "utilityRoom", "confidence": 0.8, "isExterior": true},
+    {"id": "S10", "label": "안방", "semanticType": "masterBedroom", "confidence": 0.9, "isExterior": false},
+    {"id": "S11", "label": "거실", "semanticType": "livingRoom", "confidence": 0.9, "isExterior": false},
+    {"id": "S12", "label": "침실2", "semanticType": "bedroom", "confidence": 0.9, "isExterior": false},
+    {"id": "S13", "label": "침실1", "semanticType": "bedroom", "confidence": 0.9, "isExterior": false}
+  ],
+  "relationships": [
+    {"spaceIdA": "S01", "spaceIdB": "S02", "relation": "adjacent"},
+    {"spaceIdA": "S01", "spaceIdB": "S10", "relation": "adjacent"},
+    {"spaceIdA": "S01", "spaceIdB": "S06", "relation": "adjacent"},
+    {"spaceIdA": "S02", "spaceIdB": "S03", "relation": "adjacent"},
+    {"spaceIdA": "S04", "spaceIdB": "S05", "relation": "adjacent"},
+    {"spaceIdA": "S04", "spaceIdB": "S06", "relation": "adjacent"},
+    {"spaceIdA": "S06", "spaceIdB": "S07", "relation": "adjacent"},
+    {"spaceIdA": "S07", "spaceIdB": "S08", "relation": "adjacent"},
+    {"spaceIdA": "S10", "spaceIdB": "S11", "relation": "adjacent"},
+    {"spaceIdA": "S11", "spaceIdB": "S12", "relation": "adjacent"},
+    {"spaceIdA": "S12", "spaceIdB": "S13", "relation": "adjacent"}
+  ],
+  "majorExteriorNotes": "발코니와 실외기실은 건물 외부에 위치. 복도에 면한 다수의 창문.",
+  "reviewReasons": []
+}

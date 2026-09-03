@@ -1,0 +1,112 @@
+{
+  "spaceBoundaryLoops": [
+    {
+      "spaceId": "S05",
+      "segments": [
+        {"start": [323, 64], "end": [438, 64], "kind": "exterior"},
+        {"start": [438, 64], "end": [438, 123], "kind": "exterior"},
+        {"start": [438, 123], "end": [323, 123], "kind": "wall", "sharedWithSpaceId": "S06"},
+        {"start": [323, 123], "end": [323, 64], "kind": "exterior"}
+      ],
+      "closed": true,
+      "confidence": 1,
+      "reviewReasons": []
+    },
+    {
+      "spaceId": "S06",
+      "segments": [
+        {"start": [323, 123], "end": [373, 123], "kind": "wall", "sharedWithSpaceId": "S05"},
+        {"start": [373, 123], "end": [373, 172], "kind": "wall", "sharedWithSpaceId": "S07"},
+        {"start": [373, 172], "end": [323, 172], "kind": "wall"},
+        {"start": [323, 172], "end": [323, 123], "kind": "wall"}
+      ],
+      "closed": true,
+      "confidence": 1,
+      "reviewReasons": []
+    },
+    {
+      "spaceId": "S07",
+      "segments": [
+        {"start": [373, 123], "end": [443, 123], "kind": "wall", "sharedWithSpaceId": "S06"},
+        {"start": [443, 123], "end": [443, 172], "kind": "wall"},
+        {"start": [443, 172], "end": [373, 172], "kind": "wall"},
+        {"start": [373, 172], "end": [373, 123], "kind": "wall"}
+      ],
+      "closed": true,
+      "confidence": 1,
+      "reviewReasons": []
+    },
+    {
+      "spaceId": "S08",
+      "segments": [
+        {"start": [373, 223], "end": [445, 223], "kind": "wall"},
+        {"start": [445, 223], "end": [445, 290], "kind": "exterior"},
+        {"start": [445, 290], "end": [373, 290], "kind": "wall", "sharedWithSpaceId": "S13"},
+        {"start": [373, 290], "end": [373, 223], "kind": "wall"}
+      ],
+      "closed": true,
+      "confidence": 1,
+      "reviewReasons": []
+    },
+    {
+      "spaceId": "S09",
+      "segments": [
+        {"start": [25, 229], "end": [92, 229], "kind": "wall"},
+        {"start": [92, 229], "end": [92, 278], "kind": "wall"},
+        {"start": [92, 278], "end": [25, 278], "kind": "exterior"},
+        {"start": [25, 278], "end": [25, 229], "kind": "wall"}
+      ],
+      "closed": true,
+      "confidence": 1,
+      "reviewReasons": []
+    },
+    {
+      "spaceId": "S10",
+      "segments": [
+        {"start": [25, 123], "end": [178, 123], "kind": "wall"},
+        {"start": [178, 123], "end": [178, 229], "kind": "wall"},
+        {"start": [178, 229], "end": [25, 229], "kind": "wall", "sharedWithSpaceId": "S11"},
+        {"start": [25, 229], "end": [25, 123], "kind": "wall"}
+      ],
+      "closed": true,
+      "confidence": 1,
+      "reviewReasons": []
+    },
+    {
+      "spaceId": "S11",
+      "segments": [
+        {"start": [178, 123], "end": [278, 123], "kind": "wall"},
+        {"start": [278, 123], "end": [278, 229], "kind": "wall", "sharedWithSpaceId": "S12"},
+        {"start": [278, 229], "end": [178, 229], "kind": "wall", "sharedWithSpaceId": "S10"},
+        {"start": [178, 229], "end": [178, 123], "kind": "wall"}
+      ],
+      "closed": true,
+      "confidence": 1,
+      "reviewReasons": []
+    },
+    {
+      "spaceId": "S12",
+      "segments": [
+        {"start": [278, 123], "end": [369, 123], "kind": "wall", "sharedWithSpaceId": "S11"},
+        {"start": [369, 123], "end": [369, 229], "kind": "wall", "sharedWithSpaceId": "S13"},
+        {"start": [369, 229], "end": [278, 229], "kind": "wall"},
+        {"start": [278, 229], "end": [278, 123], "kind": "wall"}
+      ],
+      "closed": true,
+      "confidence": 1,
+      "reviewReasons": []
+    },
+    {
+      "spaceId": "S13",
+      "segments": [
+        {"start": [369, 123], "end": [443, 123], "kind": "wall"},
+        {"start": [443, 123], "end": [443, 223], "kind": "wall"},
+        {"start": [443, 223], "end": [369, 223], "kind": "wall", "sharedWithSpaceId": "S12"},
+        {"start": [369, 223], "end": [369, 123], "kind": "wall"}
+      ],
+      "closed": true,
+      "confidence": 1,
+      "reviewReasons": []
+    }
+  ]
+}
