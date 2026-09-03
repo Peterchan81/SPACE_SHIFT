@@ -62,8 +62,28 @@ FloorDomainResult buildFloorDomain({
   required int w,
   required int h,
 }) {
-  final exteriorSystems = wallSystems.where((s) => s.isExterior).toList();
-  if (exteriorSystems.isEmpty) {
+  double alongOf(PixelWallCandidate c, PixelWallOrientation o, bool isMin) {
+    final a = o == PixelWallOrientation.horizontal ? c.start.x * w : c.start.y * h;
+    final b = o == PixelWallOrientation.horizontal ? c.end.x * w : c.end.y * h;
+    return isMin ? math.min(a, b) : math.max(a, b);
+  }
+
+  // 실기 FAIL 재조사(PC1 CONTINUE §10 진단: "B. exterior classification
+  // 오류") — WallSystem.isExterior는 클러스터 내 다수결이라, 진짜 외벽
+  // 1개 + 진짜 내벽 1개가 같은 축 근처에 우연히 묶이면 동률(1:1)로
+  // 시스템 전체가 잘못 "외벽"이 돼 버렸다(실측: 두 gap 모두 이 패턴).
+  // 시스템 단위가 아니라 "그 시스템에 속한 개별 segment 중 실제로
+  // isExterior=true인 것"만 걸러 사용한다 — 다수결로 다른 segment의
+  // 개별 판정을 덮어쓰지 않는다.
+  final exteriorSegmentsBySystem = <(PixelWallOrientation orientation, double axisPx, List<PixelWallCandidate> segs)>[];
+  for (final system in wallSystems) {
+    final segs = system.segments.where((s) => s.isExterior).toList()
+      ..sort((a, b) => alongOf(a, system.orientation, true).compareTo(alongOf(b, system.orientation, true)));
+    if (segs.isNotEmpty) {
+      exteriorSegmentsBySystem.add((system.orientation, system.axisPx, segs));
+    }
+  }
+  if (exteriorSegmentsBySystem.isEmpty) {
     return const FloorDomainResult(
       loop: null,
       failureReason: '외벽으로 분류된 wall system이 없음',
@@ -72,44 +92,45 @@ FloorDomainResult buildFloorDomain({
     );
   }
 
-  double alongOf(PixelWallCandidate c, PixelWallOrientation o, bool isMin) {
-    final a = o == PixelWallOrientation.horizontal ? c.start.x * w : c.start.y * h;
-    final b = o == PixelWallOrientation.horizontal ? c.end.x * w : c.end.y * h;
-    return isMin ? math.min(a, b) : math.max(a, b);
-  }
-
   final runs = <_WallRun>[];
   final virtualBoundaries = <VirtualBoundary>[];
   final unresolvedGaps = <WallGap>[];
 
-  for (final system in exteriorSystems) {
-    var runStartAlong = alongOf(system.segments.first, system.orientation, true);
-    var runEndAlong = alongOf(system.segments.first, system.orientation, false);
+  for (final entry in exteriorSegmentsBySystem) {
+    final (orientation, axisPx, segs) = entry;
+    var runStartAlong = alongOf(segs.first, orientation, true);
+    var runEndAlong = alongOf(segs.first, orientation, false);
 
     void flushRun() {
-      runs.add(_WallRun(orientation: system.orientation, axisPx: system.axisPx, startAlongPx: runStartAlong, endAlongPx: runEndAlong));
+      runs.add(_WallRun(orientation: orientation, axisPx: axisPx, startAlongPx: runStartAlong, endAlongPx: runEndAlong));
     }
 
-    for (var i = 0; i < system.gaps.length; i++) {
-      final gap = system.gaps[i];
-      final nextSeg = system.segments[i + 1];
-      if (gap.kind == GapKind.imageBreak || gap.kind == GapKind.doorOpening) {
-        final bridgeStart = system.orientation == PixelWallOrientation.horizontal
-            ? Point2(alongOf(system.segments[i], system.orientation, false) / w, system.axisPx / h)
-            : Point2(system.axisPx / w, alongOf(system.segments[i], system.orientation, false) / h);
-        final bridgeEnd = system.orientation == PixelWallOrientation.horizontal
-            ? Point2(alongOf(nextSeg, system.orientation, true) / w, system.axisPx / h)
-            : Point2(system.axisPx / w, alongOf(nextSeg, system.orientation, true) / h);
-        virtualBoundaries.add(VirtualBoundary(start: bridgeStart, end: bridgeEnd, reason: gap.kind));
-        runEndAlong = alongOf(nextSeg, system.orientation, false);
+    for (var i = 0; i < segs.length - 1; i++) {
+      final cur = segs[i];
+      final next = segs[i + 1];
+      final gapPx = alongOf(next, orientation, true) - alongOf(cur, orientation, false);
+      if (gapPx <= 0) {
+        // 겹침(이미 병합됐어야 함) — 방어적으로 이어붙인다.
+        runEndAlong = alongOf(next, orientation, false);
+        continue;
+      }
+      final kind = classifyGap(gapPx, isExterior: true);
+      if (kind == GapKind.imageBreak || kind == GapKind.doorOpening) {
+        final bridgeStart = orientation == PixelWallOrientation.horizontal
+            ? Point2(alongOf(cur, orientation, false) / w, axisPx / h)
+            : Point2(axisPx / w, alongOf(cur, orientation, false) / h);
+        final bridgeEnd = orientation == PixelWallOrientation.horizontal
+            ? Point2(alongOf(next, orientation, true) / w, axisPx / h)
+            : Point2(axisPx / w, alongOf(next, orientation, true) / h);
+        virtualBoundaries.add(VirtualBoundary(start: bridgeStart, end: bridgeEnd, reason: kind));
+        runEndAlong = alongOf(next, orientation, false);
       } else {
-        // notConnected(외벽에서 문 범위를 넘는 gap) — 조용히 잇지 않고
-        // 여기서 run을 끊는다. openPlan은 외벽에서는 이론상 나오지 않지만
-        // 방어적으로 동일하게 처리.
         flushRun();
-        unresolvedGaps.add(gap);
-        runStartAlong = alongOf(nextSeg, system.orientation, true);
-        runEndAlong = alongOf(nextSeg, system.orientation, false);
+        final centerAlong = (alongOf(cur, orientation, false) + alongOf(next, orientation, true)) / 2;
+        final center = orientation == PixelWallOrientation.horizontal ? (x: centerAlong, y: axisPx) : (x: axisPx, y: centerAlong);
+        unresolvedGaps.add(WallGap(gapPx: gapPx, kind: kind, centerPx: center));
+        runStartAlong = alongOf(next, orientation, true);
+        runEndAlong = alongOf(next, orientation, false);
       }
     }
     flushRun();

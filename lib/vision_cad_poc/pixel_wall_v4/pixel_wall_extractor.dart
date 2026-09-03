@@ -238,6 +238,143 @@ List<WallSegment> _recoverWeakCollinearWalls({
   return recovered;
 }
 
+/// 병합 대상으로 검토할 최대 gap(px) — 실측된 실제(우연히 조각난) 벽
+/// 사례(최대 ~116px)를 안전하게 포함하되, 이 이상은 "검증 없이" 이어
+/// 붙이는 위험을 피하기 위해 상한을 둔다. 실제로 잇는지는 항상 아래
+/// dark-ratio 측정이 최종 결정한다 — 이 값은 "검토 후보"의 범위일 뿐,
+/// 이 거리 안이라고 자동으로 잇지 않는다.
+const double _continuityMaxGapPx = 140.0;
+const double _continuityAxisTolerancePx = 8.0;
+const double _continuityMinDarkRatio = 0.7;
+
+/// 실제 이미지에서 두 candidate 사이 gap 구간의 어두운 픽셀 비율을 직접
+/// 측정해, 충분히 어두우면(같은 벽이 미세한 명암 흔들림으로 조각났다는
+/// 뜻) 하나로 합친다 — "gap이 있다고 무조건 wall을 만든다"가 아니라
+/// 실제 dark-band continuity 증거가 있을 때만 잇는다(PC1 CONTINUE §5).
+List<WallSegment> _mergeByDarkBandContinuity({
+  required Uint8List imageBytes,
+  required List<WallSegment> segments,
+  required int w,
+  required int h,
+}) {
+  img.Image? decoded;
+  try {
+    decoded = img.decodeImage(imageBytes);
+  } catch (_) {
+    return segments;
+  }
+  if (decoded == null || decoded.width != w || decoded.height != h) return segments;
+
+  final luminance = Uint8List(w * h);
+  final histogram = List<int>.filled(256, 0);
+  for (var y = 0; y < h; y++) {
+    for (var x = 0; x < w; x++) {
+      final l = decoded.getPixel(x, y).luminance.round().clamp(0, 255);
+      luminance[y * w + x] = l;
+      histogram[l]++;
+    }
+  }
+  final threshold = otsuThreshold(histogram, w * h);
+  bool isDark(int x, int y) {
+    if (x < 0 || y < 0 || x >= w || y >= h) return false;
+    return luminance[y * w + x] <= threshold;
+  }
+
+  List<WallSegment> mergeGroup(List<WallSegment> group, PixelWallOrientation o) {
+    double crossOf(WallSegment s) => o == PixelWallOrientation.horizontal ? s.start.y * h : s.start.x * w;
+    double alongMinOf(WallSegment s) =>
+        o == PixelWallOrientation.horizontal ? math.min(s.start.x, s.end.x) * w : math.min(s.start.y, s.end.y) * h;
+    double alongMaxOf(WallSegment s) =>
+        o == PixelWallOrientation.horizontal ? math.max(s.start.x, s.end.x) * w : math.max(s.start.y, s.end.y) * h;
+    double thicknessPxOf(WallSegment s) => s.thicknessNormalized * (o == PixelWallOrientation.horizontal ? h : w);
+
+    final used = List<bool>.filled(group.length, false);
+    final result = <WallSegment>[];
+    for (var i = 0; i < group.length; i++) {
+      if (used[i]) continue;
+      used[i] = true;
+      var alongMin = alongMinOf(group[i]);
+      var alongMax = alongMaxOf(group[i]);
+      var crossSum = crossOf(group[i]);
+      var crossCount = 1;
+      var maxThicknessPx = thicknessPxOf(group[i]);
+      var maxConfidence = group[i].confidence;
+      var anyExterior = group[i].isExterior;
+
+      var changed = true;
+      while (changed) {
+        changed = false;
+        for (var j = 0; j < group.length; j++) {
+          if (used[j]) continue;
+          final other = group[j];
+          final crossCenter = crossSum / crossCount;
+          final otherCross = crossOf(other);
+          if ((crossCenter - otherCross).abs() > _continuityAxisTolerancePx) continue;
+
+          final otherMin = alongMinOf(other);
+          final otherMax = alongMaxOf(other);
+          final gap = math.max(alongMin, otherMin) - math.min(alongMax, otherMax);
+          if (gap <= 0 || gap > _continuityMaxGapPx) continue;
+
+          final sampleStart = math.min(alongMax, otherMax);
+          final sampleEnd = math.max(alongMin, otherMin);
+          final thickness = math.max(maxThicknessPx, thicknessPxOf(other));
+          final halfThickness = math.max(1.0, thickness / 2);
+          final steps = math.max(3, (sampleEnd - sampleStart).round());
+          var dark = 0;
+          var total = 0;
+          for (var s = 0; s <= steps; s++) {
+            final t = sampleStart + (sampleEnd - sampleStart) * s / steps;
+            for (final dOff in [-halfThickness, 0.0, halfThickness]) {
+              final px = o == PixelWallOrientation.horizontal ? t : crossCenter + dOff;
+              final py = o == PixelWallOrientation.horizontal ? crossCenter + dOff : t;
+              total++;
+              if (isDark(px.round(), py.round())) dark++;
+            }
+          }
+          if (total == 0 || dark / total < _continuityMinDarkRatio) continue;
+
+          alongMin = math.min(alongMin, otherMin);
+          alongMax = math.max(alongMax, otherMax);
+          crossSum += otherCross;
+          crossCount++;
+          maxThicknessPx = math.max(maxThicknessPx, thicknessPxOf(other));
+          maxConfidence = math.max(maxConfidence, other.confidence);
+          anyExterior = anyExterior || other.isExterior;
+          used[j] = true;
+          changed = true;
+        }
+      }
+
+      final finalCross = crossSum / crossCount;
+      result.add(
+        o == PixelWallOrientation.horizontal
+            ? WallSegment(
+                id: group[i].id,
+                start: Point2(alongMin / w, finalCross / h),
+                end: Point2(alongMax / w, finalCross / h),
+                thicknessNormalized: maxThicknessPx / h,
+                confidence: maxConfidence,
+                isExterior: anyExterior,
+              )
+            : WallSegment(
+                id: group[i].id,
+                start: Point2(finalCross / w, alongMin / h),
+                end: Point2(finalCross / w, alongMax / h),
+                thicknessNormalized: maxThicknessPx / w,
+                confidence: maxConfidence,
+                isExterior: anyExterior,
+              ),
+      );
+    }
+    return result;
+  }
+
+  final h2 = mergeGroup(segments.where((s) => (s.end.x - s.start.x).abs() * w >= (s.end.y - s.start.y).abs() * h).toList(), PixelWallOrientation.horizontal);
+  final v2 = mergeGroup(segments.where((s) => (s.end.x - s.start.x).abs() * w < (s.end.y - s.start.y).abs() * h).toList(), PixelWallOrientation.vertical);
+  return [...h2, ...v2];
+}
+
 PixelWallExtractionResult extractPixelWalls(Uint8List imageBytes) {
   final stage1 = detectWallsAndOpenings(WallStageInput(imageBytes));
   if (!stage1.isSuccess) {
@@ -364,7 +501,17 @@ PixelWallExtractionResult extractPixelWalls(Uint8List imageBytes) {
 
   final mergedHorizontal = mergeCollinear(horizontal, PixelWallOrientation.horizontal);
   final mergedVertical = mergeCollinear(vertical, PixelWallOrientation.vertical);
-  final merged = [...mergedHorizontal, ...mergedVertical];
+  final preContinuityMerged = [...mergedHorizontal, ...mergedVertical];
+
+  // 실기 FAIL 재조사(PC1 CONTINUE — LOCAL EXTERIOR GAP RECOVERY §5) —
+  // 일부 실제 벽은 run-length 병합 단계에서 미세한 명암 흔들림으로 여러
+  // 조각으로 쪼개진 채 남는다(실측: 눈으로는 완전히 이어진 검은 띠인데
+  // segment는 3개로 분리 + 가운데 조각만 다르게 분류돼 116px "가짜 gap"
+  // 발생). 이 조각들을 무조건 잇지 않고, 실제 이미지에서 그 사이 구간의
+  // 어두운 픽셀 비율(dark-band continuity)을 직접 측정해 충분히 어두울
+  // 때만 하나로 합친다 — "gap이 있으니 잇는다"가 아니라 "실제로 어두운
+  // 띠가 이어져 있으니 원래 하나의 벽이었다"는 근거 기반 병합이다.
+  final merged = _mergeByDarkBandContinuity(imageBytes: imageBytes, segments: preContinuityMerged, w: w, h: h);
 
   // --- 2단계: junction 지지 계산 — 이 벽의 두 끝점이 다른 벽의 band(along
   // 범위 + cross 위치) 안쪽에 닿는지 확인한다(T/L/십자 접합 포함, 단순
