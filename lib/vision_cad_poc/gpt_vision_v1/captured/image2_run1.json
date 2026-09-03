@@ -1,0 +1,59 @@
+{
+  "schemaVersion": "ss-cad-vision-v1",
+  "image": {
+    "widthPx": 443,
+    "heightPx": 300,
+    "coordinateSystem": "top-left-pixel",
+    "scaleStatus": "unknown"
+  },
+  "floorDomain": {
+    "orderedCornerIds": ["C1", "C2", "C3", "C4", "C5", "C6", "C7", "C8", "C9", "C10"],
+    "confidence": 0.8
+  },
+  "corners": [
+    {"id": "C1", "x": 20.0, "y": 20.0, "kind": "exteriorConvex", "confidence": 0.9},
+    {"id": "C2", "x": 423.0, "y": 20.0, "kind": "exteriorConvex", "confidence": 0.9},
+    {"id": "C3", "x": 423.0, "y": 60.0, "kind": "exteriorConcave", "confidence": 0.9},
+    {"id": "C4", "x": 380.0, "y": 60.0, "kind": "exteriorConvex", "confidence": 0.9},
+    {"id": "C5", "x": 380.0, "y": 120.0, "kind": "exteriorConvex", "confidence": 0.9},
+    {"id": "C6", "x": 443.0, "y": 120.0, "kind": "exteriorConcave", "confidence": 0.9},
+    {"id": "C7", "x": 443.0, "y": 300.0, "kind": "exteriorConvex", "confidence": 0.9},
+    {"id": "C8", "x": 0.0, "y": 300.0, "kind": "exteriorConvex", "confidence": 0.9},
+    {"id": "C9", "x": 0.0, "y": 250.0, "kind": "exteriorConcave", "confidence": 0.9},
+    {"id": "C10", "x": 20.0, "y": 250.0, "kind": "exteriorConvex", "confidence": 0.9}
+  ],
+  "walls": [
+    {"id": "W1", "type": "exterior", "cornerIds": ["C1", "C2"], "confidence": 0.9},
+    {"id": "W2", "type": "exterior", "cornerIds": ["C2", "C3"], "confidence": 0.9},
+    {"id": "W3", "type": "exterior", "cornerIds": ["C3", "C4"], "confidence": 0.9},
+    {"id": "W4", "type": "exterior", "cornerIds": ["C4", "C5"], "confidence": 0.9},
+    {"id": "W5", "type": "interior", "cornerIds": ["C5", "C6"], "confidence": 0.9},
+    {"id": "W6", "type": "exterior", "cornerIds": ["C6", "C7"], "confidence": 0.9},
+    {"id": "W7", "type": "exterior", "cornerIds": ["C7", "C8"], "confidence": 0.9},
+    {"id": "W8", "type": "exterior", "cornerIds": ["C8", "C9"], "confidence": 0.9},
+    {"id": "W9", "type": "interior", "cornerIds": ["C9", "C10"], "confidence": 0.9},
+    {"id": "W10", "type": "exterior", "cornerIds": ["C10", "C1"], "confidence": 0.9}
+  ],
+  "spaces": [
+    {"id": "S1", "label": "부부거실", "semanticType": "livingRoom", "boundaryWallIds": ["W1", "W2", "W3"], "confidence": 0.8},
+    {"id": "S2", "label": "드레스룸", "semanticType": "dressingRoom", "boundaryWallIds": ["W3", "W4"], "confidence": 0.8},
+    {"id": "S3", "label": "욕실2", "semanticType": "bathroom", "boundaryWallIds": ["W4", "W5"], "confidence": 0.8},
+    {"id": "S4", "label": "주방/식당", "semanticType": "kitchenDining", "boundaryWallIds": ["W5", "W6"], "confidence": 0.8},
+    {"id": "S5", "label": "발코니", "semanticType": "balcony", "boundaryWallIds": ["W6", "W7"], "confidence": 0.8},
+    {"id": "S6", "label": "펜트리", "semanticType": "pantry", "boundaryWallIds": ["W7", "W8"], "confidence": 0.8},
+    {"id": "S7", "label": "현관", "semanticType": "entry", "boundaryWallIds": ["W8", "W9"], "confidence": 0.8},
+    {"id": "S8", "label": "욕실1", "semanticType": "bathroom", "boundaryWallIds": ["W9", "W10"], "confidence": 0.8},
+    {"id": "S9", "label": "실외기실", "semanticType": "outdoorUnitRoom", "boundaryWallIds": ["W10", "W1"], "confidence": 0.8},
+    {"id": "S10", "label": "안방", "semanticType": "masterRoom", "boundaryWallIds": ["W1", "W3"], "confidence": 0.8},
+    {"id": "S11", "label": "거실", "semanticType": "livingRoom", "boundaryWallIds": ["W1", "W7"], "confidence": 0.8},
+    {"id": "S12", "label": "침실2", "semanticType": "bedRoom", "boundaryWallIds": ["W5", "W8"], "confidence": 0.8},
+    {"id": "S13", "label": "침실1", "semanticType": "bedRoom", "boundaryWallIds": ["W6", "W10"], "confidence": 0.8}
+  ],
+  "doors": [],
+  "windows": [],
+  "openings": [],
+  "objects": [],
+  "relationships": [],
+  "dimensionHints": [],
+  "reviewReasons": []
+}

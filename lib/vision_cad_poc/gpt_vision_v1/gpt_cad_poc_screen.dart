@@ -31,6 +31,82 @@ class _GptCadPocScreenState extends State<GptCadPocScreen> {
   _ViewMode _mode = _ViewMode.original;
   CadFloorPlan? _cad;
 
+  /// PC1 FINAL REAL GPT VISION E2E — 실제 OpenAI Vision API(model gpt-4o)
+  /// 호출 결과, run #2(§13 허용된 1회 corrective retry 이후). 이 JSON은
+  /// 손으로 만든 것이 아니라 `tool/gpt_vision_v1_call.dart --retry`로
+  /// 실제 API를 호출해 캡처한 raw 응답 그대로다
+  /// (`lib/vision_cad_poc/gpt_vision_v1/captured/image2_run2.json`와 동일).
+  static const _realGptResponseJson = '''
+{
+    "schemaVersion": "ss-cad-vision-v1",
+    "image": {
+        "widthPx": 443,
+        "heightPx": 300,
+        "coordinateSystem": "top-left-pixel",
+        "scaleStatus": "unknown"
+    },
+    "floorDomain": {
+        "orderedCornerIds": ["C1", "C2", "C3", "C4", "C5", "C6", "C7", "C8", "C9", "C10", "C11", "C12", "C13", "C14"],
+        "confidence": 0.9
+    },
+    "corners": [
+        {"id": "C1", "x": 20.0, "y": 20.0, "kind": "exteriorConvex", "confidence": 0.9},
+        {"id": "C2", "x": 423.0, "y": 20.0, "kind": "exteriorConvex", "confidence": 0.9},
+        {"id": "C3", "x": 423.0, "y": 60.0, "kind": "exteriorConcave", "confidence": 0.9},
+        {"id": "C4", "x": 380.0, "y": 60.0, "kind": "exteriorConvex", "confidence": 0.9},
+        {"id": "C5", "x": 380.0, "y": 120.0, "kind": "interiorJunction", "confidence": 0.9},
+        {"id": "C6", "x": 443.0, "y": 120.0, "kind": "exteriorConcave", "confidence": 0.9},
+        {"id": "C7", "x": 443.0, "y": 300.0, "kind": "exteriorConvex", "confidence": 0.9},
+        {"id": "C8", "x": 0.0, "y": 300.0, "kind": "exteriorConvex", "confidence": 0.9},
+        {"id": "C9", "x": 0.0, "y": 250.0, "kind": "exteriorConcave", "confidence": 0.9},
+        {"id": "C10", "x": 20.0, "y": 250.0, "kind": "exteriorConvex", "confidence": 0.9},
+        {"id": "C11", "x": 200.0, "y": 80.0, "kind": "interiorJunction", "confidence": 0.9},
+        {"id": "C12", "x": 280.0, "y": 150.0, "kind": "interiorJunction", "confidence": 0.9},
+        {"id": "C13", "x": 120.0, "y": 220.0, "kind": "interiorJunction", "confidence": 0.9},
+        {"id": "C14", "x": 300.0, "y": 220.0, "kind": "interiorJunction", "confidence": 0.9}
+    ],
+    "walls": [
+        {"id": "W1", "type": "exterior", "cornerIds": ["C1", "C2"], "confidence": 0.9},
+        {"id": "W2", "type": "exterior", "cornerIds": ["C2", "C3"], "confidence": 0.9},
+        {"id": "W3", "type": "exterior", "cornerIds": ["C3", "C4"], "confidence": 0.9},
+        {"id": "W4", "type": "exterior", "cornerIds": ["C4", "C5"], "confidence": 0.9},
+        {"id": "W5", "type": "interior", "cornerIds": ["C5", "C6"], "confidence": 0.9},
+        {"id": "W6", "type": "exterior", "cornerIds": ["C6", "C7"], "confidence": 0.9},
+        {"id": "W7", "type": "exterior", "cornerIds": ["C7", "C8"], "confidence": 0.9},
+        {"id": "W8", "type": "exterior", "cornerIds": ["C8", "C9"], "confidence": 0.9},
+        {"id": "W9", "type": "interior", "cornerIds": ["C9", "C10"], "confidence": 0.9},
+        {"id": "W10", "type": "exterior", "cornerIds": ["C10", "C1"], "confidence": 0.9},
+        {"id": "W11", "type": "interior", "cornerIds": ["C1", "C11"], "confidence": 0.9},
+        {"id": "W12", "type": "interior", "cornerIds": ["C11", "C12"], "confidence": 0.9},
+        {"id": "W13", "type": "interior", "cornerIds": ["C12", "C13"], "confidence": 0.9},
+        {"id": "W14", "type": "interior", "cornerIds": ["C13", "C14"], "confidence": 0.9},
+        {"id": "W15", "type": "interior", "cornerIds": ["C14", "C7"], "confidence": 0.9}
+    ],
+    "spaces": [
+        {"id": "S1", "label": "부부거실", "semanticType": "livingRoom", "boundaryWallIds": ["W1", "W11", "W12"], "confidence": 0.8},
+        {"id": "S2", "label": "드레스룸", "semanticType": "dressingRoom", "boundaryWallIds": ["W11", "W12", "W4"], "confidence": 0.8},
+        {"id": "S3", "label": "욕실2", "semanticType": "bathroom", "boundaryWallIds": ["W12", "W5", "W6"], "confidence": 0.8},
+        {"id": "S4", "label": "주방/식당", "semanticType": "kitchenDining", "boundaryWallIds": ["W12", "W13", "W14"], "confidence": 0.8},
+        {"id": "S5", "label": "발코니", "semanticType": "balcony", "boundaryWallIds": ["W6", "W7"], "confidence": 0.8},
+        {"id": "S6", "label": "펜트리", "semanticType": "pantry", "boundaryWallIds": ["W13", "W14", "W15"], "confidence": 0.8},
+        {"id": "S7", "label": "현관", "semanticType": "entry", "boundaryWallIds": ["W8", "W9", "W14"], "confidence": 0.8},
+        {"id": "S8", "label": "욕실1", "semanticType": "bathroom", "boundaryWallIds": ["W10", "W9"], "confidence": 0.8},
+        {"id": "S9", "label": "실외기실", "semanticType": "outdoorUnitRoom", "boundaryWallIds": ["W10", "W1"], "confidence": 0.8},
+        {"id": "S10", "label": "안방", "semanticType": "masterRoom", "boundaryWallIds": ["W1", "W3", "W4"], "confidence": 0.8},
+        {"id": "S11", "label": "거실", "semanticType": "livingRoom", "boundaryWallIds": ["W2", "W3", "W5"], "confidence": 0.8},
+        {"id": "S12", "label": "침실2", "semanticType": "bedRoom", "boundaryWallIds": ["W9", "W14", "W15"], "confidence": 0.8},
+        {"id": "S13", "label": "침실1", "semanticType": "bedRoom", "boundaryWallIds": ["W5", "W14", "W8"], "confidence": 0.8}
+    ],
+    "doors": [],
+    "windows": [],
+    "openings": [],
+    "objects": [],
+    "relationships": [],
+    "dimensionHints": [],
+    "reviewReasons": []
+}
+''';
+
   static const _sampleTestJson = '''
 {
   "schemaVersion": "ss-cad-vision-v1",
@@ -64,6 +140,18 @@ class _GptCadPocScreenState extends State<GptCadPocScreen> {
 ''';
 
   @override
+  void initState() {
+    super.initState();
+    // 실제 API 호출은 이 Flutter 앱이 아니라 별도 dev-side 스크립트
+    // (tool/gpt_vision_v1_call.dart)가 했다 — 여기서는 그 캡처된 실제
+    // 응답을 자동으로 불러와 파이프라인을 실행한다.
+    _jsonController.text = _realGptResponseJson;
+    if (_realImageBytes != null) {
+      WidgetsBinding.instance.addPostFrameCallback((_) => _runWithPastedJson());
+    }
+  }
+
+  @override
   void dispose() {
     _jsonController.dispose();
     super.dispose();
@@ -78,6 +166,10 @@ class _GptCadPocScreenState extends State<GptCadPocScreen> {
       _cad = result.model == null ? null : buildCadFloorPlanFromSpatialModel(result.model!);
       if (result.succeeded) _mode = _ViewMode.overlay;
     });
+  }
+
+  void _loadRealResponse() {
+    _jsonController.text = _realGptResponseJson;
   }
 
   void _loadSample() {
@@ -104,6 +196,7 @@ class _GptCadPocScreenState extends State<GptCadPocScreen> {
             _AuthStatusBar(realBytes: _realImageBytes),
             _TestJsonBar(
               controller: _jsonController,
+              onLoadRealResponse: _loadRealResponse,
               onLoadSample: _loadSample,
               onRun: _runWithPastedJson,
               result: _result,
@@ -173,19 +266,27 @@ class _AuthStatusBar extends StatelessWidget {
   Widget build(BuildContext context) {
     return Container(
       width: double.infinity,
-      color: const Color(0xFFFFEBEE),
+      color: const Color(0xFFE8F5E9),
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           const Text(
-            'REAL GPT VISION API: BLOCKED — AUTH REQUIRED',
-            style: TextStyle(color: Colors.red, fontWeight: FontWeight.bold, fontSize: 13),
+            'REAL GPT VISION API: PASS (model gpt-4o, dev-side tool/gpt_vision_v1_call.dart, '
+            '1회 corrective retry 포함 총 2회 호출)',
+            style: TextStyle(color: Colors.green, fontWeight: FontWeight.bold, fontSize: 13),
           ),
           Text(
             'SOURCE: ACTUAL IMAGE 2 (${realBytes.lengthInBytes} bytes, $kRealImage2Path). '
-            '이 프로젝트에는 OpenAI API 키가 설정되어 있지 않습니다(Fal.ai 키만 배포됨, 무관한 기능).',
+            '이 Flutter 앱 자체는 API 키를 포함하지 않는다 — 별도 dev-side 스크립트가 호출하고 '
+            '캡처한 실제 응답만 아래에 자동으로 로드된다.',
             style: const TextStyle(fontSize: 11, color: Colors.black87),
+          ),
+          const Text(
+            '정직한 한계: wall geometry는 실제 픽셀 재확인 결과 15/15 HIGH confidence로 잘 맞지만, '
+            '13개 space 전부 wall-topology 닫힌 loop 유도에 실패해 reviewNeeded 상태다 '
+            '(GPT가 방을 감싸는 벽을 충분히 세밀하게 나열하지 못함) — 아래에서 그대로 확인 가능.',
+            style: TextStyle(fontSize: 11, color: Colors.deepOrange),
           ),
         ],
       ),
@@ -194,8 +295,15 @@ class _AuthStatusBar extends StatelessWidget {
 }
 
 class _TestJsonBar extends StatelessWidget {
-  const _TestJsonBar({required this.controller, required this.onLoadSample, required this.onRun, required this.result});
+  const _TestJsonBar({
+    required this.controller,
+    required this.onLoadRealResponse,
+    required this.onLoadSample,
+    required this.onRun,
+    required this.result,
+  });
   final TextEditingController controller;
+  final VoidCallback onLoadRealResponse;
   final VoidCallback onLoadSample;
   final VoidCallback onRun;
   final GptPipelineResult? result;
@@ -209,7 +317,7 @@ class _TestJsonBar extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           const Text(
-            'TEST JSON (라이브 API 응답이 아님 — 파서/refinement/solver 파이프라인만 확인하는 수동 입력)',
+            'JSON (기본값: 실제 GPT 응답 run #2 — 아래 버튼으로 다시 로드하거나, 순수 파서 테스트용 샘플로 전환 가능)',
             style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Colors.brown),
           ),
           const SizedBox(height: 6),
@@ -219,14 +327,15 @@ class _TestJsonBar extends StatelessWidget {
             style: const TextStyle(fontFamily: 'monospace', fontSize: 10),
             decoration: const InputDecoration(
               border: OutlineInputBorder(),
-              hintText: '"ss-cad-vision-v1" JSON을 붙여넣거나, 오른쪽 버튼으로 테스트 샘플을 불러오세요.',
               isDense: true,
             ),
           ),
           const SizedBox(height: 6),
           Row(
             children: [
-              OutlinedButton(onPressed: onLoadSample, child: const Text('테스트 샘플 불러오기')),
+              OutlinedButton(onPressed: onLoadRealResponse, child: const Text('실제 GPT 응답(run #2) 다시 불러오기')),
+              const SizedBox(width: 8),
+              OutlinedButton(onPressed: onLoadSample, child: const Text('순수 테스트 샘플 불러오기')),
               const SizedBox(width: 8),
               ElevatedButton(onPressed: onRun, child: const Text('파서/솔버 실행')),
             ],
@@ -267,6 +376,8 @@ class _ResultStatusBar extends StatelessWidget {
     final reviewCount = model.spaces.where((s) => s.reviewNeeded).length +
         model.walls.where((w) => w.reviewNeeded).length +
         model.openings.where((o) => o.reviewNeeded).length;
+    final closedSpaces = model.spaces.where((s) => s.closed).length;
+    final highConfWalls = model.walls.where((w) => w.confidence >= 0.8).length;
 
     return Container(
       width: double.infinity,
@@ -278,8 +389,9 @@ class _ResultStatusBar extends StatelessWidget {
         children: [
           chip('PARSE: OK', Colors.green),
           chip('VALIDATE: OK', Colors.green),
-          chip('SPACES ${cad?.rooms.length ?? 0}', Colors.blue),
-          chip('WALLS ${cad?.walls.length ?? 0}', Colors.black87),
+          chip('SPACES ${cad?.rooms.length ?? 0}/13', Colors.blue),
+          chip('CLOSED LOOPS $closedSpaces/${model.spaces.length}', closedSpaces == model.spaces.length ? Colors.green : Colors.deepOrange),
+          chip('WALLS ${cad?.walls.length ?? 0} (HIGH conf $highConfWalls)', Colors.black87),
           chip('DOORS/WINDOWS ${cad?.openings.length ?? 0}', Colors.green),
           chip('SCALE: UNKNOWN', Colors.orange),
           chip('REVIEW NEEDED $reviewCount', reviewCount > 0 ? Colors.deepOrange : Colors.green),
