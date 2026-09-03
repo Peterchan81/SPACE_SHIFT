@@ -9,6 +9,7 @@ import '../e2e_v2/real_image2_source.dart';
 import 'gpt_semantic_schema.dart';
 import 'pixel_wall_pipeline.dart';
 import 'pixel_wall_types.dart';
+import 'semantic_zone_mapper.dart';
 
 const _semanticCapturePath = 'lib/vision_cad_poc/pixel_wall_v4/captured/semantic_v4.json';
 
@@ -115,10 +116,13 @@ class _StatusBar extends StatelessWidget {
           chip('MEDIUM ${e.mediumCount}', Colors.orange),
           chip('LOW ${e.lowCount}', Colors.red),
           chip('REJECTED ${e.rejected.length}', Colors.grey),
-          chip('SPACES ${result.model.spaces.length}', Colors.black87),
-          chip('MATCHED ${result.matchedSpaceCount}', Colors.green),
-          chip('UNKNOWN REGION ${result.unmatchedRoomCount}', result.unmatchedRoomCount > 0 ? Colors.deepOrange : Colors.green),
+          chip('PHYSICAL ROOMS ${result.physicalRooms.length}', Colors.black87),
+          chip('PHYSICAL ROOM 매칭 ${result.matchedPhysicalRoomCount}', Colors.green),
+          chip('SEMANTIC ZONES ${result.semanticZoneCount}', Colors.indigo),
+          chip('GPT 미매칭 ${result.unmatchedGptSpaceCount}', result.unmatchedGptSpaceCount > 0 ? Colors.deepOrange : Colors.green),
+          chip('UNKNOWN PHYSICAL ROOM ${result.unmatchedPhysicalRoomCount}', result.unmatchedPhysicalRoomCount > 0 ? Colors.deepOrange : Colors.green),
           chip('FLOOR DOMAIN ${result.floorDomainClosed ? "VALID" : "INVALID"}', result.floorDomainClosed ? Colors.green : Colors.red),
+          if (!result.floorDomainClosed) chip('미해결 gap ${result.floorDomain.unresolvedGaps.length}', Colors.red),
           chip('TOPOLOGY ERRORS ${result.model.warnings.length}', result.model.warnings.isEmpty ? Colors.green : Colors.deepOrange),
           chip('REVIEW NEEDED $reviewCount', reviewCount > 0 ? Colors.deepOrange : Colors.green),
           if (!result.floorDomainClosed)
@@ -184,7 +188,15 @@ class _PixelWallsPainter extends CustomPainter {
       );
     }
     for (final c in result.extraction.candidates) {
-      final color = c.category == PixelWallCategory.reviewNeeded ? Colors.purple : _tierColor(c.confidenceTier);
+      final color = switch (c.noiseCategory) {
+        PixelWallNoiseCategory.text => Colors.blueGrey,
+        PixelWallNoiseCategory.furniture => Colors.brown,
+        PixelWallNoiseCategory.fixture => Colors.teal,
+        PixelWallNoiseCategory.doorArc => Colors.pink,
+        PixelWallNoiseCategory.windowDetail => Colors.cyan,
+        PixelWallNoiseCategory.unknown => Colors.purple,
+        PixelWallNoiseCategory.trueStructural => _tierColor(c.confidenceTier),
+      };
       canvas.drawLine(
         Offset(c.start.x * size.width, c.start.y * size.height),
         Offset(c.end.x * size.width, c.end.y * size.height),
@@ -223,6 +235,49 @@ class _CanonicalCadPane extends StatelessWidget {
   }
 }
 
+/// [space]의 label을 중심점(폴리곤이 있으면 centroid, 없으면 GPT
+/// approxRegion 중심 — semanticZone인데 geometry 근거조차 없는 경우)에
+/// 그린다. semanticZone은 실제 벽처럼 실선을 그리지 않는다(§11/§12) —
+/// 아주 약한 점선 참고 사각형만(폴리곤이 있을 때) 선택적으로 보여준다.
+void _paintSpaceLabel(Canvas canvas, Size size, SpaceSemantic space) {
+  if (space.polygon.isEmpty) return;
+  var cx = 0.0, cy = 0.0;
+  for (final p in space.polygon) {
+    cx += p.x;
+    cy += p.y;
+  }
+  cx /= space.polygon.length;
+  cy /= space.polygon.length;
+
+  if (space.kind == SpaceSemanticKind.semanticZone) {
+    final path = Path()..addPolygon([for (final p in space.polygon) Offset(p.x * size.width, p.y * size.height)], true);
+    canvas.drawPath(
+      path,
+      Paint()
+        ..color = Colors.indigo.withValues(alpha: 0.25)
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 1,
+    );
+  }
+
+  final textPainter = TextPainter(
+    text: TextSpan(
+      text: space.kind == SpaceSemanticKind.semanticZone ? '${space.label} (zone)' : space.label,
+      style: TextStyle(
+        color: space.kind == SpaceSemanticKind.semanticZone ? Colors.indigo : (space.reviewNeeded ? Colors.deepOrange : Colors.black87),
+        fontSize: 10,
+        fontWeight: FontWeight.w600,
+      ),
+    ),
+    textDirection: TextDirection.ltr,
+  )..layout();
+  textPainter.paint(canvas, Offset(cx * size.width - textPainter.width / 2, cy * size.height - textPainter.height / 2));
+}
+
+/// §3/§11 — 확실히 벽이 아니라고 분류된(text/furniture/fixture/doorArc/
+/// windowDetail) candidate는 이미 pixel_wall_pipeline.dart가
+/// result.model.walls에서 제외했다. 이 painter는 그 "깨끗한" 목록만
+/// 그린다 — CANONICAL CAD에 노이즈가 다시 섞이지 않는다.
 class _CanonicalCadPainter extends CustomPainter {
   _CanonicalCadPainter({required this.result});
   final PixelWallPipelineResult result;
@@ -242,23 +297,13 @@ class _CanonicalCadPainter extends CustomPainter {
       final path = Path()..addPolygon([for (final p in result.model.floorDomain!) Offset(p.x * size.width, p.y * size.height)], true);
       canvas.drawPath(path, Paint()..color = Colors.blue..style = PaintingStyle.stroke..strokeWidth = 1.5);
     }
-    for (final space in result.model.spaces) {
-      if (space.polygon.isEmpty) continue;
-      var cx = 0.0, cy = 0.0;
-      for (final p in space.polygon) {
-        cx += p.x;
-        cy += p.y;
-      }
-      cx /= space.polygon.length;
-      cy /= space.polygon.length;
-      final textPainter = TextPainter(
-        text: TextSpan(
-          text: space.label ?? space.id,
-          style: TextStyle(color: space.reviewNeeded ? Colors.deepOrange : Colors.black87, fontSize: 10, fontWeight: FontWeight.w600),
-        ),
-        textDirection: TextDirection.ltr,
-      )..layout();
-      textPainter.paint(canvas, Offset(cx * size.width - textPainter.width / 2, cy * size.height - textPainter.height / 2));
+    for (final space in result.spaceSemantics) {
+      _paintSpaceLabel(canvas, size, space);
+    }
+    for (final room in result.physicalRooms) {
+      if (room.claimedBySpaceIds.isNotEmpty) continue;
+      final path = Path()..addPolygon([for (final p in room.polygon) Offset(p.x * size.width, p.y * size.height)], true);
+      canvas.drawPath(path, Paint()..color = Colors.grey..style = PaintingStyle.stroke..strokeWidth = 1);
     }
   }
 
@@ -285,6 +330,8 @@ class _CanonicalOverlayPainter extends CustomPainter {
       final path = Path()..addPolygon([for (final p in result.model.floorDomain!) Offset(p.x * size.width, p.y * size.height)], true);
       canvas.drawPath(path, Paint()..color = Colors.blueAccent..style = PaintingStyle.stroke..strokeWidth = 1.5);
     }
+    // §12 — SemanticZone은 기본 Overlay에 fake CAD line으로 그리지 않는다.
+    // 실제 physical wall/FloorDomain만 원본 위에 표시한다(label 없음).
   }
 
   @override

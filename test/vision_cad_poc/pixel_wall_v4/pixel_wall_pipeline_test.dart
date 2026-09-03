@@ -62,7 +62,10 @@ void main() {
 
     expect(result.extraction.isSuccess, isTrue);
     expect(result.model.spaces, hasLength(2));
-    expect(result.matchedSpaceCount, 2);
+    // 두 방이 완전한 벽으로 분리돼 있으므로(gap 없음) 1:1 PhysicalRoom
+    // 매칭이어야 한다 — SemanticZone(열린 공유 공간)이 아니다.
+    expect(result.matchedPhysicalRoomCount, 2);
+    expect(result.semanticZoneCount, 0);
     expect(result.unmatchedGptSpaceCount, 0);
     for (final space in result.model.spaces) {
       expect(space.polygon, isNotEmpty, reason: '${space.id}는 실제 pixel 방과 매칭돼야 한다');

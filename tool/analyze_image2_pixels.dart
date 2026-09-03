@@ -3,7 +3,6 @@
 // package:image만 사용(Flutter 의존 없음)해서 순수 dart run으로 실행.
 
 import 'dart:io';
-import 'dart:math' as math;
 
 import 'package:image/image.dart' as img;
 

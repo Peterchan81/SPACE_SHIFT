@@ -15,6 +15,7 @@ import 'package:image/image.dart' as img;
 import '../../models/floor_plan_geometry.dart';
 import '../../services/floor_plan_analysis_engine.dart';
 import 'pixel_wall_types.dart';
+import 'wall_system.dart';
 
 class PixelWallExtractionResult {
   const PixelWallExtractionResult.failure(this.failureReason)
@@ -79,6 +80,26 @@ class PixelWallExtractionResult {
       candidates.where((c) => c.confidenceTier == PixelWallConfidenceTier.medium).length;
   int get lowCount =>
       candidates.where((c) => c.confidenceTier == PixelWallConfidenceTier.low).length;
+
+  /// noise 재분류(pixel_wall_classifier.dart) 이후의 candidate 목록으로
+  /// 교체한 사본을 만든다 — 다른 필드는 그대로 유지.
+  PixelWallExtractionResult copyWithCandidates(List<PixelWallCandidate> newCandidates) {
+    if (!isSuccess) return this;
+    return PixelWallExtractionResult.success(
+      sourceWidthPx: sourceWidthPx,
+      sourceHeightPx: sourceHeightPx,
+      analysisWidthPx: analysisWidthPx,
+      analysisHeightPx: analysisHeightPx,
+      mask: mask,
+      candidates: newCandidates,
+      rejected: rejected,
+      openings: openings,
+      rooms: rooms,
+      rotationDegrees: rotationDegrees,
+      rawWallSegmentCount: rawWallSegmentCount,
+      weakRecoveredCount: weakRecoveredCount,
+    );
+  }
 }
 
 /// 병합 후보로 볼 두 콜리니어 band 사이 최대 gap(px) — 실제 문/창 gap
@@ -90,6 +111,10 @@ const double _mergeGapMultiplier = 1.6;
 /// 두께(6~7px)에 맞춘 값. 너무 크면 서로 다른 벽을 하나로 잘못 묶고,
 /// 너무 작으면 진짜 T/L 접합도 junction으로 못 잡는다.
 const double _junctionTolerancePx = 9.0;
+
+/// 실측된 실제 벽 두께(6~18px)에 안전 마진을 더한 상한 — 이보다 두꺼운
+/// "병합 벽"은 서로 다른 두 벽이 잘못 합쳐진 것으로 보고 병합을 거부한다.
+const double _maxWallGroupThicknessPx = 20.0;
 
 /// 1차 run-length(minRunLen ≈ diagonal*0.02)가 놓치는 얇거나(anti-alias로
 /// 1~2px씩 끊긴) 실내 partition을 복구하는 2차 pass. 실측(§3 조사)에서
@@ -262,62 +287,77 @@ PixelWallExtractionResult extractPixelWalls(Uint8List imageBytes) {
   final vertical = allWalls.where((s) => orientationOf(s) == PixelWallOrientation.vertical).toList()
     ..sort((a, b) => a.start.y.compareTo(b.start.y));
 
+  // 실측 실제 벽 두께(6~18px)를 넘는 그룹은 서로 다른 두 벽이 잘못
+  // 합쳐진 것으로 본다 — 이전 구현은 병합할 때마다 crossCenter를
+  // 이동평균으로 갱신해 "현재" 값끼리만 비교했기 때문에, A(y=45)+B(y=50)
+  // →중간값 47.5 상태에서 C(y=54)까지 서서히 끌려 들어가는 creep 버그가
+  // 있었다(실측: 두께 38.3px짜리 가짜 "벽" 발생 — 서로 다른 두 줄의 벽이
+  // 하나로 뭉개짐). 고정된 anchor(그룹의 첫 segment) 기준 cross 범위로만
+  // 비교하고, 그 범위가 [_maxWallGroupThicknessPx]를 넘으면 병합을 거부한다.
   List<WallSegment> mergeCollinear(List<WallSegment> segs, PixelWallOrientation o) {
     final used = List<bool>.filled(segs.length, false);
     final result = <WallSegment>[];
     for (var i = 0; i < segs.length; i++) {
       if (used[i]) continue;
-      var current = segs[i];
       used[i] = true;
-      var mergedCount = 1;
+      var alongMin = o == PixelWallOrientation.horizontal ? segs[i].start.x * w : segs[i].start.y * h;
+      var alongMax = o == PixelWallOrientation.horizontal ? segs[i].end.x * w : segs[i].end.y * h;
+      var crossMin = crossCenterPxOf(segs[i], o);
+      var crossMax = crossMin;
+      var maxThicknessPx = thicknessPxOf(segs[i], o);
+      var maxConfidence = segs[i].confidence;
+      var anyExterior = segs[i].isExterior;
+
       var changed = true;
       while (changed) {
         changed = false;
         for (var j = 0; j < segs.length; j++) {
           if (used[j]) continue;
           final other = segs[j];
-          final crossA = crossCenterPxOf(current, o);
           final crossB = crossCenterPxOf(other, o);
-          final thick = math.max(thicknessPxOf(current, o), thicknessPxOf(other, o));
-          if ((crossA - crossB).abs() > thick * 0.75) continue;
+          final newCrossMin = math.min(crossMin, crossB);
+          final newCrossMax = math.max(crossMax, crossB);
+          if (newCrossMax - newCrossMin > _maxWallGroupThicknessPx) continue;
 
-          final aMin = o == PixelWallOrientation.horizontal ? current.start.x * w : current.start.y * h;
-          final aMax = o == PixelWallOrientation.horizontal ? current.end.x * w : current.end.y * h;
           final bMin = o == PixelWallOrientation.horizontal ? other.start.x * w : other.start.y * h;
           final bMax = o == PixelWallOrientation.horizontal ? other.end.x * w : other.end.y * h;
-          final gap = math.max(aMin, bMin) - math.min(aMax, bMax);
+          final thick = math.max(maxThicknessPx, thicknessPxOf(other, o));
+          final gap = math.max(alongMin, bMin) - math.min(alongMax, bMax);
           final maxGap = math.max(4.0, thick * _mergeGapMultiplier);
           if (gap > maxGap) continue;
-          if (aMax >= bMin && bMax >= aMin) {
-            // 이미 겹침 — band merge 단계에서 잡혔어야 하지만 방어적으로 통과.
-          }
 
-          final newAlongMin = math.min(aMin, bMin);
-          final newAlongMax = math.max(aMax, bMax);
-          final newCross = (crossA * mergedCount + crossB) / (mergedCount + 1);
-          current = o == PixelWallOrientation.horizontal
-              ? WallSegment(
-                  id: current.id,
-                  start: Point2(newAlongMin / w, newCross / h),
-                  end: Point2(newAlongMax / w, newCross / h),
-                  thicknessNormalized: math.max(current.thicknessNormalized, other.thicknessNormalized),
-                  confidence: math.max(current.confidence, other.confidence),
-                  isExterior: current.isExterior || other.isExterior,
-                )
-              : WallSegment(
-                  id: current.id,
-                  start: Point2(newCross / w, newAlongMin / h),
-                  end: Point2(newCross / w, newAlongMax / h),
-                  thicknessNormalized: math.max(current.thicknessNormalized, other.thicknessNormalized),
-                  confidence: math.max(current.confidence, other.confidence),
-                  isExterior: current.isExterior || other.isExterior,
-                );
+          alongMin = math.min(alongMin, bMin);
+          alongMax = math.max(alongMax, bMax);
+          crossMin = newCrossMin;
+          crossMax = newCrossMax;
+          maxThicknessPx = math.max(maxThicknessPx, thicknessPxOf(other, o));
+          maxConfidence = math.max(maxConfidence, other.confidence);
+          anyExterior = anyExterior || other.isExterior;
           used[j] = true;
-          mergedCount++;
           changed = true;
         }
       }
-      result.add(current);
+
+      final finalCross = (crossMin + crossMax) / 2;
+      result.add(
+        o == PixelWallOrientation.horizontal
+            ? WallSegment(
+                id: segs[i].id,
+                start: Point2(alongMin / w, finalCross / h),
+                end: Point2(alongMax / w, finalCross / h),
+                thicknessNormalized: maxThicknessPx / h,
+                confidence: maxConfidence,
+                isExterior: anyExterior,
+              )
+            : WallSegment(
+                id: segs[i].id,
+                start: Point2(finalCross / w, alongMin / h),
+                end: Point2(finalCross / w, alongMax / h),
+                thicknessNormalized: maxThicknessPx / w,
+                confidence: maxConfidence,
+                isExterior: anyExterior,
+              ),
+      );
     }
     return result;
   }
@@ -451,40 +491,60 @@ PixelWallExtractionResult extractPixelWalls(Uint8List imageBytes) {
     }
   }
 
-  for (final opening in stage1.openings) {
-    final hostId = opening.wallId;
-    if (hostId == null) continue;
-    WallSegment? host;
-    for (final s in allWalls) {
-      if (s.id == hostId) {
-        host = s;
-        break;
+  // 실기 FAIL 재조사(PC1 CONTINUE — WALL CONSOLIDATION §4) — stage1의
+  // OpeningCandidate(같은 orientation 그룹 내에서만 짝 짓는 원래 엔진의
+  // 좁은 판정)만으로는 안 잡히는 gap이 실제로 많았다(실측: 하단 외벽이
+  // 문 5칸으로 쪼개졌는데도 opening 후보는 1개뿐). wall system 기반 gap
+  // 분류(door/imageBreak만 bridge, openPlan/notConnected은 그대로 둠)로
+  // 대체 — 더 포괄적이면서도 진짜 넓은 gap은 여전히 잇지 않는다.
+  final bridgeSystems = buildWallSystems(candidates: candidates, w: w, h: h);
+  for (final system in bridgeSystems) {
+    for (var i = 0; i < system.gaps.length; i++) {
+      final gap = system.gaps[i];
+      if (gap.kind != GapKind.doorOpening && gap.kind != GapKind.imageBreak) continue;
+      final a = system.segments[i];
+      final b = system.segments[i + 1];
+      double candidateThicknessPx(PixelWallCandidate c) =>
+          c.thicknessNormalized * (system.orientation == PixelWallOrientation.horizontal ? h : w);
+      final thicknessPx = math.max(candidateThicknessPx(a), candidateThicknessPx(b));
+      if (system.orientation == PixelWallOrientation.horizontal) {
+        final xMin = math.min(a.start.x, a.end.x) * w;
+        final xMax = math.max(b.start.x, b.end.x) * w;
+        fillRoomMaskRect(xMin.round(), xMax.round(), (system.axisPx - thicknessPx / 2).round(), (system.axisPx + thicknessPx / 2).round());
+      } else {
+        final yMin = math.min(a.start.y, a.end.y) * h;
+        final yMax = math.max(b.start.y, b.end.y) * h;
+        fillRoomMaskRect((system.axisPx - thicknessPx / 2).round(), (system.axisPx + thicknessPx / 2).round(), yMin.round(), yMax.round());
       }
     }
-    if (host == null) continue;
-    final orientation = orientationOf(host);
-    final diagonal = math.sqrt(w * w + h * h);
-    final halfSpanPx = opening.widthNormalized * diagonal / 2;
-    final centerXPx = opening.center.x * w;
-    final centerYPx = opening.center.y * h;
-    final thicknessPx = thicknessPxOf(host, orientation);
-
-    if (orientation == PixelWallOrientation.horizontal) {
-      fillRoomMaskRect(
-        (centerXPx - halfSpanPx).round(),
-        (centerXPx + halfSpanPx).round(),
-        (centerYPx - thicknessPx / 2).round(),
-        (centerYPx + thicknessPx / 2).round(),
-      );
-    } else {
-      fillRoomMaskRect(
-        (centerXPx - thicknessPx / 2).round(),
-        (centerXPx + thicknessPx / 2).round(),
-        (centerYPx - halfSpanPx).round(),
-        (centerYPx + halfSpanPx).round(),
-      );
-    }
   }
+
+  // 실기 FAIL 재조사(PC1 CONTINUE §3 exterior wall classification 개선) —
+  // 기존 엔진의 "전체 bounding box 가장자리에 가까우면 외벽"이라는 판정은
+  // 직사각형 건물에서만 통한다. 이 도면은 실제로 계단형(step) 외곽을
+  // 가져(우측 상단 발코니/현관 쪽이 안쪽으로 들어가 있음) 그 판정이 틀린
+  // 사례가 실측으로 확인됐다. 대신 "이 벽의 양옆 중 한쪽이 실제로
+  // 건물 바깥(이미지 경계에서부터 이어지는 빈 영역)과 맞닿아 있는가"를
+  // border flood-fill로 직접 판정한다 — 벽 모양이 어떻든 항상 성립하는
+  // 유일하게 안전한 기준이다.
+  // 위 flood-fill은 실제 건물 외곽에 남은 (아직 못 찾은) 진짜 벽 구멍을
+  // 통해 "바깥"이 건물 내부 깊숙이 새어 들어올 수 있다(실측: 거실 안쪽
+  // 파티션 벽까지 "외벽"으로 잘못 재분류됨). 이 오탐을 막기 위해, 벽
+  // 자신의 축 좌표가 이미지 가장자리 근처(margin 이내)일 때만
+  // flood-fill 근거를 신뢰한다 — 계단형 외곽(발코니/욕실1 돌출 등)은
+  // 항상 가장자리 부근에 있으므로 이 조건을 만족하고, 안쪽 깊숙한
+  // 파티션은 새어 들어온 "바깥"과 우연히 닿아도 걸러진다. 기존
+  // bounding-box 기준(직사각형 부분에서는 이미 정확했음)은 OR 조건으로
+  // 계속 인정한다.
+  const edgeMarginRatio = 0.30;
+  final outsideMask = _computeOutsideMask(roomMask, w, h);
+  final reclassified = <PixelWallCandidate>[
+    for (final c in candidates)
+      c.withExterior(
+        c.isExterior ||
+            (_touchesOutside(c, outsideMask, w, h) && _nearOwnAxisEdge(c, edgeMarginRatio)),
+      ),
+  ];
 
   final rooms = detectRooms(RoomStageInput(mask: roomMask, width: w, height: h)).rooms;
 
@@ -494,7 +554,7 @@ PixelWallExtractionResult extractPixelWalls(Uint8List imageBytes) {
     analysisWidthPx: w,
     analysisHeightPx: h,
     mask: roomMask,
-    candidates: candidates,
+    candidates: reclassified,
     rejected: rejected,
     openings: stage1.openings,
     rooms: rooms,
@@ -502,4 +562,75 @@ PixelWallExtractionResult extractPixelWalls(Uint8List imageBytes) {
     rawWallSegmentCount: stage1.walls.length,
     weakRecoveredCount: weakRecovered.length,
   );
+}
+
+/// roomMask(1=벽/door-bridge, 0=빈 공간)에서 이미지 경계와 연결된 0-영역을
+/// BFS로 찾는다 — 이 영역이 "건물 바깥"이다(내부 방은 벽으로 막혀 있어
+/// 경계까지 이어지지 않는다).
+Uint8List _computeOutsideMask(Uint8List roomMask, int w, int h) {
+  final outside = Uint8List(w * h);
+  final queue = <int>[];
+  void tryEnqueue(int x, int y) {
+    if (x < 0 || y < 0 || x >= w || y >= h) return;
+    final idx = y * w + x;
+    if (roomMask[idx] == 1 || outside[idx] == 1) return;
+    outside[idx] = 1;
+    queue.add(idx);
+  }
+
+  for (var x = 0; x < w; x++) {
+    tryEnqueue(x, 0);
+    tryEnqueue(x, h - 1);
+  }
+  for (var y = 0; y < h; y++) {
+    tryEnqueue(0, y);
+    tryEnqueue(w - 1, y);
+  }
+
+  var head = 0;
+  while (head < queue.length) {
+    final idx = queue[head++];
+    final x = idx % w;
+    final y = idx ~/ w;
+    tryEnqueue(x - 1, y);
+    tryEnqueue(x + 1, y);
+    tryEnqueue(x, y - 1);
+    tryEnqueue(x, y + 1);
+  }
+  return outside;
+}
+
+/// [c]의 중심선을 따라 몇 지점을 샘플링해, 벽 두께만큼 양옆으로
+/// 벗어난 위치 중 하나라도 "건물 바깥"이면 외벽으로 본다.
+bool _touchesOutside(PixelWallCandidate c, Uint8List outside, int w, int h) {
+  const samples = 3;
+  final thicknessPx = c.thicknessNormalized * (c.orientation == PixelWallOrientation.horizontal ? h : w);
+  final offset = thicknessPx / 2 + 3;
+
+  bool isOutside(double x, double y) {
+    final xi = x.round();
+    final yi = y.round();
+    if (xi < 0 || yi < 0 || xi >= w || yi >= h) return true; // 이미지 밖도 바깥으로 간주.
+    return outside[yi * w + xi] == 1;
+  }
+
+  for (var i = 0; i <= samples; i++) {
+    final t = i / samples;
+    final px = (c.start.x + (c.end.x - c.start.x) * t) * w;
+    final py = (c.start.y + (c.end.y - c.start.y) * t) * h;
+    if (c.orientation == PixelWallOrientation.horizontal) {
+      if (isOutside(px, py - offset) || isOutside(px, py + offset)) return true;
+    } else {
+      if (isOutside(px - offset, py) || isOutside(px + offset, py)) return true;
+    }
+  }
+  return false;
+}
+
+/// 벽 자신의 축 좌표(수평 벽=y, 수직 벽=x, 정규화 0~1)가 이미지
+/// 가장자리로부터 [marginRatio] 이내인지 — 계단형 외곽 판정에만 쓰는
+/// 보수적 안전장치(위 함수 문서 참고).
+bool _nearOwnAxisEdge(PixelWallCandidate c, double marginRatio) {
+  final axisNorm = c.orientation == PixelWallOrientation.horizontal ? c.start.y : c.start.x;
+  return axisNorm <= marginRatio || axisNorm >= (1 - marginRatio);
 }

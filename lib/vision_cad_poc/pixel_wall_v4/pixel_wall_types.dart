@@ -19,6 +19,22 @@ enum PixelWallCategory { structural, reviewNeeded }
 
 enum PixelWallConfidenceTier { high, medium, low }
 
+/// 실기 FAIL 재조사(PC1 CONTINUE — FLOOR DOMAIN FIRST) — [category]가
+/// reviewNeeded인 candidate를 "왜 구조 벽이 아닌 것 같은지" 하나 더
+/// 세분화한다. 단순 length cutoff가 아니라 두께+길이+continuity+
+/// junction+GPT 의미 ROI(가구/애매 영역/opening 힌트)를 결합해 판단한다
+/// (pixel_wall_classifier.dart). structural candidate는 이 값이 항상
+/// [trueStructural]이다 — reviewNeeded만 더 세분화 대상.
+enum PixelWallNoiseCategory {
+  trueStructural,
+  text,
+  furniture,
+  fixture,
+  doorArc,
+  windowDetail,
+  unknown,
+}
+
 /// run-length 검출로 얻은 [WallSegment] 한 개에 continuity/junction
 /// 근거를 더해 만든 최종 픽셀 벽 후보. [source]로 원본 WallSegment id를
 /// 계속 추적할 수 있다(merge로 여러 개가 하나로 합쳐졌으면 첫 id).
@@ -36,6 +52,7 @@ class PixelWallCandidate {
     required this.category,
     required this.sourceSegmentIds,
     this.mergedFromCount = 1,
+    this.noiseCategory = PixelWallNoiseCategory.trueStructural,
   });
 
   final String id;
@@ -57,6 +74,39 @@ class PixelWallCandidate {
   final PixelWallCategory category;
   final List<String> sourceSegmentIds;
   final int mergedFromCount;
+  final PixelWallNoiseCategory noiseCategory;
+
+  PixelWallCandidate withNoiseCategory(PixelWallNoiseCategory value) => PixelWallCandidate(
+    id: id,
+    start: start,
+    end: end,
+    thicknessNormalized: thicknessNormalized,
+    orientation: orientation,
+    isExterior: isExterior,
+    baseConfidence: baseConfidence,
+    junctionSupport: junctionSupport,
+    confidenceTier: confidenceTier,
+    category: category,
+    sourceSegmentIds: sourceSegmentIds,
+    mergedFromCount: mergedFromCount,
+    noiseCategory: value,
+  );
+
+  PixelWallCandidate withExterior(bool value) => PixelWallCandidate(
+    id: id,
+    start: start,
+    end: end,
+    thicknessNormalized: thicknessNormalized,
+    orientation: orientation,
+    isExterior: value,
+    baseConfidence: baseConfidence,
+    junctionSupport: junctionSupport,
+    confidenceTier: confidenceTier,
+    category: category,
+    sourceSegmentIds: sourceSegmentIds,
+    mergedFromCount: mergedFromCount,
+    noiseCategory: noiseCategory,
+  );
 
   double get lengthNormalized {
     final dx = end.x - start.x;

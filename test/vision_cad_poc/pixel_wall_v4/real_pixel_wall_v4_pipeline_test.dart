@@ -1,7 +1,10 @@
-// SPACE SHIFT — Vision-Guided Full Pixel Wall Extraction POC.
-// 실제 이미지 2 + 실제로 캡처된 GPT semantic 응답(1회 호출, base call)으로
-// 전체 파이프라인(추출 → 라벨 매칭 → FloorDomain → TopologyValidator)을
-// 있는 그대로 실행해 정직한 수치를 기록한다.
+// SPACE SHIFT — PC1 CONTINUE: FLOOR DOMAIN FIRST + PHYSICAL ROOM / SEMANTIC
+// ZONE SPLIT.
+// 실제 이미지 2 + 실제로 캡처된 GPT semantic 응답(base call 1회)으로
+// 전체 파이프라인(추출 → false-positive cleanup → wall consolidation →
+// FloorDomain → PhysicalRoom/SemanticZone 매칭 → TopologyValidator)을
+// 있는 그대로 실행해 정직한 수치를 기록한다. "13/13 닫힌 물리 공간"을
+// 목표로 하지 않는다 — 열린 구조는 SemanticZone으로 남는 것이 정상이다.
 
 import 'dart:convert';
 import 'dart:io';
@@ -11,6 +14,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:ason_space/vision_cad_poc/e2e_v2/real_image2_source.dart';
 import 'package:ason_space/vision_cad_poc/pixel_wall_v4/gpt_semantic_schema.dart';
 import 'package:ason_space/vision_cad_poc/pixel_wall_v4/pixel_wall_pipeline.dart';
+import 'package:ason_space/vision_cad_poc/pixel_wall_v4/semantic_zone_mapper.dart';
 
 const _capturePath = 'lib/vision_cad_poc/pixel_wall_v4/captured/semantic_v4.json';
 
@@ -27,31 +31,37 @@ void main() {
 
     final result = runPixelWallPipeline(imageBytes: bytes, semantic: semantic);
 
-    final reviewSpaces = result.model.spaces.where((s) => s.reviewNeeded).toList();
-    final reviewWalls = result.model.walls.where((w) => w.reviewNeeded).toList();
-
     // ignore: avoid_print
     print('''
-=== 실제 이미지 2 — PIXEL WALL PIPELINE (semantic 1회 호출 반영) ===
+=== 실제 이미지 2 — FLOOR DOMAIN FIRST + PHYSICAL ROOM / SEMANTIC ZONE ===
 Pixel wall candidates: ${result.extraction.candidates.length} (구조=${result.extraction.structuralCount}, 검토필요=${result.extraction.reviewNeededCount})
   HIGH=${result.extraction.highCount} MEDIUM=${result.extraction.mediumCount} LOW=${result.extraction.lowCount}
-RoomCandidate(flood-fill): ${result.extraction.rooms.length}
-Spaces: ${result.model.spaces.length}/13, matched=${result.matchedSpaceCount}, GPT공간 미매칭=${result.unmatchedGptSpaceCount}, UNKNOWN REGION=${result.unmatchedRoomCount}
+  외벽 분류: ${result.extraction.candidates.where((c) => c.isExterior).length}
+Noise 분류: text=${result.extraction.candidates.where((c) => c.noiseCategory.name == 'text').length} '
+  furniture=${result.extraction.candidates.where((c) => c.noiseCategory.name == 'furniture').length} '
+  fixture=${result.extraction.candidates.where((c) => c.noiseCategory.name == 'fixture').length} '
+  doorArc=${result.extraction.candidates.where((c) => c.noiseCategory.name == 'doorArc').length} '
+  windowDetail=${result.extraction.candidates.where((c) => c.noiseCategory.name == 'windowDetail').length} '
+  unknown=${result.extraction.candidates.where((c) => c.noiseCategory.name == 'unknown').length}
+최종 CANONICAL 벽 개수(노이즈 제외): ${result.model.walls.length}
+PhysicalRoom(flood-fill): ${result.physicalRooms.length}
 FloorDomain: ${result.floorDomainClosed ? "VALID" : "INVALID(${result.floorDomainFailureReason})"}
+  virtualBoundaries=${result.floorDomain.virtualBoundaries.length} unresolvedGaps=${result.floorDomain.unresolvedGaps.length}
 TopologyValidator 경고: ${result.model.warnings.length}
-Review needed spaces: ${reviewSpaces.map((s) => '${s.id}(${s.label})').join(', ')}
-Review needed walls: ${reviewWalls.length}
+Semantic 13개 매핑: physicalRoom=${result.matchedPhysicalRoomCount}, semanticZone=${result.semanticZoneCount}, 미매칭=${result.unmatchedGptSpaceCount}
+UNKNOWN PHYSICAL ROOM(라벨 없는 pixel room): ${result.unmatchedPhysicalRoomCount}
 ''');
-    for (final s in result.model.spaces) {
+    for (final s in result.spaceSemantics) {
       // ignore: avoid_print
-      print('  ${s.id} label=${s.label} closed=${s.closed} area=${s.areaNormalized.toStringAsFixed(3)} reviewNeeded=${s.reviewNeeded}');
+      print('  ${s.id} label=${s.label} kind=${s.kind.name} reviewNeeded=${s.reviewNeeded} physicalRoomId=${s.physicalRoomId}');
     }
 
     expect(result.extraction.isSuccess, isTrue);
-    // GPT가 준 13개 라벨 공간 + pixel만으로 검출됐지만 라벨과 매칭되지
-    // 않은 UNKNOWN REGION까지 합친 개수라 13보다 클 수 있다 — 여기서는
-    // "적어도 13개 라벨 공간은 전부 보존됐는가"만 안전성 차원에서 확인한다.
-    final labeledSpaces = result.model.spaces.where((s) => s.label != null).toList();
-    expect(labeledSpaces, hasLength(13));
+    // "13/13 닫힌 물리 공간"은 더 이상 목표가 아니다 — 13개 GPT 라벨이
+    // 전부 physicalRoom 또는 semanticZone 중 하나로 "보존"됐는지만 확인.
+    expect(result.spaceSemantics, hasLength(13));
+    for (final s in result.spaceSemantics) {
+      expect(s.kind == SpaceSemanticKind.physicalRoom || s.kind == SpaceSemanticKind.semanticZone, isTrue);
+    }
   });
 }
