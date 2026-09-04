@@ -769,8 +769,31 @@ PixelWallExtractionResult extractPixelWalls(Uint8List imageBytes) {
   // 맞닿으면 외벽, 둘 다 아니면 내벽, 둘 다 강하면(있을 수 없는 상태)
   // suspicious로 사람 확인을 요구한다(자동 확정하지 않음).
   final outsideMask = _computeOutsideMask(roomMask, w, h);
-  final reclassified = <PixelWallCandidate>[
+  final faceClassified = [
     for (final c in candidates) _classifyByFaceContact(c, outsideMask, w, h),
+  ];
+
+  // PC1 CONTINUE — LOCAL STRUCTURAL GAP RECOVERY 조사 중 실측 확인: 실외
+  // exterior로 분류된 candidate 중 정확히 LOW confidence tier이면서
+  // junction 지지가 0인(다른 어떤 벽과도 실제로 안 맞닿은) 것이 하나
+  // 있었는데, 원본을 직접 확대해보니 실제로는 화살표/포인터 기호(끝이
+  // 뾰족한 안내선)였다 — 진짜 벽이 아니다. 이 조합(LOW tier + junction
+  // 0)은 이 도면의 다른 모든 진짜 exterior candidate에서는 나타나지
+  // 않는 유일한 신호였다(전부 최소 MEDIUM 이상이거나 junction≥1) —
+  // 특정 좌표가 아니라 이 조합 자체를 판정 기준으로 쓴다(image-wide
+  // 일반 규칙).
+  final reclassified = <PixelWallCandidate>[
+    for (final c in faceClassified)
+      if (c.isExterior && c.confidenceTier == PixelWallConfidenceTier.low && c.junctionSupport == 0)
+        c.withFaceContact(
+          isExterior: false,
+          outsideContactA: c.outsideContactA,
+          outsideContactB: c.outsideContactB,
+          exteriorSuspicious: c.exteriorSuspicious,
+          category: PixelWallCategory.reviewNeeded,
+        )
+      else
+        c,
   ];
 
   final rooms = detectRooms(RoomStageInput(mask: roomMask, width: w, height: h)).rooms;
