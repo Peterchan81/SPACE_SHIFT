@@ -73,7 +73,7 @@ void main() {
   });
 
   group('dark-band continuity 병합', () {
-    Uint8List _wallWithBreak({required int breakStartY, required int breakEndY, required int wallX}) {
+    Uint8List wallWithBreak({required int breakStartY, required int breakEndY, required int wallX}) {
       final image = img.Image(width: w, height: h);
       img.fill(image, color: img.ColorRgb8(255, 255, 255));
       for (var y = 10; y < 200; y++) {
@@ -86,14 +86,14 @@ void main() {
     }
 
     test('실제로 어두운 띠가 거의 안 끊긴 경우(짧은 진짜 gap)는 이어붙인다', () {
-      final bytes = _wallWithBreak(breakStartY: 100, breakEndY: 100, wallX: 150); // 사실상 끊김 없음.
+      final bytes = wallWithBreak(breakStartY: 100, breakEndY: 100, wallX: 150); // 사실상 끊김 없음.
       final result = extractPixelWalls(bytes);
       final verticalNearWall = result.candidates.where((c) => c.orientation == PixelWallOrientation.vertical && (c.start.x * result.analysisWidthPx - 150).abs() < 10);
       expect(verticalNearWall, isNotEmpty);
     });
 
     test('실제로 크게 밝은 gap(진짜 벽이 없는 구간)은 이어붙이지 않는다', () {
-      final bytes = _wallWithBreak(breakStartY: 80, breakEndY: 160, wallX: 150); // 80px 순수 배경 gap.
+      final bytes = wallWithBreak(breakStartY: 80, breakEndY: 160, wallX: 150); // 80px 순수 배경 gap.
       final result = extractPixelWalls(bytes);
       final verticalSegs = result.candidates.where((c) => c.orientation == PixelWallOrientation.vertical && (c.start.x * result.analysisWidthPx - 150).abs() < 10).toList();
       // 두 조각이 하나로(오탐) 합쳐지지 않고 여전히 분리돼 있어야 한다 —

@@ -375,6 +375,83 @@ List<WallSegment> _mergeByDarkBandContinuity({
   return [...h2, ...v2];
 }
 
+/// 실측(§3 root cause) — run-length 기반 두께 측정은 "몇 줄이 연속으로
+/// 어두운가"만 보고, 그 바깥이 밝은지는 전혀 확인하지 않는다. 얇은 벽은
+/// 자기 두께를 벗어나면 바로 밝은 바닥이지만, 채워진 가구/설비 아이콘은
+/// 그 바깥도 계속 어둡다 — 이 차이를 실제 픽셀로 직접 확인해 "벽처럼
+/// 두껍고 길고 junction도 있지만 실제로는 채워진 도형"을 구조 벽에서
+/// 제외한다. 특정 좌표를 하드코딩하지 않고 이미지 전체에 동일하게
+/// 적용되는 일반 규칙이다.
+class _SolidFillChecker {
+  _SolidFillChecker({required Uint8List imageBytes, required this.w, required this.h}) {
+    try {
+      _decoded = img.decodeImage(imageBytes);
+    } catch (_) {
+      _decoded = null;
+    }
+    if (_decoded != null && (_decoded!.width != w || _decoded!.height != h)) {
+      _decoded = null;
+    }
+    if (_decoded != null) {
+      final histogram = List<int>.filled(256, 0);
+      for (var y = 0; y < h; y++) {
+        for (var x = 0; x < w; x++) {
+          histogram[_decoded!.getPixel(x, y).luminance.round().clamp(0, 255)]++;
+        }
+      }
+      _threshold = otsuThreshold(histogram, w * h);
+    }
+  }
+
+  final int w;
+  final int h;
+  img.Image? _decoded;
+  int _threshold = 128;
+
+  bool _isDark(int x, int y) {
+    if (_decoded == null || x < 0 || y < 0 || x >= w || y >= h) return false;
+    return _decoded!.getPixel(x, y).luminance.round() <= _threshold;
+  }
+
+  /// 실측된 이 이미지의 실제 벽 두께(6~9px 다수, 최대 18px)에 안전
+  /// 마진을 더한 값 — 이보다 더 바깥까지 어두우면 "얇은 벽"이 아니다.
+  static const double _marginPx = 6.0;
+
+  bool looksLikeSolidFill(WallSegment seg, PixelWallOrientation orientation) {
+    if (_decoded == null) return false;
+    final thicknessPx = seg.thicknessNormalized * (orientation == PixelWallOrientation.horizontal ? h : w);
+    final probeOffset = thicknessPx / 2 + _marginPx;
+
+    // 끝점(t=0/1) 근처는 실제 T/L 접합에서 다른 벽이 붙어 있는 게
+    // 정상이라 항상 바깥쪽도 어둡다 — 이는 "채워진 도형"의 증거가 아니다
+    // (실측: 끝점 포함 5점 샘플로 시도했더니 실제 벽 다수가 오탐돼
+    // 진짜 방 회귀가 발생했다). 접합부에서 먼 중간 구간(25%~75%)만
+    // 샘플링해 진짜 "벽 옆이 계속 어두운가"만 본다.
+    const sampleFractions = [0.35, 0.45, 0.55, 0.65];
+    var darkOutside = 0;
+    var total = 0;
+    for (final t in sampleFractions) {
+      final px = seg.start.x + (seg.end.x - seg.start.x) * t;
+      final py = seg.start.y + (seg.end.y - seg.start.y) * t;
+      final centerX = px * w;
+      final centerY = py * h;
+      if (orientation == PixelWallOrientation.horizontal) {
+        total += 2;
+        if (_isDark(centerX.round(), (centerY - probeOffset).round())) darkOutside++;
+        if (_isDark(centerX.round(), (centerY + probeOffset).round())) darkOutside++;
+      } else {
+        total += 2;
+        if (_isDark((centerX - probeOffset).round(), centerY.round())) darkOutside++;
+        if (_isDark((centerX + probeOffset).round(), centerY.round())) darkOutside++;
+      }
+    }
+    // 중간 구간 바깥쪽이 "거의 항상"(전부) 어두워야만 채워진 도형으로
+    // 본다 — 절반만 넘으면 여전히 정상 벽(주변에 다른 구조가 있는 경우)을
+    // 오탐할 수 있다.
+    return total > 0 && darkOutside == total;
+  }
+}
+
 PixelWallExtractionResult extractPixelWalls(Uint8List imageBytes) {
   final stage1 = detectWallsAndOpenings(WallStageInput(imageBytes));
   if (!stage1.isSuccess) {
@@ -551,6 +628,16 @@ PixelWallExtractionResult extractPixelWalls(Uint8List imageBytes) {
     return touches;
   }
 
+  // 실기 FAIL 재조사(PC1 CONTINUE — 116px false structural root cause) —
+  // 실측: "구조 벽" 통과 조건(길이+junction)이 두께 일관성을 전혀 보지
+  // 않아, 실외기실의 설비 아이콘(가구/fixture, 실제 폭 12~15px — 이
+  // 도면의 실제 벽 6~9px보다 뚜렷이 넓은 "채워진 사각형")이 구조 벽으로
+  // 오분류됐다. 얇은 벽은 자기 두께를 벗어나면 바로 밝은 바닥이지만,
+  // 채워진 아이콘은 그 바깥도 계속 어둡다 — 이 차이를 pixel로 직접
+  // 확인한다(길이/좌표 하드코딩이 아니라 이미지 전체에 적용되는 일반
+  // 규칙).
+  final solidFillCheck = _SolidFillChecker(imageBytes: imageBytes, w: w, h: h);
+
   final candidates = <PixelWallCandidate>[];
   var idCounter = 0;
   for (final seg in merged) {
@@ -571,9 +658,14 @@ PixelWallExtractionResult extractPixelWalls(Uint8List imageBytes) {
     // 짧고(노이즈 run-length 분포상 short 버킷 상한 15px 이하) junction
     // 지지가 전혀 없는 조각은 "구조 벽 확정"이 아니라 검토 대상으로 —
     // 삭제하지 않고 남긴다(§6/§14 — 조용히 삭제 금지).
-    final category = (lengthPx < 15 && junction == 0)
-        ? PixelWallCategory.reviewNeeded
-        : PixelWallCategory.structural;
+    var category = (lengthPx < 15 && junction == 0) ? PixelWallCategory.reviewNeeded : PixelWallCategory.structural;
+
+    // 벽처럼 보이지만 실제로는 자기 두께 바깥까지 계속 어두운(채워진
+    // 도형) candidate는 구조 벽 확정에서 내려 검토 대상으로 돌린다 —
+    // 삭제하지 않고 noiseCategory 재분류(semantic 단계)로 넘긴다.
+    if (category == PixelWallCategory.structural && solidFillCheck.looksLikeSolidFill(seg, orientation)) {
+      category = PixelWallCategory.reviewNeeded;
+    }
 
     candidates.add(
       PixelWallCandidate(
