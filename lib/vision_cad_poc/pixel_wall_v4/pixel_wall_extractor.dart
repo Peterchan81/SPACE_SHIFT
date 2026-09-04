@@ -782,7 +782,7 @@ PixelWallExtractionResult extractPixelWalls(Uint8List imageBytes) {
   // 않는 유일한 신호였다(전부 최소 MEDIUM 이상이거나 junction≥1) —
   // 특정 좌표가 아니라 이 조합 자체를 판정 기준으로 쓴다(image-wide
   // 일반 규칙).
-  final reclassified = <PixelWallCandidate>[
+  final arrowFiltered = <PixelWallCandidate>[
     for (final c in faceClassified)
       if (c.isExterior && c.confidenceTier == PixelWallConfidenceTier.low && c.junctionSupport == 0)
         c.withFaceContact(
@@ -795,6 +795,19 @@ PixelWallExtractionResult extractPixelWalls(Uint8List imageBytes) {
       else
         c,
   ];
+
+  // PC1 CONTINUE — PLANAR WALL GRAPH 조사 중 "두 확정 exterior 지점을
+  // 잇는 벽은 exterior로 승격" 규칙을 시도했으나, 이 기준이 실제로는
+  // "외벽 하나 + 외벽 하나 + 그 사이를 잇는 내부 파티션"(가장 흔한
+  // 정상 건축 패턴 — 예: 상하 exterior 벽 사이의 방 구분 내벽)까지
+  // 똑같이 만족시켜 즉시 회귀를 일으켰다(합성 회귀 테스트로 확인 —
+  // 두 exterior 벽 사이 내벽이 잘못 exterior로 승격됨). "양 끝점이
+  // 확정 exterior에 닿는다"는 조건만으로는 "같은 외곽선의 연장"과
+  // "두 외벽을 가로지르는 내부 파티션"을 구별할 수 없다는 뜻이라
+  // 이 시도는 폐기하고 face-contact 결과를 그대로 신뢰한다 — 안전한
+  // 일반 규칙을 찾지 못한 케이스는 정직하게 FloorDomain INVALID로
+  // 남긴다(가짜 승격보다 정확한 실패가 낫다).
+  final reclassified = arrowFiltered;
 
   final rooms = detectRooms(RoomStageInput(mask: roomMask, width: w, height: h)).rooms;
 
