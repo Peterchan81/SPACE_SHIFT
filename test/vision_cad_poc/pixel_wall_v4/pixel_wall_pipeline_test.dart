@@ -75,6 +75,23 @@ void main() {
     // 없으므로 이게 닫혔다면 순수 pixel 근거로 닫힌 것이다.
     expect(result.floorDomainClosed, isTrue, reason: result.floorDomainFailureReason ?? '');
     expect(() => result.model, returnsNormally);
+
+    // PC2 PLANAR GRAPH PRODUCTION INTEGRATION 회귀 — production 경로가
+    // 실제로 옛 endpoint-only chain walker가 아니라 PlanarGraph를 거쳤는지
+    // 확인한다(옛 buildFloorDomain은 이 통계 필드를 채우지 않는다 — 기본값
+    // 0으로 남는다).
+    expect(result.floorDomain.graphVertexCount, greaterThan(0));
+    expect(result.floorDomain.graphEdgeCount, greaterThan(0));
+    expect(result.floorDomain.sourceEvidenceLimited, isFalse);
+    // 내부 파티션(가운데 벽)은 T-junction 2곳을 만든다 — 바깥 face로
+    // 승격되지 않고 안쪽 face 2개로만 남아야 한다(faceCount = outer 1 +
+    // inner 2 = 3).
+    expect(result.floorDomain.graphFaceCount, 3);
+    expect(result.floorDomain.tJunctionCount, 2);
+    // virtual door bridge(가상 연결)는 CANONICAL CAD 실선 벽 목록에
+    // 나타나면 안 된다(§10) — sourceCandidateId 패턴 '~door~'가 새는지
+    // 방어적으로 확인한다.
+    expect(result.model.walls.every((w) => !w.id.contains('~door~')), isTrue);
   });
 
   test('GPT 응답이 없으면(semantic=null) 크래시 없이 라벨 없는 geometry-only 결과를 만든다', () {

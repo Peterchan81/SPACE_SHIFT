@@ -11,6 +11,7 @@ import 'dart:math' as math;
 
 import '../../models/floor_plan_geometry.dart';
 import 'pixel_wall_types.dart';
+import 'planar_wall_graph.dart';
 import 'wall_system.dart';
 
 class FloorDomainResult {
@@ -19,6 +20,11 @@ class FloorDomainResult {
     required this.failureReason,
     required this.virtualBoundaries,
     required this.unresolvedGaps,
+    this.graphVertexCount = 0,
+    this.graphEdgeCount = 0,
+    this.graphFaceCount = 0,
+    this.tJunctionCount = 0,
+    this.sourceEvidenceLimited = false,
   });
 
   /// 닫혔으면 외곽 loop, 아니면 null(§ "fake exterior line 생성 금지").
@@ -29,6 +35,19 @@ class FloorDomainResult {
   /// 문 범위를 넘겨 조용히 잇지 않은 gap들 — root cause 보고용
   /// (위치 + gap 크기 + 왜 못 이었는지).
   final List<WallGap> unresolvedGaps;
+
+  /// PlanarGraph 기반 경로(§ PC2 PRODUCTION INTEGRATION)에서만 채워지는
+  /// 진단 통계 — 옛 chain walker 경로는 기본값(0/false)을 그대로 쓴다.
+  final int graphVertexCount;
+  final int graphEdgeCount;
+  final int graphFaceCount;
+  final int tJunctionCount;
+
+  /// true면: PlanarGraph 자체는 유효(구조 벽 edge가 존재)하지만, 실제
+  /// source image의 pixel evidence가 끊겨 있어 단일 outer loop로 닫히지
+  /// 못했다는 뜻(§9 SOURCE_EVIDENCE_LIMITED) — bbox/convex hull로 억지
+  /// 폐합하지 않고 정직하게 이 상태로 남긴다.
+  final bool sourceEvidenceLimited;
 
   bool get isValid => loop != null;
 }
@@ -259,4 +278,103 @@ FloorDomainResult buildFloorDomain({
   }
 
   return FloorDomainResult(loop: loopPoints, failureReason: null, virtualBoundaries: virtualBoundaries, unresolvedGaps: unresolvedGaps);
+}
+
+/// PC2 PLANAR GRAPH → PRODUCTION FLOOR DOMAIN INTEGRATION.
+///
+/// [buildFloorDomain]（위 함수, 이제 production 경로에서 더 이상 primary로
+/// 쓰이지 않는다 — 자체 테스트를 위해 그대로 남겨둔다）는 각 candidate에
+/// 미리 매긴 isExterior로 endpoint-to-endpoint 체인을 걷는다. 이 함수는
+/// 대신 [buildPlanarGraph]가 만드는 위상 그래프(T/L/X-junction split +
+/// half-edge/DCEL face 추출 포함)에서 "바깥쪽(경계 없는) face"를 그대로
+/// FloorDomain 경계로 쓴다 — 개별 벽의 isExterior 판정은 더 이상 경계를
+/// 결정하는 authority가 아니다(§ 근본 원칙, planar_wall_graph.dart 문서
+/// 주석과 동일).
+///
+/// 면적이 가장 큰 face를 무조건 고르지 않는다: [findOuterFaces]가 이미
+/// signed-area 부호로 "안쪽/바깥쪽"을 위상학적으로 구분한 뒤에만, 그
+/// 바깥쪽 후보들 중에서 크기를 고른다. 구조 벽이 여러 연결 성분으로
+/// 나뉘어 있으면(실제 source image에 evidence가 없는 gap) 억지로 하나의
+/// loop로 잇지 않고 GRAPH_VALID + SOURCE_EVIDENCE_LIMITED로 정직하게
+/// 보고한다(bbox/convex hull 폐합 금지).
+FloorDomainResult buildFloorDomainFromPlanarGraph({
+  required List<PixelWallCandidate> candidates,
+  required int w,
+  required int h,
+}) {
+  final graph = buildPlanarGraph(candidates: candidates, w: w, h: h);
+
+  if (graph.edges.isEmpty) {
+    return const FloorDomainResult(
+      loop: null,
+      failureReason: 'PlanarGraph: 구조 벽에서 edge가 하나도 생성되지 않음',
+      virtualBoundaries: [],
+      unresolvedGaps: [],
+    );
+  }
+
+  final tJunctionCount = graph.vertices.where((v) => graph.adjacency[v.id]!.length == 3).length;
+
+  Point2 vertexPoint(int vId) {
+    final v = graph.vertices[vId];
+    return Point2(v.xPx / w, v.yPx / h);
+  }
+
+  final virtualBoundaries = [
+    for (final e in graph.edges)
+      if (e.isVirtualBridge)
+        VirtualBoundary(start: vertexPoint(e.v1), end: vertexPoint(e.v2), reason: e.virtualBridgeReason ?? GapKind.doorOpening),
+  ];
+
+  final pruned = pruneDanglingEdges(graph);
+  final prunedEdgeIds = pruned.edges.map((e) => e.id).toSet();
+  final danglingEdges = graph.edges.where((e) => !prunedEdgeIds.contains(e.id)).toList();
+
+  // 안 닫힌 이유를 root cause로 보고하기 위한 최소 진단 — 실제 gap 크기가
+  // 아니라 "이 dangling edge가 어디서 끊겼는지"를 WallGap 형태로 재사용한다
+  // (§9 정확히 어떤 edge/evidence가 부족한지 report).
+  final unresolvedGaps = [
+    for (final e in danglingEdges)
+      WallGap(
+        gapPx: e.thicknessPx,
+        kind: GapKind.notConnected,
+        centerPx: (x: (graph.vertices[e.v1].xPx + graph.vertices[e.v2].xPx) / 2, y: (graph.vertices[e.v1].yPx + graph.vertices[e.v2].yPx) / 2),
+      ),
+  ];
+
+  final componentCount = countConnectedComponents(pruned);
+  final faces = extractFaces(pruned);
+  final outerFaces = findOuterFaces(faces);
+
+  if (outerFaces.isEmpty || componentCount > 1) {
+    return FloorDomainResult(
+      loop: null,
+      failureReason: componentCount > 1
+          ? 'PlanarGraph: 구조 벽이 서로 이어지지 않는 $componentCount개 성분으로 나뉘어 단일 outer loop를 만들 수 없음'
+                '(dangling edge ${danglingEdges.length}개 — source evidence 부족)'
+          : 'PlanarGraph: 닫힌 outer face를 찾지 못함(dangling edge ${danglingEdges.length}개 — source evidence 부족)',
+      virtualBoundaries: virtualBoundaries,
+      unresolvedGaps: unresolvedGaps,
+      graphVertexCount: graph.vertices.length,
+      graphEdgeCount: graph.edges.length,
+      graphFaceCount: faces.length,
+      tJunctionCount: tJunctionCount,
+      sourceEvidenceLimited: true,
+    );
+  }
+
+  final chosen = outerFaces.reduce((a, b) => a.signedArea.abs() >= b.signedArea.abs() ? a : b);
+  final loop = [for (final vId in chosen.vertexIds) vertexPoint(vId)];
+
+  return FloorDomainResult(
+    loop: loop,
+    failureReason: null,
+    virtualBoundaries: virtualBoundaries,
+    unresolvedGaps: unresolvedGaps,
+    graphVertexCount: graph.vertices.length,
+    graphEdgeCount: graph.edges.length,
+    graphFaceCount: faces.length,
+    tJunctionCount: tJunctionCount,
+    sourceEvidenceLimited: false,
+  );
 }

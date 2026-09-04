@@ -43,6 +43,7 @@ class PlanarEdge {
     required this.sourceCandidateId,
     required this.wasExteriorEvidence,
     this.isVirtualBridge = false,
+    this.virtualBridgeReason,
   });
   final int id;
   final int v1;
@@ -61,6 +62,11 @@ class PlanarEdge {
   /// MASK vs CANONICAL GEOMETRY 구분과 동일한 원칙).
   final bool isVirtualBridge;
 
+  /// [isVirtualBridge]인 경우에만 채워지는 원래 gap 분류(door/imageBreak)
+  /// — production FloorDomain 소비 경로가 이 provenance를 다시 계산하지
+  /// 않고 그대로 재사용할 수 있도록 보존한다.
+  final GapKind? virtualBridgeReason;
+
   PlanarEdge withVirtual(bool value) => PlanarEdge(
     id: id,
     v1: v1,
@@ -70,6 +76,7 @@ class PlanarEdge {
     sourceCandidateId: sourceCandidateId,
     wasExteriorEvidence: wasExteriorEvidence,
     isVirtualBridge: value,
+    virtualBridgeReason: virtualBridgeReason,
   );
 }
 
@@ -297,6 +304,7 @@ PlanarGraph buildPlanarGraph({
           sourceCandidateId: '${a.id}~door~${b.id}',
           wasExteriorEvidence: a.isExterior || b.isExterior,
           isVirtualBridge: true,
+          virtualBridgeReason: gap.kind,
         ),
       );
       adjacency[v1]!.add(edgeId);
@@ -431,6 +439,32 @@ double _shoelaceSigned(List<int> vertexIds, PlanarGraph graph) {
     sum += a.xPx * b.yPx - b.xPx * a.yPx;
   }
   return sum / 2;
+}
+
+/// 그래프의 연결 성분(connected component) 개수 — edge가 하나도 없는
+/// 고립 vertex는 세지 않는다(구조 벽 자체가 없는 vertex이므로 "분리된
+/// 건물 조각"이 아니다). 여러 개면 구조 벽 evidence가 여러 조각으로
+/// 끊겨 있다는 뜻 — production FloorDomain 경로가 이걸로
+/// SOURCE_EVIDENCE_LIMITED 여부를 판정한다.
+int countConnectedComponents(PlanarGraph graph) {
+  final visited = <int>{};
+  var count = 0;
+  for (final v in graph.vertices) {
+    if (visited.contains(v.id)) continue;
+    if (graph.adjacency[v.id]!.isEmpty) continue;
+    count++;
+    final stack = [v.id];
+    visited.add(v.id);
+    while (stack.isNotEmpty) {
+      final cur = stack.removeLast();
+      for (final eId in graph.adjacency[cur]!) {
+        final e = graph.edges[eId];
+        final other = e.v1 == cur ? e.v2 : e.v1;
+        if (visited.add(other)) stack.add(other);
+      }
+    }
+  }
+  return count;
 }
 
 /// 여러 face 중 "바깥쪽(경계 없는) face"를 찾는다 — 표준 결과: 같은

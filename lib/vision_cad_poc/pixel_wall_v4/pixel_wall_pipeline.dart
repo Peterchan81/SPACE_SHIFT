@@ -78,11 +78,16 @@ PixelWallPipelineResult runPixelWallPipeline({
   var classified = classifyNoiseCategories(candidates: extraction.candidates, semantic: semantic);
   classified = applyTextHeuristic(candidates: classified, analysisWidthPx: w, analysisHeightPx: h);
 
-  // --- §6 FLOOR DOMAIN FIRST: semantic space가 아니라 실제 외벽
-  // wall system에서만 유도. 문 범위 gap은 VirtualBoundary로 잇고, 문
-  // 범위를 넘는 gap은 조용히 잇지 않고 root cause로 남긴다.
+  // --- §6 FLOOR DOMAIN FIRST, PC2 PLANAR GRAPH INTEGRATION: 더 이상
+  // 개별 candidate의 isExterior 태그로 endpoint-to-endpoint 체인을 걷지
+  // 않는다(buildFloorDomain, 옛 chain walker — 자체 테스트 전용으로만
+  // 격리되어 남아 있음). 대신 전체 구조 벽으로 PlanarGraph(T/L/X-junction
+  // split + half-edge/DCEL face 추출 포함)를 만들고, 그 그래프가 스스로
+  // 찾아낸 "바깥쪽 face"를 FloorDomain 경계로 쓴다(planar_wall_graph.dart
+  // 근본 원칙과 동일). wallSystems는 결과 표시(PIXEL WALLS 탭 등)를 위해
+  // 그대로 계산해 둔다.
   final wallSystems = buildWallSystems(candidates: classified, w: w, h: h);
-  final floorDomain = buildFloorDomain(wallSystems: wallSystems, w: w, h: h);
+  final floorDomain = buildFloorDomainFromPlanarGraph(candidates: classified, w: w, h: h);
 
   // --- §7/§8 PhysicalRoom 추출 + SemanticZone 매칭: pixel flood-fill이
   // 먼저이고 GPT는 라벨만 얹는다. 강제로 13개 폐합 polygon을 만들지
