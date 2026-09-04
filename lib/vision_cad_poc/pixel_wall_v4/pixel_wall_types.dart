@@ -53,6 +53,9 @@ class PixelWallCandidate {
     required this.sourceSegmentIds,
     this.mergedFromCount = 1,
     this.noiseCategory = PixelWallNoiseCategory.trueStructural,
+    this.outsideContactA = 0,
+    this.outsideContactB = 0,
+    this.exteriorSuspicious = false,
   });
 
   final String id;
@@ -76,6 +79,18 @@ class PixelWallCandidate {
   final int mergedFromCount;
   final PixelWallNoiseCategory noiseCategory;
 
+  /// PC1 CONTINUE — OUTSIDE-AIR FLOOD FILL EXTERIOR RESOLUTION. 벽의
+  /// 중심선 양옆(face A/B) 중 각각이 "outside-air"(이미지 경계에서부터
+  /// 이어지는 flood-fill된 빈 공간)와 실제로 맞닿는 비율(0~1, 접합부
+  /// 근처를 뺀 중간 구간만 표본). 정확히 한쪽만 강하게 outside면 외벽,
+  /// 둘 다 아니면 내벽, 둘 다 강하면 [exteriorSuspicious].
+  final double outsideContactA;
+  final double outsideContactB;
+
+  /// 양쪽 face가 모두 강하게 outside-air와 맞닿아(비정상 — 진짜
+  /// 건물이라면 있을 수 없음) 자동 확정하지 않고 사람 확인이 필요한 경우.
+  final bool exteriorSuspicious;
+
   PixelWallCandidate withNoiseCategory(PixelWallNoiseCategory value) => PixelWallCandidate(
     id: id,
     start: start,
@@ -90,6 +105,9 @@ class PixelWallCandidate {
     sourceSegmentIds: sourceSegmentIds,
     mergedFromCount: mergedFromCount,
     noiseCategory: value,
+    outsideContactA: outsideContactA,
+    outsideContactB: outsideContactB,
+    exteriorSuspicious: exteriorSuspicious,
   );
 
   PixelWallCandidate withExterior(bool value) => PixelWallCandidate(
@@ -106,6 +124,35 @@ class PixelWallCandidate {
     sourceSegmentIds: sourceSegmentIds,
     mergedFromCount: mergedFromCount,
     noiseCategory: noiseCategory,
+    outsideContactA: outsideContactA,
+    outsideContactB: outsideContactB,
+    exteriorSuspicious: exteriorSuspicious,
+  );
+
+  /// PC1 CONTINUE — face-contact 판정 결과(§7)를 한 번에 반영한다.
+  PixelWallCandidate withFaceContact({
+    required bool isExterior,
+    required double outsideContactA,
+    required double outsideContactB,
+    required bool exteriorSuspicious,
+    PixelWallCategory? category,
+  }) => PixelWallCandidate(
+    id: id,
+    start: start,
+    end: end,
+    thicknessNormalized: thicknessNormalized,
+    orientation: orientation,
+    isExterior: isExterior,
+    baseConfidence: baseConfidence,
+    junctionSupport: junctionSupport,
+    confidenceTier: confidenceTier,
+    category: category ?? this.category,
+    sourceSegmentIds: sourceSegmentIds,
+    mergedFromCount: mergedFromCount,
+    noiseCategory: noiseCategory,
+    outsideContactA: outsideContactA,
+    outsideContactB: outsideContactB,
+    exteriorSuspicious: exteriorSuspicious,
   );
 
   double get lengthNormalized {

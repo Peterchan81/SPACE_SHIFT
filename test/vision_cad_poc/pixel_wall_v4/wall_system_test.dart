@@ -97,5 +97,24 @@ void main() {
       expect(result.unresolvedGaps, isNotEmpty);
       expect(result.unresolvedGaps.first.kind, GapKind.notConnected);
     });
+
+    test('첫 run이 체인의 중간(elbow)이어도 양방향으로 걸어 모든 run을 놓치지 않는다(PC1 CONTINUE §22 카테고리 E 회귀 방지)', () {
+      // A(수직, 위)-B(수평, 중간)-C(수직, 아래) 순서로 이어지는 열린
+      // 사슬. buildWallSystems는 항상 horizontal을 먼저 처리하므로 B가
+      // "첫 run"이 된다 — 이전 구현은 forward(끝 방향)로만 걸어
+      // C까지만 잇고 A는 "연결 안 됨"으로 잘못 보고했다.
+      final candidates = [
+        _c(id: 'A', x1: 50, y1: 0, x2: 50, y2: 50, orientation: PixelWallOrientation.vertical, isExterior: true),
+        _c(id: 'B', x1: 50, y1: 50, x2: 100, y2: 50, isExterior: true),
+        _c(id: 'C', x1: 100, y1: 50, x2: 100, y2: 100, orientation: PixelWallOrientation.vertical, isExterior: true),
+      ];
+      final systems = buildWallSystems(candidates: candidates, w: w, h: h);
+      final result = buildFloorDomain(wallSystems: systems, w: w, h: h);
+      // 열린 사슬이라 닫히지는 않지만(의도적으로 loop가 아님), 실패
+      // 사유가 "run이 연결되지 않음"이 아니라 "닫히지 않음"이어야 한다
+      // — 즉 3개 run 모두 하나의 경로로는 이어졌다는 뜻.
+      expect(result.isValid, isFalse);
+      expect(result.failureReason, contains('닫히지 않음'), reason: '양방향 연결에 실패하면 여기서 "연결되지 않음"으로 잘못 보고된다');
+    });
   });
 }

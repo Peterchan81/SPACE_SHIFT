@@ -758,31 +758,19 @@ PixelWallExtractionResult extractPixelWalls(Uint8List imageBytes) {
     }
   }
 
-  // 실기 FAIL 재조사(PC1 CONTINUE §3 exterior wall classification 개선) —
-  // 기존 엔진의 "전체 bounding box 가장자리에 가까우면 외벽"이라는 판정은
-  // 직사각형 건물에서만 통한다. 이 도면은 실제로 계단형(step) 외곽을
-  // 가져(우측 상단 발코니/현관 쪽이 안쪽으로 들어가 있음) 그 판정이 틀린
-  // 사례가 실측으로 확인됐다. 대신 "이 벽의 양옆 중 한쪽이 실제로
-  // 건물 바깥(이미지 경계에서부터 이어지는 빈 영역)과 맞닿아 있는가"를
-  // border flood-fill로 직접 판정한다 — 벽 모양이 어떻든 항상 성립하는
-  // 유일하게 안전한 기준이다.
-  // 위 flood-fill은 실제 건물 외곽에 남은 (아직 못 찾은) 진짜 벽 구멍을
-  // 통해 "바깥"이 건물 내부 깊숙이 새어 들어올 수 있다(실측: 거실 안쪽
-  // 파티션 벽까지 "외벽"으로 잘못 재분류됨). 이 오탐을 막기 위해, 벽
-  // 자신의 축 좌표가 이미지 가장자리 근처(margin 이내)일 때만
-  // flood-fill 근거를 신뢰한다 — 계단형 외곽(발코니/욕실1 돌출 등)은
-  // 항상 가장자리 부근에 있으므로 이 조건을 만족하고, 안쪽 깊숙한
-  // 파티션은 새어 들어온 "바깥"과 우연히 닿아도 걸러진다. 기존
-  // bounding-box 기준(직사각형 부분에서는 이미 정확했음)은 OR 조건으로
-  // 계속 인정한다.
-  const edgeMarginRatio = 0.30;
+  // PC1 CONTINUE — OUTSIDE-AIR FLOOD FILL EXTERIOR RESOLUTION(§0~§13).
+  // 이전 라운드의 "bbox 가장자리 근접" 휴리스틱과 그 보정용
+  // "가장자리 margin 이내일 때만 신뢰" 안전장치는 모두 근본적으로
+  // 벽 자체의 위치/모양을 보고 추측하는 방식이라 계단형 외곽, 인접한
+  // 내벽, 근처 가구/텍스트가 있을 때 반복적으로 틀렸다(실측: 71px/
+  // 161px/116px 세 사례 전부 이 계열 오분류). 이번에는 벽의 위치를
+  // 전혀 보지 않고 "이 벽의 양쪽 면 중 어느 쪽이 실제 outside-air와
+  // 맞닿아 있는가"만을 유일한 근거로 쓴다 — 정확히 한쪽만 강하게
+  // 맞닿으면 외벽, 둘 다 아니면 내벽, 둘 다 강하면(있을 수 없는 상태)
+  // suspicious로 사람 확인을 요구한다(자동 확정하지 않음).
   final outsideMask = _computeOutsideMask(roomMask, w, h);
   final reclassified = <PixelWallCandidate>[
-    for (final c in candidates)
-      c.withExterior(
-        c.isExterior ||
-            (_touchesOutside(c, outsideMask, w, h) && _nearOwnAxisEdge(c, edgeMarginRatio)),
-      ),
+    for (final c in candidates) _classifyByFaceContact(c, outsideMask, w, h),
   ];
 
   final rooms = detectRooms(RoomStageInput(mask: roomMask, width: w, height: h)).rooms;
@@ -839,12 +827,21 @@ Uint8List _computeOutsideMask(Uint8List roomMask, int w, int h) {
   return outside;
 }
 
-/// [c]의 중심선을 따라 몇 지점을 샘플링해, 벽 두께만큼 양옆으로
-/// 벗어난 위치 중 하나라도 "건물 바깥"이면 외벽으로 본다.
-bool _touchesOutside(PixelWallCandidate c, Uint8List outside, int w, int h) {
-  const samples = 3;
+/// PC1 CONTINUE §6/§7 — 벽의 두 face(중심선 양옆)가 각각 outside-air와
+/// 맞닿는 비율을 측정해 exterior/interior/suspicious를 판정한다. 벽의
+/// 위치나 모양(가장자리 근접 여부 등)은 전혀 보지 않는다 — "이 벽의
+/// 어느 쪽에 실제 바깥 공기가 있는가"만이 유일한 근거다. 접합부(양
+/// 끝점) 근처는 다른 벽이 정상적으로 붙어 있어 face 판정을 오염시키므로
+/// (실기 solid-fill 조사에서 확인된 교훈과 동일한 이유) 중간 구간만
+/// 표본으로 쓴다.
+const List<double> _faceSampleFractions = [0.3, 0.4, 0.5, 0.6, 0.7];
+const double _faceContactMarginPx = 4.0;
+const double _faceStrongThreshold = 0.6;
+const double _faceWeakThreshold = 0.2;
+
+PixelWallCandidate _classifyByFaceContact(PixelWallCandidate c, Uint8List outside, int w, int h) {
   final thicknessPx = c.thicknessNormalized * (c.orientation == PixelWallOrientation.horizontal ? h : w);
-  final offset = thicknessPx / 2 + 3;
+  final offset = thicknessPx / 2 + _faceContactMarginPx;
 
   bool isOutside(double x, double y) {
     final xi = x.round();
@@ -853,23 +850,56 @@ bool _touchesOutside(PixelWallCandidate c, Uint8List outside, int w, int h) {
     return outside[yi * w + xi] == 1;
   }
 
-  for (var i = 0; i <= samples; i++) {
-    final t = i / samples;
+  var aHits = 0;
+  var bHits = 0;
+  for (final t in _faceSampleFractions) {
     final px = (c.start.x + (c.end.x - c.start.x) * t) * w;
     final py = (c.start.y + (c.end.y - c.start.y) * t) * h;
     if (c.orientation == PixelWallOrientation.horizontal) {
-      if (isOutside(px, py - offset) || isOutside(px, py + offset)) return true;
+      if (isOutside(px, py - offset)) aHits++;
+      if (isOutside(px, py + offset)) bHits++;
     } else {
-      if (isOutside(px - offset, py) || isOutside(px + offset, py)) return true;
+      if (isOutside(px - offset, py)) aHits++;
+      if (isOutside(px + offset, py)) bHits++;
     }
   }
-  return false;
-}
+  final aRatio = aHits / _faceSampleFractions.length;
+  final bRatio = bHits / _faceSampleFractions.length;
+  final aStrong = aRatio >= _faceStrongThreshold;
+  final bStrong = bRatio >= _faceStrongThreshold;
+  final aWeak = aRatio <= _faceWeakThreshold;
+  final bWeak = bRatio <= _faceWeakThreshold;
 
-/// 벽 자신의 축 좌표(수평 벽=y, 수직 벽=x, 정규화 0~1)가 이미지
-/// 가장자리로부터 [marginRatio] 이내인지 — 계단형 외곽 판정에만 쓰는
-/// 보수적 안전장치(위 함수 문서 참고).
-bool _nearOwnAxisEdge(PixelWallCandidate c, double marginRatio) {
-  final axisNorm = c.orientation == PixelWallOrientation.horizontal ? c.start.y : c.start.x;
-  return axisNorm <= marginRatio || axisNorm >= (1 - marginRatio);
+  bool isExterior;
+  var suspicious = false;
+  if (aStrong && bWeak) {
+    isExterior = true;
+  } else if (bStrong && aWeak) {
+    isExterior = true;
+  } else if (aWeak && bWeak) {
+    isExterior = false;
+  } else if (aStrong && bStrong) {
+    // 양쪽 다 outside-air와 맞닿음 — 실제 건물이라면 있을 수 없는
+    // 상태(자유롭게 서 있는 벽). 자동으로 exterior로 확정하지 않고
+    // 사람 확인이 필요한 상태로 남긴다.
+    isExterior = false;
+    suspicious = true;
+  } else {
+    // 애매(어느 쪽도 강하지도 약하지도 않음) — 마찬가지로 자동 확정
+    // 하지 않는다.
+    isExterior = false;
+    suspicious = true;
+  }
+
+  final newCategory = suspicious && c.category == PixelWallCategory.structural
+      ? PixelWallCategory.reviewNeeded
+      : c.category;
+
+  return c.withFaceContact(
+    isExterior: isExterior,
+    outsideContactA: aRatio,
+    outsideContactB: bRatio,
+    exteriorSuspicious: suspicious,
+    category: newCategory,
+  );
 }

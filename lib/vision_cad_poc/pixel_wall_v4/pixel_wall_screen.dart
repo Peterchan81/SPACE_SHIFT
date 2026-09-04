@@ -116,6 +116,8 @@ class _StatusBar extends StatelessWidget {
           chip('MEDIUM ${e.mediumCount}', Colors.orange),
           chip('LOW ${e.lowCount}', Colors.red),
           chip('REJECTED ${e.rejected.length}', Colors.grey),
+          chip('EXTERIOR(face-contact) ${e.candidates.where((c) => c.isExterior).length}', Colors.black87),
+          chip('SUSPICIOUS ${e.candidates.where((c) => c.exteriorSuspicious).length}', e.candidates.any((c) => c.exteriorSuspicious) ? Colors.deepOrange : Colors.green),
           chip('PHYSICAL ROOMS ${result.physicalRooms.length}', Colors.black87),
           chip('PHYSICAL ROOM 매칭 ${result.matchedPhysicalRoomCount}', Colors.green),
           chip('SEMANTIC ZONES ${result.semanticZoneCount}', Colors.indigo),
