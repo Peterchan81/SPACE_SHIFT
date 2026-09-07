@@ -248,6 +248,43 @@ class SSWall {
   final List<String> reviewReasons;
 }
 
+/// DOOR/WINDOW → PARENT WALL + PARAMETRIC OPENING WO — 문/창이 있어도
+/// 끊기지 않는 연속된 "구조 벽"(topological WallEdge) 그 자체. [walls]
+/// (물리적으로 보이는 벽 자재 조각 — 문 위치에서 실제로 끊긴다)와 반드시
+/// 구분한다(§2 A vs B). pixel_wall_v4의 `WallSystem`을 그대로 정규화
+/// 좌표로 옮긴 것이며, [physicalWallIds]로 자신을 이루는 [SSWall] segment들을
+/// 추적한다.
+@immutable
+class SSWallEdge {
+  const SSWallEdge({
+    required this.id,
+    required this.start,
+    required this.end,
+    required this.thicknessNormalized,
+    required this.kind,
+    required this.confidence,
+    this.physicalWallIds = const [],
+    this.source = SSEntitySource.geometry,
+    this.reviewNeeded = false,
+    this.reviewReasons = const [],
+  });
+
+  final String id;
+  final Point2 start;
+  final Point2 end;
+  final double thicknessNormalized;
+  final SSWallKind kind;
+  final double confidence;
+
+  /// 이 연속 구조 벽을 이루는 물리 [SSWall] segment id들(문/창 gap으로
+  /// 끊긴 순서대로).
+  final List<String> physicalWallIds;
+
+  final SSEntitySource source;
+  final bool reviewNeeded;
+  final List<String> reviewReasons;
+}
+
 /// [SSOpening]의 건축적 의미.
 enum SSOpeningKind { door, window, openPassage, unknown }
 
@@ -264,6 +301,9 @@ class SSOpening {
     required this.widthNormalized,
     required this.confidence,
     this.wallId,
+    this.parentWallId,
+    this.startT,
+    this.endT,
     this.connectsSpaceIds = const [],
     this.source = SSEntitySource.geometry,
     this.reviewNeeded = false,
@@ -275,7 +315,18 @@ class SSOpening {
   final Point2 center;
   final double widthNormalized;
   final double confidence;
+
+  /// 이 opening과 가장 가까운 물리 [SSWall] segment id(있으면) — 기존
+  /// 소비자(3D scene builder 등) 하위 호환용, 단일 벽 하나만 가리킨다.
   final String? wallId;
+
+  /// DOOR/WINDOW → PARENT WALL + PARAMETRIC OPENING WO — 이 opening이
+  /// 속한 연속 구조 벽([SSWallEdge.id]/`WallSystem.id`)과, 그 벽을 따라
+  /// 정규화된 시작/끝 위치(0.0~1.0). pixel_wall_v4 경로에서만 채워진다 —
+  /// 기존 interpreter 경로는 null로 남아 하위 호환을 유지한다.
+  final String? parentWallId;
+  final double? startT;
+  final double? endT;
 
   /// 이 개구부가 실제로 연결하는 공간 id — 보통 2개(두 공간을 연결)
   /// 이지만, 외벽에 붙은 문/창은 1개(공간 하나만 연결, 반대쪽은 건물
@@ -402,6 +453,7 @@ class SSSpatialModel {
     this.boundaries = const [],
     this.structuralElements = const [],
     this.dimensions = const [],
+    this.wallEdges = const [],
     this.floorDomain,
   });
 
@@ -411,6 +463,12 @@ class SSSpatialModel {
   final List<SSWall> walls;
   final List<SSOpening> openings;
   final List<SSObjectCandidate> objects;
+
+  /// DOOR/WINDOW → PARENT WALL + PARAMETRIC OPENING WO — 문/창이 있어도
+  /// 끊기지 않는 연속 구조 벽 목록(§2 A). [walls]는 그 물리적 조각(§2 B)만
+  /// 담는다 — 이 필드가 비어 있으면(기존 interpreter 경로) 그 경로는 아직
+  /// parent-wall 개념을 만들지 않는다는 뜻이다.
+  final List<SSWallEdge> wallEdges;
 
   /// Space-first 재작업 WO — 모든 공간의 폴리곤 변을 해석한 전체 경계
   /// 목록([SSBoundary], 벽/문/창/열린통로/기둥/가상/미상). [walls]는

@@ -50,14 +50,28 @@ class VirtualBoundary {
 
 /// 같은 축(orientation + crossPx) 위에 있는 여러 물리 pixel segment를
 /// 하나의 "벽 체계"로 묶은 것 — §4 WALL CONSOLIDATION.
+///
+/// PC1 CONTINUE(DOOR/WINDOW OPENING) — 이 클래스는 이미 "문/창이 있어도
+/// 끊기지 않는 연속된 구조 벽"(parent WallEdge) 개념과 정확히 같다:
+/// [segments]는 물리적으로 보이는 벽 자재 조각(개별 gap으로 끊김),
+/// [gaps]는 그 조각 사이의 틈이다. 새 Opening 모델은 이 WallSystem을
+/// parent wall로 그대로 재사용한다 — 별도 WallEdge 클래스를 새로
+/// 만들지 않는다(§3 "이미 좋은 모델이 있으면 중복 금지").
 class WallSystem {
   const WallSystem({
+    required this.id,
     required this.orientation,
     required this.axisPx,
     required this.isExterior,
     required this.segments,
     required this.gaps,
+    required this.startAlongPx,
+    required this.endAlongPx,
+    required this.thicknessPx,
   });
+
+  /// 이 세션 안에서 안정적인 id — Opening.parentWallId가 이 값을 가리킨다.
+  final String id;
 
   final PixelWallOrientation orientation;
 
@@ -70,6 +84,17 @@ class WallSystem {
 
   /// segments[i]와 segments[i+1] 사이 gap (길이 = segments.length - 1).
   final List<WallGap> gaps;
+
+  /// 이 벽 전체(문/창 gap 포함)의 along-axis 시작/끝 — Opening의
+  /// startT/endT를 이 범위에 대한 비율로 계산하기 위해 필요하다.
+  final double startAlongPx;
+  final double endAlongPx;
+
+  /// segment 중 최대 두께(px) — collinearity 허용 오차를 여기서 유도한다
+  /// (floor_domain_builder.dart의 cornerToleranceFor와 같은 원칙).
+  final double thicknessPx;
+
+  double get lengthPx => endAlongPx - startAlongPx;
 }
 
 const double _axisTolerancePx = 10.0;
@@ -98,11 +123,14 @@ List<WallSystem> buildWallSystems({
   double alongMaxPx(PixelWallCandidate c) =>
       c.orientation == PixelWallOrientation.horizontal ? math.max(c.start.x, c.end.x) * w : math.max(c.start.y, c.end.y) * h;
   double lengthPx(PixelWallCandidate c) => alongMaxPx(c) - alongMinPx(c);
+  double thicknessPxOf(PixelWallCandidate c, PixelWallOrientation o) =>
+      c.thicknessNormalized * (o == PixelWallOrientation.horizontal ? h : w);
 
   final systems = <WallSystem>[];
   for (final orientation in PixelWallOrientation.values) {
     final group = structural.where((c) => c.orientation == orientation).toList();
     final used = List<bool>.filled(group.length, false);
+    var systemIndex = 0;
     for (var i = 0; i < group.length; i++) {
       if (used[i]) continue;
       final cluster = <PixelWallCandidate>[group[i]];
@@ -134,7 +162,18 @@ List<WallSystem> buildWallSystems({
         gaps.add(WallGap(gapPx: gapPx, kind: kind, centerPx: center));
       }
 
-      systems.add(WallSystem(orientation: orientation, axisPx: weightedAxis, isExterior: isExterior, segments: cluster, gaps: gaps));
+      final maxThickness = cluster.fold<double>(0, (m, c) => math.max(m, thicknessPxOf(c, orientation)));
+      systems.add(WallSystem(
+        id: 'wallsystem-${orientation.name}-${systemIndex++}',
+        orientation: orientation,
+        axisPx: weightedAxis,
+        isExterior: isExterior,
+        segments: cluster,
+        gaps: gaps,
+        startAlongPx: alongMinPx(cluster.first),
+        endAlongPx: alongMaxPx(cluster.last),
+        thicknessPx: maxThickness,
+      ));
     }
   }
   return systems;

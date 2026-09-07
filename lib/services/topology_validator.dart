@@ -129,7 +129,14 @@ class TopologyValidator {
         );
       }
 
-      if (attachedWall != null) {
+      // DOOR/WINDOW → PARENT WALL + PARAMETRIC OPENING WO — [parentWallId]가
+      // 있으면 이 opening은 이미 연속 구조 벽(WallEdge) 위의 정규화
+      // interval로 올바르게 정의돼 있다는 뜻이다(§1 핵심 원칙: 문/창은
+      // topology wall boundary를 끊지 않는다). 이 규칙은 "물리 SSWall
+      // segment의 끝점"만 알던 옛 모델 기준이라 parentWallId 기반
+      // opening에는 적용하지 않는다 — 그 물리 segment가 정확히 gap
+      // 옆에서 끝나는 것 자체가 정상이고 의도된 구조다.
+      if (attachedWall != null && opening.parentWallId == null) {
         final t = _projectParameter(opening.center, attachedWall.start, attachedWall.end);
         final wallLen = attachedWall.start.distanceTo(attachedWall.end);
         final stub = wallLen > 0 ? (opening.widthNormalized / 2) / wallLen : 1.0;
@@ -152,6 +159,9 @@ class TopologyValidator {
             widthNormalized: opening.widthNormalized,
             confidence: opening.confidence * 0.5,
             wallId: opening.wallId,
+            parentWallId: opening.parentWallId,
+            startT: opening.startT,
+            endT: opening.endT,
             connectsSpaceIds: opening.connectsSpaceIds,
             source: opening.source,
             reviewNeeded: true,
@@ -199,6 +209,7 @@ class TopologyValidator {
       boundaries: model.boundaries,
       structuralElements: model.structuralElements,
       dimensions: model.dimensions,
+      wallEdges: model.wallEdges,
       floorDomain: model.floorDomain,
     );
   }

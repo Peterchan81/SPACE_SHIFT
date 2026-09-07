@@ -23,6 +23,7 @@ import 'pixel_wall_classifier.dart';
 import 'pixel_wall_extractor.dart';
 import 'pixel_wall_types.dart';
 import 'semantic_zone_mapper.dart';
+import 'wall_opening.dart';
 import 'wall_system.dart';
 
 class PixelWallPipelineResult {
@@ -37,6 +38,7 @@ class PixelWallPipelineResult {
     required this.unmatchedGptSpaceCount,
     required this.unmatchedPhysicalRoomCount,
     required this.wallSystems,
+    required this.openingValidation,
   });
 
   final PixelWallExtractionResult extraction;
@@ -50,8 +52,21 @@ class PixelWallPipelineResult {
   final int unmatchedPhysicalRoomCount;
   final List<WallSystem> wallSystems;
 
+  /// DOOR/WINDOW → PARENT WALL + PARAMETRIC OPENING WO — 최종 승인된/
+  /// 거부된 opening 전체(§13/§20 보고용).
+  final OpeningValidationResult openingValidation;
+
   bool get floorDomainClosed => floorDomain.isValid;
   String? get floorDomainFailureReason => floorDomain.failureReason;
+
+  int get doorOpeningCount => openingValidation.valid.where((o) => o.kind == OpeningKind.door).length;
+  int get windowOpeningCount => openingValidation.valid.where((o) => o.kind == OpeningKind.window).length;
+  int get unknownOpeningCount => openingValidation.valid.where((o) => o.kind == OpeningKind.unknownOpening).length;
+
+  /// doorOpening 크기가 아니었던(imageBreak만으로 남은) gap 개수 —
+  /// Opening으로 만들어지지 않고 그대로 진단 정보로만 남는다(§7).
+  int get imageBreakOnlyGapCount =>
+      wallSystems.fold(0, (sum, s) => sum + s.gaps.where((g) => g.kind == GapKind.imageBreak).length);
 }
 
 /// noiseCategory가 확실히 "벽이 아님"으로 분류된 candidate — CANONICAL
@@ -64,6 +79,9 @@ bool _isConfirmedNonWall(PixelWallCandidate c) {
       c.noiseCategory == PixelWallNoiseCategory.doorArc ||
       c.noiseCategory == PixelWallNoiseCategory.windowDetail;
 }
+
+double systemAlongPxOf(PixelWallCandidate c, PixelWallOrientation o, int w, int h) =>
+    o == PixelWallOrientation.horizontal ? ((c.start.x + c.end.x) / 2) * w : ((c.start.y + c.end.y) / 2) * h;
 
 PixelWallPipelineResult runPixelWallPipeline({
   required Uint8List imageBytes,
@@ -158,22 +176,73 @@ PixelWallPipelineResult runPixelWallPipeline({
         ),
   ];
 
-  final openings = <SSOpening>[
-    for (var i = 0; i < extraction.openings.length; i++)
-      SSOpening(
-        id: 'opening-$i',
-        kind: extraction.openings[i].type == OpeningType.door
-            ? SSOpeningKind.door
-            : extraction.openings[i].type == OpeningType.window
-            ? SSOpeningKind.window
-            : SSOpeningKind.unknown,
-        center: extraction.openings[i].center,
-        widthNormalized: extraction.openings[i].widthNormalized,
-        confidence: extraction.openings[i].confidence,
-        wallId: extraction.openings[i].wallId,
-        reviewNeeded: true,
-        reviewReasons: const ['gap 기반 자동 추출 — 사람 확인 필요'],
+  // --- DOOR/WINDOW → PARENT WALL + PARAMETRIC OPENING: WallSystem 자체가
+  // 이미 "문/창이 있어도 끊기지 않는 연속 구조 벽"(parent WallEdge)이다
+  // (§1/§2) — SSWallEdge로 그대로 정규화 좌표에 옮긴다. 물리 벽 조각
+  // ([walls], 위)은 그대로 유지하고 별개로 둔다.
+  Point2 systemPoint(WallSystem s, double alongPx) => s.orientation == PixelWallOrientation.horizontal
+      ? Point2(alongPx / w, s.axisPx / h)
+      : Point2(s.axisPx / w, alongPx / h);
+
+  final wallEdges = <SSWallEdge>[
+    for (final s in wallSystems)
+      SSWallEdge(
+        id: s.id,
+        start: systemPoint(s, s.startAlongPx),
+        end: systemPoint(s, s.endAlongPx),
+        thicknessNormalized: s.thicknessPx / (s.orientation == PixelWallOrientation.horizontal ? h : w),
+        kind: s.isExterior ? SSWallKind.exterior : SSWallKind.interior,
+        confidence: s.segments.fold<double>(0, (sum, c) => sum + c.baseConfidence) / s.segments.length,
+        physicalWallIds: [for (final c in s.segments) c.id],
       ),
+  ];
+
+  // doorOpening 크기 gap만 후보로 삼고(§6/§7 — imageBreak/openPlan/
+  // notConnected는 절대 Opening이 되지 않는다), GPT doorArc/windowDetail
+  // 근거가 실제로 겹치면 종류를 확정한다(§5 순수 최단거리 매칭 금지 —
+  // matchParentWallSystem이 collinearity+extent로만 판정).
+  final wallOpenings = buildWallOpenings(wallSystems: wallSystems, allCandidates: classified, w: w, h: h);
+  final openingValidation = validateOpenings(
+    openings: wallOpenings,
+    validParentWallIds: {for (final s in wallSystems) s.id},
+  );
+
+  final openings = <SSOpening>[
+    for (final o in openingValidation.valid)
+      () {
+        final system = wallSystems.firstWhere((s) => s.id == o.parentWallId);
+        final centerAlongPx = system.startAlongPx + (o.startT + o.endT) / 2 * system.lengthPx;
+        final widthPx = (o.endT - o.startT) * system.lengthPx;
+        // 이 opening과 가장 가까운 물리 SSWall segment(하위 호환 wallId).
+        final nearestSegment = system.segments.reduce(
+          (a, b) => (systemAlongPxOf(a, system.orientation, w, h) - centerAlongPx).abs() <
+                  (systemAlongPxOf(b, system.orientation, w, h) - centerAlongPx).abs()
+              ? a
+              : b,
+        );
+        return SSOpening(
+          id: o.id,
+          kind: switch (o.kind) {
+            OpeningKind.door => SSOpeningKind.door,
+            OpeningKind.window => SSOpeningKind.window,
+            OpeningKind.unknownOpening => SSOpeningKind.unknown,
+          },
+          center: systemPoint(system, centerAlongPx),
+          widthNormalized: widthPx / (system.orientation == PixelWallOrientation.horizontal ? w : h),
+          confidence: o.confidence,
+          wallId: nearestSegment.id,
+          parentWallId: o.parentWallId,
+          startT: o.startT,
+          endT: o.endT,
+          source: o.source == OpeningEvidenceSource.semanticAi ? SSEntitySource.vision : SSEntitySource.geometry,
+          reviewNeeded: o.reviewNeeded,
+          reviewReasons: o.reviewNeeded ? ['pixel gap 근거만 있음 — 문/창 종류 확정을 위한 사람 확인 필요'] : const [],
+        );
+      }(),
+  ];
+
+  final rejectedOpeningWarnings = [
+    for (final r in openingValidation.rejected) 'Opening 거부: ${r.reason}(id=${r.opening.id})',
   ];
 
   final rawModel = SSSpatialModel(
@@ -183,8 +252,12 @@ PixelWallPipelineResult runPixelWallPipeline({
     walls: walls,
     openings: openings,
     objects: const [],
-    warnings: floorDomain.isValid ? const [] : ['FloorDomain INVALID: ${floorDomain.failureReason}'],
+    warnings: [
+      if (!floorDomain.isValid) 'FloorDomain INVALID: ${floorDomain.failureReason}',
+      ...rejectedOpeningWarnings,
+    ],
     floorDomain: floorDomain.loop,
+    wallEdges: wallEdges,
   );
 
   final validated = const TopologyValidator().validate(rawModel);
@@ -200,5 +273,6 @@ PixelWallPipelineResult runPixelWallPipeline({
     unmatchedGptSpaceCount: unmatchedGptSpaceCount,
     unmatchedPhysicalRoomCount: unmatchedPhysicalRoomCount,
     wallSystems: wallSystems,
+    openingValidation: openingValidation,
   );
 }

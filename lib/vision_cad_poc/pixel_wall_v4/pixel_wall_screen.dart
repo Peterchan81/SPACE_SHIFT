@@ -312,10 +312,31 @@ class _CanonicalCadPainter extends CustomPainter {
       final path = Path()..addPolygon([for (final p in room.polygon) Offset(p.x * size.width, p.y * size.height)], true);
       canvas.drawPath(path, Paint()..color = Colors.grey..style = PaintingStyle.stroke..strokeWidth = 1);
     }
+    _paintOpenings(canvas, size, result);
   }
 
   @override
   bool shouldRepaint(covariant _CanonicalCadPainter oldDelegate) => false;
+}
+
+/// §12 OVERLAY DEBUG — Door(초록)/Window(파랑)/Unknown(회색, 점선 테두리)
+/// opening을 작은 원으로만 표시한다(door swing 기호 등 production 품질은
+/// 이번 pass 범위 밖, §11). 기본 CAD 뷰를 어지럽히지 않도록 반지름을
+/// 작게 유지한다.
+void _paintOpenings(Canvas canvas, Size size, PixelWallPipelineResult result) {
+  for (final opening in result.model.openings) {
+    final center = Offset(opening.center.x * size.width, opening.center.y * size.height);
+    final Color color = switch (opening.kind) {
+      SSOpeningKind.door => Colors.green,
+      SSOpeningKind.window => Colors.lightBlue,
+      SSOpeningKind.openPassage => Colors.purpleAccent,
+      SSOpeningKind.unknown => Colors.grey,
+    };
+    canvas.drawCircle(center, 4.5, Paint()..color = color.withValues(alpha: opening.reviewNeeded ? 0.55 : 0.95));
+    if (opening.reviewNeeded) {
+      canvas.drawCircle(center, 4.5, Paint()..color = color..style = PaintingStyle.stroke..strokeWidth = 1);
+    }
+  }
 }
 
 class _CanonicalOverlayPainter extends CustomPainter {
@@ -339,6 +360,7 @@ class _CanonicalOverlayPainter extends CustomPainter {
     }
     // §12 — SemanticZone은 기본 Overlay에 fake CAD line으로 그리지 않는다.
     // 실제 physical wall/FloorDomain만 원본 위에 표시한다(label 없음).
+    _paintOpenings(canvas, size, result);
   }
 
   @override
