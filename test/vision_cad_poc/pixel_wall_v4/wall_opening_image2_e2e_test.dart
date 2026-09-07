@@ -11,6 +11,7 @@ import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
 
+import 'package:ason_space/models/ss_spatial_model.dart';
 import 'package:ason_space/vision_cad_poc/e2e_v2/real_image2_source.dart';
 import 'package:ason_space/vision_cad_poc/pixel_wall_v4/gpt_semantic_schema.dart';
 import 'package:ason_space/vision_cad_poc/pixel_wall_v4/pixel_wall_pipeline.dart';
@@ -79,6 +80,26 @@ PhysicalRooms: ${result.physicalRooms.length}
     // 거부된 opening이 있어도 조용히 사라지지 않고 warnings에 남아야 한다.
     if (result.openingValidation.rejected.isNotEmpty) {
       expect(result.model.warnings.any((w) => w.contains('Opening 거부')), isTrue);
+    }
+
+    // WO082 EVIDENCE/PROVENANCE 회귀 — GPT 의미 근거가 0건인 이 실제
+    // 이미지에서는 모든 opening이 vision(semantic AI)이 아니라
+    // inferredTopology(pixel gap + topology 추론)여야 한다 — 추론값을
+    // 관측값처럼 vision/geometry로 잘못 표시하지 않는다.
+    for (final o in result.model.openings) {
+      expect(o.source, SSEntitySource.inferredTopology);
+    }
+    // WallEdge는 물리 segment가 여러 개로 나뉜 것(문 gap을 건너 이어붙인
+    // 것)만 inferredTopology이고, 나머지는 직접 관측(geometry)이어야 한다.
+    final inferredEdges = result.model.wallEdges.where((e) => e.source == SSEntitySource.inferredTopology).toList();
+    final geometryEdges = result.model.wallEdges.where((e) => e.source == SSEntitySource.geometry).toList();
+    expect(inferredEdges, isNotEmpty, reason: '실제 이미지 2에는 문 gap으로 끊긴 벽이 있어야 한다');
+    expect(geometryEdges, isNotEmpty, reason: '문 gap이 없는 순수 관측 벽도 있어야 한다');
+    for (final e in inferredEdges) {
+      expect(e.physicalWallIds.length, greaterThanOrEqualTo(2));
+    }
+    for (final e in geometryEdges) {
+      expect(e.physicalWallIds.length, 1);
     }
   });
 }

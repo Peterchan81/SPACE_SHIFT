@@ -194,6 +194,11 @@ PixelWallPipelineResult runPixelWallPipeline({
         kind: s.isExterior ? SSWallKind.exterior : SSWallKind.interior,
         confidence: s.segments.fold<double>(0, (sum, c) => sum + c.baseConfidence) / s.segments.length,
         physicalWallIds: [for (final c in s.segments) c.id],
+        // EVIDENCE/PROVENANCE — segment가 1개면 직접 관측된 pixel evidence
+        // 그대로다(geometry). 2개 이상이면 문/창 gap을 건너 위상적으로
+        // "같은 벽"이라고 판단한 것이지, 그 구간 전체가 직접 관측된 것은
+        // 아니다(inferredTopology) — 추론값을 관측값처럼 저장하지 않는다.
+        source: s.segments.length > 1 ? SSEntitySource.inferredTopology : SSEntitySource.geometry,
       ),
   ];
 
@@ -234,7 +239,11 @@ PixelWallPipelineResult runPixelWallPipeline({
           parentWallId: o.parentWallId,
           startT: o.startT,
           endT: o.endT,
-          source: o.source == OpeningEvidenceSource.semanticAi ? SSEntitySource.vision : SSEntitySource.geometry,
+          // EVIDENCE/PROVENANCE — GPT doorArc/windowDetail로 실제 확인된
+          // 것만 vision(semantic AI evidence)이다. pixel gap 크기만으로
+          // "여기 opening이 있을 것"이라 판단한 것은 직접 관측이 아니라
+          // topology 추론이므로 inferredTopology로 정직하게 남긴다.
+          source: o.source == OpeningEvidenceSource.semanticAi ? SSEntitySource.vision : SSEntitySource.inferredTopology,
           reviewNeeded: o.reviewNeeded,
           reviewReasons: o.reviewNeeded ? ['pixel gap 근거만 있음 — 문/창 종류 확정을 위한 사람 확인 필요'] : const [],
         );

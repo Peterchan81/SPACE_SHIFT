@@ -46,7 +46,17 @@ enum SSSpaceConfidence { high, medium, low, unknown }
 /// [SSEntitySource.geometry]를 그대로 쓴다(그 값 자체가 이미
 /// "픽셀/geometry 검출로 얻었다"는 뜻과 정확히 일치하므로 마이그레이션이
 /// 필요 없다).
-enum SSEntitySource { vision, geometry, ocr, user, validated }
+///
+/// EVIDENCE/PROVENANCE WO — [inferredTopology]/[virtualRecovery]를
+/// 추가했다(기존 5개 값은 그대로, 새 값만 additive). [geometry]는 원본
+/// pixel에서 "직접 관측된" evidence(예: 실제로 검출된 벽 segment)만
+/// 쓰고, 위상(topology) 추론으로 "존재한다고 판단"했을 뿐 직접 관측되지
+/// 않은 값(예: T-junction으로 이어붙인 연속 구조 벽, pixel gap만으로
+/// 확정한 미상 opening)은 [inferredTopology]를, 실제 pixel evidence가
+/// 전혀 없이 topology를 닫기 위해서만 만든 연결(door/imageBreak virtual
+/// bridge)은 [virtualRecovery]를 쓴다 — 추론값을 관측값처럼 저장하지
+/// 않는다는 원칙을 이 필드 하나로 구분한다.
+enum SSEntitySource { vision, geometry, ocr, user, validated, inferredTopology, virtualRecovery }
 
 /// 도면에서 파악된 "건축적으로 사용되는 공간" 하나.
 ///
