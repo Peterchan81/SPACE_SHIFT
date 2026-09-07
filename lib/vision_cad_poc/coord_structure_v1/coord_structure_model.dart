@@ -65,6 +65,7 @@ class CoordWallSegment {
     required this.confidence,
     required this.reviewNeeded,
     required this.source,
+    this.reviewReasons = const [],
   });
 
   final String id;
@@ -76,7 +77,19 @@ class CoordWallSegment {
   final bool reviewNeeded;
   final CoordEvidenceSource source;
 
-  CoordWallSegment copyWith({Point2? start, Point2? end, bool? reviewNeeded, CoordEvidenceSource? source}) => CoordWallSegment(
+  /// §8 WO088-2 — 왜 reviewNeeded인지(예: furniture/fixture region과
+  /// 겹침) 사람이 읽을 수 있는 근거. 비어 있을 수 있다(reviewNeeded=true
+  /// 여도 근거 문자열이 항상 있는 건 아니다 — 기존 WO088-1 reviewNeeded
+  /// 경로는 이 필드를 채우지 않는다).
+  final List<String> reviewReasons;
+
+  CoordWallSegment copyWith({
+    Point2? start,
+    Point2? end,
+    bool? reviewNeeded,
+    CoordEvidenceSource? source,
+    List<String>? reviewReasons,
+  }) => CoordWallSegment(
     id: id,
     start: start ?? this.start,
     end: end ?? this.end,
@@ -85,6 +98,7 @@ class CoordWallSegment {
     confidence: confidence,
     reviewNeeded: reviewNeeded ?? this.reviewNeeded,
     source: source ?? this.source,
+    reviewReasons: reviewReasons ?? this.reviewReasons,
   );
 }
 
@@ -208,6 +222,45 @@ List<double> gridLines({double stepNormalized = 0.1}) {
   return [for (var i = 0; i <= count; i++) i == count ? 1.0 : i * stepNormalized];
 }
 
+/// §8 WO088-2 — 가구/설비 아이콘 오탐을 pixel threshold 재튜닝이 아니라
+/// semantic evidence(이미 캡처된 GPT furnitureRegions/ambiguousRegions)로
+/// 처리하는 방향을 검증한다. wall의 중점이 그런 영역 안에 있으면
+/// reviewNeeded를 켜고 사람이 읽을 수 있는 근거를 남긴다 — 절대
+/// 자동으로 삭제/제외하지 않는다(실제 구조벽과 겹칠 수 있으므로 최종
+/// 판단은 사람 또는 향후 정밀 evidence에 맡긴다).
+bool _pointInApproxRegion(Point2 p, GptApproxRegion r) {
+  final minX = math.min(r.x0, r.x1);
+  final maxX = math.max(r.x0, r.x1);
+  final minY = math.min(r.y0, r.y1);
+  final maxY = math.max(r.y0, r.y1);
+  return p.x >= minX && p.x <= maxX && p.y >= minY && p.y <= maxY;
+}
+
+List<CoordWallSegment> flagInterferenceEvidence(List<CoordWallSegment> walls, GptSemanticResponse? semantic) {
+  if (semantic == null) return walls;
+  if (semantic.furnitureRegions.isEmpty && semantic.ambiguousRegions.isEmpty) return walls;
+
+  return [
+    for (final w in walls)
+      () {
+        final mid = Point2((w.start.x + w.end.x) / 2, (w.start.y + w.end.y) / 2);
+        final reasons = <String>[
+          for (final f in semantic.furnitureRegions)
+            if (_pointInApproxRegion(mid, f.approxRegion)) 'possibleFurnitureInterference: ${f.note}',
+          // ambiguousRegions는 GPT 스키마상 "가구/설비"로 좁혀 태깅된
+          // 영역이 아니라 "구조가 불명확함" 일반 힌트다(gpt_semantic_schema.dart
+          // 참고) — WO가 예시로 든 possibleFixtureInterference라는 이름을
+          // 실제로 없는 별도 fixtureRegions 필드가 있는 것처럼 잘못
+          // 붙이지 않는다. 실제 스키마 의미 그대로 정직하게 남긴다.
+          for (final a in semantic.ambiguousRegions)
+            if (_pointInApproxRegion(mid, a.approxRegion)) 'possibleAmbiguousRegionInterference: ${a.note}',
+        ];
+        if (reasons.isEmpty) return w;
+        return w.copyWith(reviewNeeded: true, reviewReasons: [...w.reviewReasons, ...reasons]);
+      }(),
+  ];
+}
+
 /// noiseCategory가 확실히 "벽이 아님"으로 분류된 candidate만 제외한다
 /// (pixel_wall_pipeline.dart의 `_isConfirmedNonWall`과 같은 기준 재사용 —
 /// 중복 로직 발명 금지). trueStructural/unknown은 근거가 불확실할 뿐
@@ -239,7 +292,7 @@ CoordStructureModel buildCoordStructureFromExtraction(
   var classified = classifyNoiseCategories(candidates: extraction.candidates, semantic: semantic);
   classified = applyTextHeuristic(candidates: classified, analysisWidthPx: extraction.analysisWidthPx, analysisHeightPx: extraction.analysisHeightPx);
 
-  final walls = [
+  var walls = [
     for (final c in classified)
       if (!_isConfirmedNonWall(c))
         CoordWallSegment(
@@ -253,6 +306,7 @@ CoordStructureModel buildCoordStructureFromExtraction(
           source: CoordEvidenceSource.pixelWall,
         ),
   ];
+  walls = flagInterferenceEvidence(walls, semantic);
 
   final semanticHintOpenings = [
     for (final c in classified)

@@ -9,6 +9,7 @@ import 'package:flutter_test/flutter_test.dart';
 
 import 'package:ason_space/models/floor_plan_geometry.dart';
 import 'package:ason_space/vision_cad_poc/coord_structure_v1/coord_structure_model.dart';
+import 'package:ason_space/vision_cad_poc/pixel_wall_v4/gpt_semantic_schema.dart';
 import 'package:ason_space/vision_cad_poc/pixel_wall_v4/pixel_wall_extractor.dart';
 import 'package:ason_space/vision_cad_poc/pixel_wall_v4/pixel_wall_types.dart';
 
@@ -165,6 +166,64 @@ void main() {
       expect(afterAdd.walls, hasLength(2));
       expect(afterAdd.walls.last.source, CoordEvidenceSource.userEdited);
       expect(afterAdd.walls.first.start.x, model.walls.first.start.x);
+    });
+  });
+
+  group('flagInterferenceEvidence — WO088-2 §8 가구/설비 오탐을 삭제 대신 review evidence로', () {
+    GptSemanticResponse semanticWith({List<GptSemanticRegionNote> furniture = const [], List<GptSemanticRegionNote> ambiguous = const []}) {
+      return GptSemanticResponse(
+        spaces: const [
+          GptSemanticSpace(id: 's1', label: '테스트공간', semanticType: 'room', approxRegion: GptApproxRegion(x0: 0, y0: 0, x1: 1, y1: 1)),
+        ],
+        furnitureRegions: furniture,
+        ambiguousRegions: ambiguous,
+      );
+    }
+
+    test('furnitureRegion과 겹치는 wall은 삭제되지 않고 reviewNeeded+근거만 추가된다', () {
+      // wall 중점 = (0.2, 0.2) — furnitureRegion(0.1..0.3, 0.1..0.3) 내부.
+      final c = _seg(id: 'w1', x1: 0.1, y1: 0.2, x2: 0.3, y2: 0.2, isExterior: true);
+      final semantic = semanticWith(
+        furniture: const [GptSemanticRegionNote(approxRegion: GptApproxRegion(x0: 0.1, y0: 0.1, x1: 0.3, y1: 0.3), note: '옷장으로 보임')],
+      );
+      final model = buildCoordStructureFromExtraction(_extraction(candidates: [c]), semantic: semantic);
+      expect(model.walls, hasLength(1), reason: '자동 삭제 금지 — 여전히 목록에 있어야 한다');
+      final w = model.walls.single;
+      expect(w.reviewNeeded, isTrue);
+      expect(w.reviewReasons, isNotEmpty);
+      expect(w.reviewReasons.single, contains('possibleFurnitureInterference'));
+      expect(w.reviewReasons.single, contains('옷장으로 보임'));
+      // 좌표 자체는 evidence 그대로 — semantic이 좌표를 다시 그리지 않는다(§7).
+      expect(w.start.x, closeTo(0.1, 1e-9));
+      expect(w.end.x, closeTo(0.3, 1e-9));
+    });
+
+    test('ambiguousRegion과 겹치는 wall은 possibleFixtureInterference가 아니라 실제 스키마 의미(possibleAmbiguousRegionInterference)로 정직하게 표시된다', () {
+      final c = _seg(id: 'w1', x1: 0.6, y1: 0.6, x2: 0.8, y2: 0.6, isExterior: false);
+      final semantic = semanticWith(
+        ambiguous: const [GptSemanticRegionNote(approxRegion: GptApproxRegion(x0: 0.5, y0: 0.5, x1: 0.9, y1: 0.9), note: '구조가 불명확함')],
+      );
+      final model = buildCoordStructureFromExtraction(_extraction(candidates: [c]), semantic: semantic);
+      expect(model.walls, hasLength(1));
+      expect(model.walls.single.reviewReasons.single, contains('possibleAmbiguousRegionInterference'));
+    });
+
+    test('겹치는 region이 없으면 reviewReasons가 비어 있고 reviewNeeded도 그대로다', () {
+      final c = _seg(id: 'w1', x1: 0.0, y1: 0.0, x2: 0.05, y2: 0.0);
+      final semantic = semanticWith(
+        furniture: const [GptSemanticRegionNote(approxRegion: GptApproxRegion(x0: 0.8, y0: 0.8, x1: 0.9, y1: 0.9), note: '멀리 떨어진 가구')],
+      );
+      final model = buildCoordStructureFromExtraction(_extraction(candidates: [c]), semantic: semantic);
+      expect(model.walls.single.reviewNeeded, isFalse);
+      expect(model.walls.single.reviewReasons, isEmpty);
+    });
+
+    test('semantic이 null이면 flagInterferenceEvidence가 아무 것도 바꾸지 않는다(§7 semantic이 좌표를 임의로 바꾸지 않는다)', () {
+      final c = _seg(id: 'w1', x1: 0.1, y1: 0.1, x2: 0.4, y2: 0.1);
+      final withoutSemantic = buildCoordStructureFromExtraction(_extraction(candidates: [c]));
+      expect(withoutSemantic.walls.single.reviewNeeded, isFalse);
+      expect(withoutSemantic.walls.single.reviewReasons, isEmpty);
+      expect(withoutSemantic.walls.single.start.x, closeTo(0.1, 1e-9));
     });
   });
 }

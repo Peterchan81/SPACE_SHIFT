@@ -16,6 +16,8 @@ import 'package:flutter/material.dart';
 import '../../models/floor_plan_geometry.dart';
 import '../e2e_v2/real_image2_source.dart';
 import '../pixel_wall_v4/pixel_wall_extractor.dart';
+import '../pixel_wall_v4/virtual_cad_scale.dart';
+import 'coord_real_scale.dart';
 import 'coord_structure_model.dart';
 
 enum CoordViewMode { original, overlay, coordinateOnly }
@@ -29,6 +31,7 @@ class CoordStructureScreen extends StatefulWidget {
 
 class _CoordStructureScreenState extends State<CoordStructureScreen> {
   final Uint8List? _bytes = loadRealImage2Bytes();
+  late final PixelWallExtractionResult? _extraction = _buildExtraction();
   late CoordStructureModel? _model = _buildInitial();
   CoordViewMode _mode = CoordViewMode.overlay;
   bool _showGrid = false;
@@ -36,16 +39,38 @@ class _CoordStructureScreenState extends State<CoordStructureScreen> {
   bool _addMode = false;
   Point2? _pendingAddStart;
 
-  CoordStructureModel? _buildInitial() {
+  // §4/§5 WO088-2 REAL SCALE ANCHOR — 사용자가 도면 위 두 점을 찍고 실제
+  // 길이(mm)를 입력하면 확정된다. 확정 전에는 항상 unknown이다(§3B —
+  // 임의 mm 값을 만들지 않는다).
+  RealWorldScale _scale = const RealWorldScale.unknown();
+  bool _anchorMode = false;
+  Point2? _pendingAnchorStart;
+  bool _showRealScale = false;
+
+  PixelWallExtractionResult? _buildExtraction() {
     final bytes = _bytes;
     if (bytes == null) return null;
-    final extraction = extractPixelWalls(bytes);
+    return extractPixelWalls(bytes);
+  }
+
+  CoordStructureModel? _buildInitial() {
+    final extraction = _extraction;
+    if (extraction == null) return null;
     return buildCoordStructureFromExtraction(extraction);
   }
 
   void _onCanvasTap(Point2 tapped) {
     final model = _model;
     if (model == null) return;
+    if (_anchorMode) {
+      final pendingStart = _pendingAnchorStart;
+      if (pendingStart == null) {
+        setState(() => _pendingAnchorStart = tapped);
+      } else {
+        _promptAnchorRealLength(pendingStart, tapped);
+      }
+      return;
+    }
     if (_addMode) {
       final pendingStart = _pendingAddStart;
       if (pendingStart == null) {
@@ -93,6 +118,78 @@ class _CoordStructureScreenState extends State<CoordStructureScreen> {
     });
   }
 
+  // §4/§6 USER SCALE ANCHOR — "문은 보통 900/1000mm"를 자동 확정하지
+  // 않는다: 900/1000mm는 사용자가 직접 고를 수 있는 후보일 뿐이고,
+  // 직접입력이 항상 함께 제공된다. 취소하면 anchor 자체를 확정하지
+  // 않는다(scale은 그대로 unknown으로 남는다).
+  Future<void> _promptAnchorRealLength(Point2 a, Point2 b) async {
+    final controller = TextEditingController();
+    final result = await showDialog<double>(
+      context: context,
+      builder: (context) {
+        return AlertDialog(
+          title: const Text('실제 길이 입력 (mm)'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text('선택한 두 점 사이의 실제 길이를 지정하세요.'),
+              const SizedBox(height: 8),
+              Wrap(
+                spacing: 8,
+                children: [
+                  OutlinedButton(onPressed: () => Navigator.of(context).pop(900.0), child: const Text('문 900mm')),
+                  OutlinedButton(onPressed: () => Navigator.of(context).pop(1000.0), child: const Text('문 1000mm')),
+                ],
+              ),
+              const SizedBox(height: 8),
+              TextField(
+                controller: controller,
+                keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                decoration: const InputDecoration(labelText: '직접 입력(mm)'),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(onPressed: () => Navigator.of(context).pop(), child: const Text('취소')),
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(double.tryParse(controller.text)),
+              child: const Text('적용'),
+            ),
+          ],
+        );
+      },
+    );
+    setState(() => _pendingAnchorStart = null);
+    if (result == null) return;
+    final extraction = _extraction;
+    if (extraction == null) return;
+    final newScale = calibrateCoordScaleFromAnchor(
+      a: a,
+      b: b,
+      realWorldMm: result,
+      sourceWidthPx: extraction.analysisWidthPx,
+      sourceHeightPx: extraction.analysisHeightPx,
+      anchorDescription: '사용자 선택 anchor = ${result.toStringAsFixed(0)}mm',
+    );
+    setState(() {
+      _scale = newScale;
+      _anchorMode = false;
+      if (newScale.isCalibrated) _showRealScale = true;
+    });
+  }
+
+  /// §10 REAL SCALE OVERLAY — 확정된 anchor로 전체 coordinate model을
+  /// mm로 변환해(coord_real_scale.dart, 새 산술 없이 재사용) wallId ->
+  /// lengthMm 조회 테이블만 뽑아낸다(overlay 텍스트 라벨용).
+  Map<String, double> _wallLengthMmById() {
+    final extraction = _extraction;
+    final model = _model;
+    if (extraction == null || model == null) return const {};
+    final metric = buildMetricCoordStructure(model, _scale, sourceWidthPx: extraction.analysisWidthPx, sourceHeightPx: extraction.analysisHeightPx);
+    return {for (final w in metric.walls) w.id: w.lengthMm};
+  }
+
   @override
   Widget build(BuildContext context) {
     final bytes = _bytes;
@@ -102,7 +199,7 @@ class _CoordStructureScreenState extends State<CoordStructureScreen> {
     }
     return Scaffold(
       appBar: AppBar(
-        title: const Text('WO088-1 COORD STRUCTURE POC'),
+        title: const Text('WO088-2 COORD + REAL SCALE POC'),
         actions: [
           IconButton(
             icon: Icon(_showGrid ? Icons.grid_on : Icons.grid_off),
@@ -116,6 +213,20 @@ class _CoordStructureScreenState extends State<CoordStructureScreen> {
               _pendingAddStart = null;
             }),
           ),
+          IconButton(
+            icon: Icon(_anchorMode ? Icons.straighten : Icons.straighten_outlined),
+            tooltip: 'Scale Anchor 설정(두 점 탭 + 실제 길이 입력)',
+            onPressed: () => setState(() {
+              _anchorMode = !_anchorMode;
+              _pendingAnchorStart = null;
+            }),
+          ),
+          if (_scale.isCalibrated)
+            IconButton(
+              icon: Icon(_showRealScale ? Icons.straighten : Icons.straighten_outlined, color: Colors.green),
+              tooltip: '실측(mm) 라벨 표시 전환',
+              onPressed: () => setState(() => _showRealScale = !_showRealScale),
+            ),
           if (_selectedWallId != null) IconButton(icon: const Icon(Icons.delete), onPressed: _deleteSelected),
         ],
       ),
@@ -141,6 +252,12 @@ class _CoordStructureScreenState extends State<CoordStructureScreen> {
                 Text('corners: ${model.corners.length}'),
                 Text('openings: ${model.openings.length}'),
                 Text('regions: ${model.regions.length}'),
+                Text(
+                  _scale.isCalibrated
+                      ? 'SCALE: 1 unit = ${_scale.mmPerVirtualUnit!.toStringAsFixed(3)}mm (${_scale.anchorDescription ?? ""})'
+                      : 'SCALE: 미확정 (Anchor 설정 필요)',
+                  style: TextStyle(color: _scale.isCalibrated ? Colors.green.shade800 : Colors.deepOrange, fontWeight: FontWeight.w600),
+                ),
               ],
             ),
           ),
@@ -164,7 +281,13 @@ class _CoordStructureScreenState extends State<CoordStructureScreen> {
                             Container(color: Colors.black87),
                           if (_mode != CoordViewMode.original)
                             CustomPaint(
-                              painter: _CoordOverlayPainter(model: model, showGrid: _showGrid, selectedWallId: _selectedWallId),
+                              painter: _CoordOverlayPainter(
+                                model: model,
+                                showGrid: _showGrid,
+                                selectedWallId: _selectedWallId,
+                                pendingAnchorStart: _pendingAnchorStart,
+                                wallLengthMm: _showRealScale && _scale.isCalibrated ? _wallLengthMmById() : const {},
+                              ),
                               child: const SizedBox.expand(),
                             ),
                         ],
@@ -182,11 +305,25 @@ class _CoordStructureScreenState extends State<CoordStructureScreen> {
 }
 
 class _CoordOverlayPainter extends CustomPainter {
-  _CoordOverlayPainter({required this.model, required this.showGrid, required this.selectedWallId});
+  _CoordOverlayPainter({
+    required this.model,
+    required this.showGrid,
+    required this.selectedWallId,
+    this.pendingAnchorStart,
+    this.wallLengthMm = const {},
+  });
 
   final CoordStructureModel model;
   final bool showGrid;
   final String? selectedWallId;
+
+  /// §4 anchor 두 번째 점을 아직 안 찍었을 때, 첫 번째 점을 시각적으로
+  /// 표시한다(사용자가 어디를 찍었는지 잊지 않도록).
+  final Point2? pendingAnchorStart;
+
+  /// §10 REAL SCALE OVERLAY — 비어 있으면(anchor 미확정 또는 토글 off)
+  /// 아무 mm 라벨도 그리지 않는다.
+  final Map<String, double> wallLengthMm;
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -222,6 +359,25 @@ class _CoordOverlayPainter extends CustomPainter {
           ..color = color
           ..strokeWidth = selected ? 4 : 2,
       );
+
+      final lengthMm = wallLengthMm[wall.id];
+      if (lengthMm != null) {
+        final midX = (wall.start.x + wall.end.x) / 2 * size.width;
+        final midY = (wall.start.y + wall.end.y) / 2 * size.height;
+        final tp = TextPainter(
+          text: TextSpan(text: '${lengthMm.toStringAsFixed(0)}mm', style: const TextStyle(color: Colors.black, fontSize: 9, backgroundColor: Colors.white70)),
+          textDirection: TextDirection.ltr,
+        )..layout();
+        tp.paint(canvas, Offset(midX - tp.width / 2, midY - tp.height / 2));
+      }
+    }
+
+    if (pendingAnchorStart != null) {
+      canvas.drawCircle(
+        Offset(pendingAnchorStart!.x * size.width, pendingAnchorStart!.y * size.height),
+        6,
+        Paint()..color = Colors.amber,
+      );
     }
 
     for (final corner in model.corners) {
@@ -240,5 +396,9 @@ class _CoordOverlayPainter extends CustomPainter {
 
   @override
   bool shouldRepaint(covariant _CoordOverlayPainter oldDelegate) =>
-      oldDelegate.model != model || oldDelegate.showGrid != showGrid || oldDelegate.selectedWallId != selectedWallId;
+      oldDelegate.model != model ||
+      oldDelegate.showGrid != showGrid ||
+      oldDelegate.selectedWallId != selectedWallId ||
+      oldDelegate.pendingAnchorStart != pendingAnchorStart ||
+      oldDelegate.wallLengthMm != wallLengthMm;
 }
