@@ -121,6 +121,33 @@ void main() {
       expect(result.graphEdgeCount, greaterThan(0));
     });
 
+    test('닫힌 loop를 가진 성분 + 안 닫히는(dangling) 성분이 서로 안 이어지면 작은 loop를 건물 전체로 오판하지 않는다', () {
+      // 실측 FAIL(PC1 RESUME, 실제 이미지 2) 재현 — pruneDanglingEdges는
+      // loop가 없는 성분을 "완전히" 지워 버린다. 그 성분이 애초에 다른
+      // 성분과 안 이어지는 진짜 구조 벽 evidence였다면, componentCount를
+      // pruning "이후" 그래프로만 재면 사라진 성분이 안 잡혀서 "성분
+      // 1개"로 착시가 생기고, 남은 작은 방 하나의 loop가 건물 전체
+      // outer loop인 것처럼 잘못 VALID 처리된다.
+      final candidates = [
+        // 성분 A — 완전히 닫힌 작은 방 하나(진짜 loop를 가짐).
+        _seg(id: 'a-top', x1: 0, y1: 0, x2: 60, y2: 0, isExterior: true),
+        _seg(id: 'a-bottom', x1: 0, y1: 60, x2: 60, y2: 60, isExterior: true),
+        _seg(id: 'a-left', x1: 0, y1: 0, x2: 0, y2: 60, isExterior: true),
+        _seg(id: 'a-right', x1: 60, y1: 0, x2: 60, y2: 60, isExterior: true),
+        // 성분 B — 성분 A와 전혀 안 닿는, 열려 있는(loop 없는) 3면
+        // 벽 — 진짜 건물 외곽의 일부지만 evidence가 끊겨 안 닫힌다.
+        _seg(id: 'b-top', x1: 200, y1: 0, x2: 300, y2: 0, isExterior: true),
+        _seg(id: 'b-left', x1: 200, y1: 0, x2: 200, y2: 80, isExterior: true),
+        _seg(id: 'b-bottom', x1: 200, y1: 80, x2: 300, y2: 80, isExterior: true),
+      ];
+
+      final result = buildFloorDomainFromPlanarGraph(candidates: candidates, w: w, h: h);
+
+      expect(result.isValid, isFalse, reason: '성분 B의 evidence가 끊겨 있는데 성분 A의 작은 loop만으로 전체 VALID 처리하면 안 된다');
+      expect(result.sourceEvidenceLimited, isTrue);
+      expect(result.failureReason, contains('성분'));
+    });
+
     test('구조 벽이 하나도 없으면 PlanarGraph 자체가 비어 있다고 정직하게 보고한다', () {
       final result = buildFloorDomainFromPlanarGraph(candidates: const [], w: w, h: h);
       expect(result.isValid, isFalse);

@@ -447,6 +447,13 @@ double _shoelaceSigned(List<int> vertexIds, PlanarGraph graph) {
 /// 끊겨 있다는 뜻 — production FloorDomain 경로가 이걸로
 /// SOURCE_EVIDENCE_LIMITED 여부를 판정한다.
 int countConnectedComponents(PlanarGraph graph) {
+  // [pruneDanglingEdges]가 반환하는 그래프는 edges 리스트를 필터링만
+  // 하고 재색인하지 않는다 — adjacency에 남아 있는 edge id는 원래
+  // 발급된 id 값이지 이 리스트의 위치(index)가 아니다. id로 직접
+  // edges[id]를 인덱싱하면 pruning 후 범위를 벗어나거나 엉뚱한 edge를
+  // 가리킬 수 있다(실측: 실제 Image 2에서 RangeError로 확인). id 값으로
+  // 찾도록 map을 만든다 — extractFaces가 이미 하는 방식과 동일하다.
+  final edgeById = {for (final e in graph.edges) e.id: e};
   final visited = <int>{};
   var count = 0;
   for (final v in graph.vertices) {
@@ -458,7 +465,8 @@ int countConnectedComponents(PlanarGraph graph) {
     while (stack.isNotEmpty) {
       final cur = stack.removeLast();
       for (final eId in graph.adjacency[cur]!) {
-        final e = graph.edges[eId];
+        final e = edgeById[eId];
+        if (e == null) continue;
         final other = e.v1 == cur ? e.v2 : e.v1;
         if (visited.add(other)) stack.add(other);
       }

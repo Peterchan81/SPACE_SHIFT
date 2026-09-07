@@ -342,7 +342,17 @@ FloorDomainResult buildFloorDomainFromPlanarGraph({
       ),
   ];
 
-  final componentCount = countConnectedComponents(pruned);
+  // 실측 FAIL(PC1 RESUME) — pruneDanglingEdges는 loop를 이루지 못하는
+  // 가지를 "완전히" 지운다. 그 가지가 속했던 성분 전체가 loop 없는
+  // tree였다면, pruning 후에는 그 성분의 vertex가 adjacency 0으로
+  // 사라져 countConnectedComponents(pruned)에서 아예 안 잡힌다 — 실제로는
+  // 서로 안 이어지는 구조 벽 4개 성분인데 pruned 그래프만 보면 우연히
+  // loop를 가진 성분 1개만 남아 "성분 1개"로 보이는 착시가 생긴다(실측:
+  // 이미지 2에서 방 하나(침실1+현관) 크기의 작은 loop가 건물 전체 외곽인
+  // 것처럼 잘못 VALID 판정됨). componentCount는 반드시 pruning 이전의
+  // 원본(가상 door bridge 포함) 그래프로 계산해야 실제 구조 벽 evidence의
+  // 연결 여부를 정직하게 반영한다.
+  final componentCount = countConnectedComponents(graph);
   final faces = extractFaces(pruned);
   final outerFaces = findOuterFaces(faces);
 
