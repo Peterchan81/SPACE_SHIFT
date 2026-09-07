@@ -22,6 +22,7 @@ import 'gpt_semantic_schema.dart';
 import 'pixel_wall_classifier.dart';
 import 'pixel_wall_extractor.dart';
 import 'pixel_wall_types.dart';
+import 'semantic_provider.dart';
 import 'semantic_zone_mapper.dart';
 import 'wall_opening.dart';
 import 'wall_system.dart';
@@ -39,6 +40,8 @@ class PixelWallPipelineResult {
     required this.unmatchedPhysicalRoomCount,
     required this.wallSystems,
     required this.openingValidation,
+    this.semanticStatus = SemanticProviderStatus.unavailable,
+    this.semanticReason,
   });
 
   final PixelWallExtractionResult extraction;
@@ -51,6 +54,13 @@ class PixelWallPipelineResult {
   final int unmatchedGptSpaceCount;
   final int unmatchedPhysicalRoomCount;
   final List<WallSystem> wallSystems;
+
+  /// WO087 §16 — 이 결과가 실제 semantic evidence로 만들어졌는지(SUCCESS),
+  /// 아니면 semantic 없이 geometry만으로 만들어졌는지(UNAVAILABLE).
+  /// [runPixelWallPipeline]을 semantic 없이 직접 호출하는 기존 호출부는
+  /// 전부 기본값 unavailable로 정직하게 표시된다.
+  final SemanticProviderStatus semanticStatus;
+  final String? semanticReason;
 
   /// DOOR/WINDOW → PARENT WALL + PARAMETRIC OPENING WO — 최종 승인된/
   /// 거부된 opening 전체(§13/§20 보고용).
@@ -287,5 +297,40 @@ PixelWallPipelineResult runPixelWallPipeline({
     unmatchedPhysicalRoomCount: unmatchedPhysicalRoomCount,
     wallSystems: wallSystems,
     openingValidation: openingValidation,
+    semanticStatus: semantic != null ? SemanticProviderStatus.success : SemanticProviderStatus.unavailable,
+    semanticReason: semantic == null ? 'semantic 인자 없이 호출됨(geometry-only)' : null,
+  );
+}
+
+/// WO087 §15 PRODUCTION WIRING — [SemanticProvider] 하나로 semantic
+/// evidence를 구해([provider]가 fixture든, 나중에 실제 live 호출이든)
+/// 그대로 [runPixelWallPipeline](변경 없음)에 넘긴다. provider가
+/// unavailable을 반환해도(§16 "죽으면 안 된다") geometry-only로 안전하게
+/// 계속 진행한다 — 절대 예외를 던지지 않는다.
+Future<PixelWallPipelineResult> runPixelWallPipelineWithSemanticProvider({
+  required Uint8List imageBytes,
+  required SemanticProvider provider,
+}) async {
+  final semanticResult = await provider.fetch(imageBytes);
+  final result = runPixelWallPipeline(imageBytes: imageBytes, semantic: semanticResult.response);
+  if (semanticResult.status != SemanticProviderStatus.unavailable) return result;
+  // provider가 명시적으로 unavailable을 반환한 경우, semanticReason을
+  // "semantic 인자 없이 호출됨"이라는 일반 메시지 대신 provider가 실제로
+  // 준 이유로 교체한다 — 왜 semantic이 없는지(fixture 없음/live 미구현
+  // 등) 더 정확하게 남긴다.
+  return PixelWallPipelineResult(
+    extraction: result.extraction,
+    model: result.model,
+    floorDomain: result.floorDomain,
+    spaceSemantics: result.spaceSemantics,
+    physicalRooms: result.physicalRooms,
+    matchedPhysicalRoomCount: result.matchedPhysicalRoomCount,
+    semanticZoneCount: result.semanticZoneCount,
+    unmatchedGptSpaceCount: result.unmatchedGptSpaceCount,
+    unmatchedPhysicalRoomCount: result.unmatchedPhysicalRoomCount,
+    wallSystems: result.wallSystems,
+    openingValidation: result.openingValidation,
+    semanticStatus: SemanticProviderStatus.unavailable,
+    semanticReason: semanticResult.reason,
   );
 }

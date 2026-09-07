@@ -15,6 +15,7 @@ import '../services/space_scene_builder.dart';
 import '../services/space_scene_builder_v2.dart';
 import '../theme/space_shift_colors.dart';
 import '../vision_cad_poc/pixel_wall_v4/pixel_wall_pipeline.dart';
+import '../vision_cad_poc/pixel_wall_v4/semantic_provider.dart';
 import '../widgets/workspace/ceiling_height_sheet.dart';
 import '../widgets/workspace/settings_entry_button.dart';
 import '../widgets/workspace/start_method_panel.dart';
@@ -74,13 +75,22 @@ const double kDefaultCeilingHeightMm = 2400;
 
 /// WO084/085 — 실제 Image2 회귀(96/105/23 vertices/edges/T-junction,
 /// PhysicalRooms 9)로 검증된 pixel_wall_v4 엔진을 production 분석 경로에
-/// 연결한다. GPT 의미 지도(semantic) 없이도(§ semantic == null 분기,
-/// pixel_wall_pipeline.dart) 순수 pixel evidence만으로 결정론적인 벽/
-/// 개구부/공간을 만든다 — 매칭되지 않은 공간은 reviewNeeded로 정직하게
-/// 남긴다(가짜로 문/창/방을 확정하지 않는다, WO084 절대 원칙).
-/// [compute]가 새 isolate에서 호출하므로 top-level 함수여야 한다.
-PixelWallPipelineResult _runPixelWallV4(Uint8List bytes) =>
-    runPixelWallPipeline(imageBytes: bytes);
+/// 연결한다. 순수 pixel evidence만으로도 결정론적인 벽/개구부/공간을
+/// 만든다 — 매칭되지 않은 공간은 reviewNeeded로 정직하게 남긴다(가짜로
+/// 문/창/방을 확정하지 않는다, WO084 절대 원칙).
+///
+/// WO087 §15 — [SemanticProvider]로 실제 semantic evidence를 시도한다.
+/// 현재는 [UnavailableSemanticProvider](live GPT 호출은 이번 WO 범위
+/// 밖 — §3 보안 사고로 노출된 key 재사용 금지 + 범위 확장 금지 원칙)를
+/// 쓰지만, 호출부 코드를 전혀 바꾸지 않고 나중에 실제 live provider로
+/// 교체할 수 있다. semantic이 없어도(§16) 절대 죽지 않고 geometry-only로
+/// 안전하게 계속 진행한다.
+const SemanticProvider _productionSemanticProvider = UnavailableSemanticProvider();
+
+Future<PixelWallPipelineResult> _runPixelWallV4(Uint8List bytes) => runPixelWallPipelineWithSemanticProvider(
+  imageBytes: bytes,
+  provider: _productionSemanticProvider,
+);
 
 class _FloorPlanWorkspaceScreenState extends State<FloorPlanWorkspaceScreen> {
   WorkspaceStartMethod _startMethod = WorkspaceStartMethod.floorPlanUpload;
@@ -212,10 +222,19 @@ class _FloorPlanWorkspaceScreenState extends State<FloorPlanWorkspaceScreen> {
         // 확인, pumpAndSettle 타임아웃). 이미지 분석 해상도가 이미
         // 900px로 제한돼(engine.dart) 메인 스레드에서 계산해도 감당할
         // 수 있는 비용이므로, 여기서는 isolate 없이 직접 호출한다.
-        final pixelResult = _runPixelWallV4(file.bytes!);
+        final pixelResult = await _runPixelWallV4(file.bytes!);
         final model = pixelResult.model;
         if (model.walls.isNotEmpty || model.spaces.isNotEmpty) {
           cadFloorPlan = buildCadFloorPlanFromSpatialModel(model);
+          if (pixelResult.semanticStatus == SemanticProviderStatus.unavailable) {
+            // WO087 §16 — SEMANTIC_UNAVAILABLE은 FALLBACK_USED가 아니다:
+            // geometry 엔진은 정상 동작했다. semantic evidence가 없어
+            // 방 이름이 "공간 N"으로 남는다는 것만 정직하게 알린다.
+            cadFloorPlan = cadFloorPlan.copyWithWarnings([
+              ...cadFloorPlan.warnings,
+              'semantic 근거 없이 geometry만으로 분석했습니다(SEMANTIC_UNAVAILABLE) — 공간 이름은 자동으로 확정되지 않습니다.',
+            ]);
+          }
         } else {
           // WO086 §13 — FALLBACK_USED: pixel_wall_v4가 예외 없이 끝났지만
           // 벽/공간을 하나도 만들지 못했다(예: 극단적으로 단순하거나
