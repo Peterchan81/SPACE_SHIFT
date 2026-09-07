@@ -13,6 +13,7 @@ import 'package:flutter_test/flutter_test.dart';
 
 import 'package:ason_space/models/ss_spatial_model.dart';
 import 'package:ason_space/vision_cad_poc/e2e_v2/real_image2_source.dart';
+import 'package:ason_space/vision_cad_poc/pixel_wall_v4/floor_domain_builder.dart' show RepairStatus;
 import 'package:ason_space/vision_cad_poc/pixel_wall_v4/gpt_semantic_schema.dart';
 import 'package:ason_space/vision_cad_poc/pixel_wall_v4/pixel_wall_pipeline.dart';
 
@@ -101,5 +102,16 @@ PhysicalRooms: ${result.physicalRooms.length}
     for (final e in geometryEdges) {
       expect(e.physicalWallIds.length, 1);
     }
+
+    // WO086 §9 — 사용자용 채널(SSSpatialModel.warnings)에는 기술 메시지
+    // ("FloorDomain INVALID: ...")가 아니라 TopologyDiagnostics의
+    // userMessage가 노출돼야 한다. 정확한 원인은 여전히
+    // fd.failureReason/fd.topology로 별도 확인 가능해야 한다(전문가용
+    // 채널 보존).
+    expect(result.model.warnings.any((w) => w.contains('FloorDomain INVALID')), isFalse);
+    expect(fd.topology, isNotNull);
+    expect(result.model.warnings, contains(fd.topology!.userMessage));
+    expect(fd.failureReason, isNotNull);
+    expect(fd.topology!.status, RepairStatus.unresolved, reason: '실제 이미지 2는 여전히 4개 성분으로 나뉜 UNRESOLVED 상태여야 한다');
   });
 }

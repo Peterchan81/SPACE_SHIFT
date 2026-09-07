@@ -14,6 +14,72 @@ import 'pixel_wall_types.dart';
 import 'planar_wall_graph.dart';
 import 'wall_system.dart';
 
+/// WO086 TOPOLOGY RECOVERY — 이 진단이 REVIEW_REQUIRED로 이어질지
+/// UNRESOLVED로 남을지. [safeAutoRepair]는 이미 조용히 적용된 것이
+/// 아니라(그런 항목은 [TopologyDiagnostics.repairActions]에 이미 반영돼
+/// 있다) "추가 evidence 없이도 좁은 범위에서 자동 보정을 시도해 볼 만한"
+/// 상태를 뜻한다 — 이 상태 자체가 새 geometry를 만들지는 않는다.
+enum RepairStatus { safeAutoRepair, reviewRequired, unresolved }
+
+/// WO086 §8/§9 — FloorDomain이 왜 안 닫혔는지를 "기술 메시지 한 줄"이
+/// 아니라 구조화된 진단으로 만든다. 새 geometry를 만들지 않는다 —
+/// floor_domain_builder.dart/planar_wall_graph.dart가 이미 계산해 둔
+/// component/dangling-edge 정보를 사람이 판단할 수 있는 형태로
+/// 재구성할 뿐이다(§8 "원본 근거가 없는 구조를 임의 생성하지 않는다").
+class TopologyDiagnostics {
+  const TopologyDiagnostics({
+    required this.disconnectedComponents,
+    required this.danglingEdgeCount,
+    required this.openLoop,
+    required this.evidenceLimited,
+    required this.repairActions,
+    required this.unresolvedReasons,
+  });
+
+  /// evidence 없이 서로 이어지지 않는 구조 벽 성분 개수(1이면 정상 —
+  /// 전체가 한 덩어리). 2 이상이면 성분 사이 gap은 추론/repair로 메울
+  /// 근거가 없다(§8 — UNRESOLVED로만 분류될 수 있다).
+  final int disconnectedComponents;
+
+  /// 어떤 닫힌 face에도 속하지 못해 pruning된 edge 개수(막다른 가지).
+  final int danglingEdgeCount;
+
+  /// 위상적으로 닫힌 outer face 자체를 하나도 못 찾았는지(단일 성분
+  /// 안에서도 loop가 안 닫히는 경우 포함).
+  final bool openLoop;
+
+  /// [FloorDomainResult.sourceEvidenceLimited]와 동일 — 여러 성분으로
+  /// 나뉜 근본 원인이 evidence 부족이라는 뜻.
+  final bool evidenceLimited;
+
+  /// 이미 조용히 적용된 SAFE_AUTO_REPAIR 목록(예: 문/작은 끊김 gap을
+  /// 실제 두께 기반 허용 오차 안에서 가상 경계로 이은 것) — 사람이 다시
+  /// 볼 필요 없는, 이미 검증된 종류의 보정만 여기 남는다.
+  final List<String> repairActions;
+
+  /// 자동으로 고칠 근거가 없어 REVIEW_REQUIRED/UNRESOLVED로 남은 이유들
+  /// (디버그/전문가용 — 정확한 원인 그대로).
+  final List<String> unresolvedReasons;
+
+  /// 성분이 여러 개로 나뉘어 있으면(새 pixel evidence 없이는 절대 이을
+  /// 수 없음) UNRESOLVED, 성분은 하나인데 dangling edge가 남아 있으면
+  /// (좁은 범위 확인만으로 닫힐 가능성) REVIEW_REQUIRED, 둘 다 없으면
+  /// 별도 repair가 필요 없다는 뜻으로 safeAutoRepair를 반환한다.
+  RepairStatus get status {
+    if (disconnectedComponents > 1) return RepairStatus.unresolved;
+    if (danglingEdgeCount > 0 || openLoop) return RepairStatus.reviewRequired;
+    return RepairStatus.safeAutoRepair;
+  }
+
+  /// 기술 세부사항 없이 사용자에게 보여줄 한 줄 — 정확한 원인은
+  /// [unresolvedReasons](디버그/전문가 화면)에서만 노출한다(§9).
+  String get userMessage => switch (status) {
+    RepairStatus.safeAutoRepair => '도면 외곽이 정상적으로 닫혔습니다.',
+    RepairStatus.reviewRequired => '도면 일부를 자동으로 확인해야 합니다.',
+    RepairStatus.unresolved => '도면 일부 구간의 근거가 부족해 자동으로 연결하지 못했습니다.',
+  };
+}
+
 class FloorDomainResult {
   const FloorDomainResult({
     required this.loop,
@@ -25,6 +91,7 @@ class FloorDomainResult {
     this.graphFaceCount = 0,
     this.tJunctionCount = 0,
     this.sourceEvidenceLimited = false,
+    this.topology,
   });
 
   /// 닫혔으면 외곽 loop, 아니면 null(§ "fake exterior line 생성 금지").
@@ -48,6 +115,10 @@ class FloorDomainResult {
   /// 못했다는 뜻(§9 SOURCE_EVIDENCE_LIMITED) — bbox/convex hull로 억지
   /// 폐합하지 않고 정직하게 이 상태로 남긴다.
   final bool sourceEvidenceLimited;
+
+  /// WO086 §8/§9 — PlanarGraph 경로에서만 채워지는 구조화된 topology
+  /// 진단(§ [TopologyDiagnostics]). 옛 chain walker 경로는 null.
+  final TopologyDiagnostics? topology;
 
   bool get isValid => loop != null;
 }
@@ -356,13 +427,23 @@ FloorDomainResult buildFloorDomainFromPlanarGraph({
   final faces = extractFaces(pruned);
   final outerFaces = findOuterFaces(faces);
 
+  // WO086 §8/§9 — 이미 적용된 SAFE_AUTO_REPAIR(문/작은 끊김 gap을 실제
+  // 두께 기반 허용 오차 안에서 가상 경계로 이은 것)를 있는 그대로
+  // 진단에 반영한다 — 새로 계산하지 않고 이미 만든 virtualBoundaries를
+  // 그대로 요약한다(중복 로직 금지).
+  final repairActions = [
+    if (virtualBoundaries.isNotEmpty)
+      '문/작은 끊김 gap ${virtualBoundaries.length}개를 실제 벽 두께 기반 허용 오차 안에서 가상 경계로 연결(SAFE_AUTO_REPAIR)',
+  ];
+
   if (outerFaces.isEmpty || componentCount > 1) {
+    final failureReason = componentCount > 1
+        ? 'PlanarGraph: 구조 벽이 서로 이어지지 않는 $componentCount개 성분으로 나뉘어 단일 outer loop를 만들 수 없음'
+              '(dangling edge ${danglingEdges.length}개 — source evidence 부족)'
+        : 'PlanarGraph: 닫힌 outer face를 찾지 못함(dangling edge ${danglingEdges.length}개 — source evidence 부족)';
     return FloorDomainResult(
       loop: null,
-      failureReason: componentCount > 1
-          ? 'PlanarGraph: 구조 벽이 서로 이어지지 않는 $componentCount개 성분으로 나뉘어 단일 outer loop를 만들 수 없음'
-                '(dangling edge ${danglingEdges.length}개 — source evidence 부족)'
-          : 'PlanarGraph: 닫힌 outer face를 찾지 못함(dangling edge ${danglingEdges.length}개 — source evidence 부족)',
+      failureReason: failureReason,
       virtualBoundaries: virtualBoundaries,
       unresolvedGaps: unresolvedGaps,
       graphVertexCount: graph.vertices.length,
@@ -370,6 +451,14 @@ FloorDomainResult buildFloorDomainFromPlanarGraph({
       graphFaceCount: faces.length,
       tJunctionCount: tJunctionCount,
       sourceEvidenceLimited: true,
+      topology: TopologyDiagnostics(
+        disconnectedComponents: componentCount,
+        danglingEdgeCount: danglingEdges.length,
+        openLoop: outerFaces.isEmpty,
+        evidenceLimited: true,
+        repairActions: repairActions,
+        unresolvedReasons: [failureReason],
+      ),
     );
   }
 
@@ -386,5 +475,13 @@ FloorDomainResult buildFloorDomainFromPlanarGraph({
     graphFaceCount: faces.length,
     tJunctionCount: tJunctionCount,
     sourceEvidenceLimited: false,
+    topology: TopologyDiagnostics(
+      disconnectedComponents: componentCount,
+      danglingEdgeCount: danglingEdges.length,
+      openLoop: false,
+      evidenceLimited: false,
+      repairActions: repairActions,
+      unresolvedReasons: const [],
+    ),
   );
 }

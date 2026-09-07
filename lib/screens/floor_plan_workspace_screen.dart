@@ -216,10 +216,25 @@ class _FloorPlanWorkspaceScreenState extends State<FloorPlanWorkspaceScreen> {
         final model = pixelResult.model;
         if (model.walls.isNotEmpty || model.spaces.isNotEmpty) {
           cadFloorPlan = buildCadFloorPlanFromSpatialModel(model);
+        } else {
+          // WO086 §13 — FALLBACK_USED: pixel_wall_v4가 예외 없이 끝났지만
+          // 벽/공간을 하나도 만들지 못했다(예: 극단적으로 단순하거나
+          // 퇴화된 이미지). 조용히 폴백하지 않고 왜 폴백했는지 남긴다.
+          cadFloorPlan = cadFloorPlan.copyWithWarnings([
+            ...cadFloorPlan.warnings,
+            'pixel_wall_v4 엔진이 벽/공간을 찾지 못해 기존 분석 결과로 대체했습니다(FALLBACK_USED).',
+          ]);
         }
       } catch (_) {
-        // pixel_wall_v4 실패 — 기존 엔진 결과(cadFloorPlan)를 그대로 쓴다
-        // (비정상적으로 작거나 손상된 이미지 등).
+        // WO086 §13 — FALLBACK_USED: pixel_wall_v4가 예외로 실패했다(예:
+        // 비정상적으로 작거나 손상된 이미지). 기존 엔진 결과(cadFloorPlan)를
+        // 그대로 쓰되, 왜 폴백했는지는 조용히 삼키지 않고 남긴다 — 원본
+        // 예외 내용은 사용자에게 노출하지 않는다(민감정보 우려 없음, 다만
+        // 이 프로젝트의 "원본 예외를 그대로 노출하지 않는다" 관례를 따름).
+        cadFloorPlan = cadFloorPlan.copyWithWarnings([
+          ...cadFloorPlan.warnings,
+          'pixel_wall_v4 엔진 분석에 실패해 기존 분석 결과로 대체했습니다(FALLBACK_USED).',
+        ]);
       }
       setState(() {
         _analysisPhase = FloorPlanAnalysisPhase.completed;

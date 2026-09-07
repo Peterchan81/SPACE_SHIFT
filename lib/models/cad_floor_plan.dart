@@ -466,6 +466,20 @@ class CadFloorPlan {
       objectCandidates: objectCandidates,
     );
   }
+
+  /// WO086 §13 — 분석 경로가 SUCCESS/PARTIAL/FALLBACK_USED 중 어느
+  /// 상태였는지를 조용히 삼키지 않고 [warnings]에 남길 때 쓴다.
+  CadFloorPlan copyWithWarnings(List<String> warnings) {
+    return CadFloorPlan(
+      sourceWidthPx: sourceWidthPx,
+      sourceHeightPx: sourceHeightPx,
+      walls: walls,
+      openings: openings,
+      rooms: rooms,
+      warnings: warnings,
+      objectCandidates: objectCandidates,
+    );
+  }
 }
 
 /// 실제 분석 엔진 결과([FloorPlanAnalysisResult] — 검출기 evidence)를

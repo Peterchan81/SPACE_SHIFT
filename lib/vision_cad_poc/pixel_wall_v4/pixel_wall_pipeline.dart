@@ -262,7 +262,11 @@ PixelWallPipelineResult runPixelWallPipeline({
     openings: openings,
     objects: const [],
     warnings: [
-      if (!floorDomain.isValid) 'FloorDomain INVALID: ${floorDomain.failureReason}',
+      // WO086 §9 — 사용자용 채널에는 기술 메시지 그대로가 아니라
+      // TopologyDiagnostics.userMessage(정확한 원인은
+      // floorDomain.failureReason/topology로 별도 노출된다, §9 사용자용
+      // vs 전문가용 분리).
+      if (!floorDomain.isValid) floorDomain.topology?.userMessage ?? 'FloorDomain INVALID: ${floorDomain.failureReason}',
       ...rejectedOpeningWarnings,
     ],
     floorDomain: floorDomain.loop,
