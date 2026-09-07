@@ -344,6 +344,11 @@ class _CadOverlayPainter extends CustomPainter {
   static const _guideLine = Color(0xFFCBD5E1);
   static const _objectOutline = Color(0xFF94A3B8);
 
+  /// WO084/085 §9 — 자동으로 확정되지 않아 사람이 다시 봐야 하는 벽/문·창/
+  /// 공간(reviewNeeded)을 문/창을 door/window로 단정한 것처럼 보이지
+  /// 않도록 별도 색으로 구분한다. 선택 강조색과는 겹치지 않는다.
+  static const _reviewNeededAccent = Color(0xFFE65100);
+
   @override
   void paint(Canvas canvas, Size size) {
     // PC2 2D CAD 재조사 WO — "어디까지가 공간 1이고 어디까지가 공간
@@ -369,8 +374,10 @@ class _CadOverlayPainter extends CustomPainter {
         path,
         Paint()
           ..style = PaintingStyle.stroke
-          ..strokeWidth = selected ? 2 : 1
-          ..color = selected ? SpaceShiftColors.selectionAccent : _guideLine,
+          ..strokeWidth = selected ? 2 : (room.reviewNeeded ? 1.5 : 1)
+          ..color = selected
+              ? SpaceShiftColors.selectionAccent
+              : (room.reviewNeeded ? _reviewNeededAccent : _guideLine),
       );
     }
 
@@ -403,7 +410,9 @@ class _CadOverlayPainter extends CustomPainter {
         Paint()
           ..style = PaintingStyle.stroke
           ..strokeWidth = selected ? 2.5 : 1.5
-          ..color = selected ? SpaceShiftColors.selectionAccent : _wallStroke,
+          ..color = selected
+              ? SpaceShiftColors.selectionAccent
+              : (wall.reviewNeeded ? _reviewNeededAccent : _wallStroke),
       );
 
       if (selected) {
@@ -430,7 +439,9 @@ class _CadOverlayPainter extends CustomPainter {
       final border = Paint()
         ..style = PaintingStyle.stroke
         ..strokeWidth = selected ? 2 : 1.5
-        ..color = selected ? SpaceShiftColors.selectionAccent : _wallStroke;
+        ..color = selected
+            ? SpaceShiftColors.selectionAccent
+            : (opening.reviewNeeded ? _reviewNeededAccent : _wallStroke);
       final radius = selected ? 7.0 : 5.0;
       canvas.drawCircle(center, radius, paint);
       canvas.drawCircle(center, radius, border);

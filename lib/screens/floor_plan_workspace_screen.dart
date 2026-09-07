@@ -1,3 +1,5 @@
+import 'dart:typed_data';
+
 import 'package:flutter/material.dart';
 
 import '../models/cad_floor_plan.dart';
@@ -12,6 +14,7 @@ import '../services/floor_plan_upload_service.dart';
 import '../services/space_scene_builder.dart';
 import '../services/space_scene_builder_v2.dart';
 import '../theme/space_shift_colors.dart';
+import '../vision_cad_poc/pixel_wall_v4/pixel_wall_pipeline.dart';
 import '../widgets/workspace/ceiling_height_sheet.dart';
 import '../widgets/workspace/settings_entry_button.dart';
 import '../widgets/workspace/start_method_panel.dart';
@@ -68,6 +71,16 @@ class FloorPlanWorkspaceScreen extends StatefulWidget {
 /// 자동으로 채워 넣는다 — 사용자는 "확인"만 하면 되고, 다르면 기존
 /// "천장고 입력" 시트에서 바꿀 수 있다.
 const double kDefaultCeilingHeightMm = 2400;
+
+/// WO084/085 — 실제 Image2 회귀(96/105/23 vertices/edges/T-junction,
+/// PhysicalRooms 9)로 검증된 pixel_wall_v4 엔진을 production 분석 경로에
+/// 연결한다. GPT 의미 지도(semantic) 없이도(§ semantic == null 분기,
+/// pixel_wall_pipeline.dart) 순수 pixel evidence만으로 결정론적인 벽/
+/// 개구부/공간을 만든다 — 매칭되지 않은 공간은 reviewNeeded로 정직하게
+/// 남긴다(가짜로 문/창/방을 확정하지 않는다, WO084 절대 원칙).
+/// [compute]가 새 isolate에서 호출하므로 top-level 함수여야 한다.
+PixelWallPipelineResult _runPixelWallV4(Uint8List bytes) =>
+    runPixelWallPipeline(imageBytes: bytes);
 
 class _FloorPlanWorkspaceScreenState extends State<FloorPlanWorkspaceScreen> {
   WorkspaceStartMethod _startMethod = WorkspaceStartMethod.floorPlanUpload;
@@ -183,7 +196,31 @@ class _FloorPlanWorkspaceScreenState extends State<FloorPlanWorkspaceScreen> {
 
     if (outcome.isSuccess) {
       final result = outcome.result!;
-      final cadFloorPlan = buildCadFloorPlan(result);
+      // WO084/085 — 실제 Image2로 검증된 pixel_wall_v4 엔진(§ 위
+      // [_runPixelWallV4])이 기존 space-first 엔진보다 실제 벽/개구부
+      // topology를 더 정확히 잡아낸다(WO083 METRIC CAD FOUNDATION 기준선).
+      // 실패하거나(예외) 아무 geometry도 만들지 못하면 조용히 화면을
+      // 비우지 않고, 기존에 검증된 엔진 결과로 안전하게 되돌아간다 —
+      // 사용자에게는 항상 어떤 CAD 결과가 보여야 한다(§14 가짜 실패 금지
+      // 원칙의 반대편: 가짜 성공도 만들지 않되, 진짜 결과가 있으면 숨기지
+      // 않는다).
+      var cadFloorPlan = buildCadFloorPlan(result);
+      try {
+        // 실기 테스트 WO — [compute]의 실제 Isolate.spawn은 위젯 테스트의
+        // fake-async 존과 맞물려 절대 끝나지 않는 대기를 만든다(가짜
+        // FloorPlanAnalysisService로 분석을 즉시 끝내는 테스트에서 실측
+        // 확인, pumpAndSettle 타임아웃). 이미지 분석 해상도가 이미
+        // 900px로 제한돼(engine.dart) 메인 스레드에서 계산해도 감당할
+        // 수 있는 비용이므로, 여기서는 isolate 없이 직접 호출한다.
+        final pixelResult = _runPixelWallV4(file.bytes!);
+        final model = pixelResult.model;
+        if (model.walls.isNotEmpty || model.spaces.isNotEmpty) {
+          cadFloorPlan = buildCadFloorPlanFromSpatialModel(model);
+        }
+      } catch (_) {
+        // pixel_wall_v4 실패 — 기존 엔진 결과(cadFloorPlan)를 그대로 쓴다
+        // (비정상적으로 작거나 손상된 이미지 등).
+      }
       setState(() {
         _analysisPhase = FloorPlanAnalysisPhase.completed;
         _analysisResult = result;

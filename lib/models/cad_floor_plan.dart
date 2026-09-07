@@ -33,6 +33,8 @@ class CadWall {
     this.source = CadElementSource.analyzed,
     this.edited = false,
     this.heightMm,
+    this.reviewNeeded = false,
+    this.reviewReasons = const [],
   });
 
   final String id;
@@ -60,6 +62,12 @@ class CadWall {
   /// 벽 높이(mm). 자동 추정하지 않는다(WO 18/천장고 지침) — 항상 null로
   /// 시작하고, 천장고 입력 이후 채워질 자리만 미리 마련해 둔다.
   final double? heightMm;
+
+  /// WO084/085 — true면 이 벽이 자동으로 확정되지 않아 사람의 확인이
+  /// 필요하다는 뜻이다([SSWall.reviewNeeded] 그대로 승계). 자동으로
+  /// 구조 벽처럼 확정 표시하지 않고, 화면에서 구분해 보여준다.
+  final bool reviewNeeded;
+  final List<String> reviewReasons;
 
   Point2 get centerStart => start;
   Point2 get centerEnd => end;
@@ -104,6 +112,8 @@ class CadWall {
       source: source ?? this.source,
       edited: edited ?? this.edited,
       heightMm: heightMm ?? this.heightMm,
+      reviewNeeded: reviewNeeded,
+      reviewReasons: reviewReasons,
     );
   }
 }
@@ -119,6 +129,8 @@ class CadOpening {
     required this.confidence,
     this.wallId,
     this.source = CadElementSource.analyzed,
+    this.reviewNeeded = false,
+    this.reviewReasons = const [],
   });
 
   final String id;
@@ -128,6 +140,12 @@ class CadOpening {
   final double confidence;
   final String? wallId;
   final CadElementSource source;
+
+  /// WO084/085 — true면 문/창 종류(kind)를 pixel gap 근거만으로 확정하지
+  /// 못해 사람이 다시 봐야 한다는 뜻이다([SSOpening.reviewNeeded] 승계).
+  /// 자동으로 door/window로 단정하지 않는다(WO084 §C 절대 원칙).
+  final bool reviewNeeded;
+  final List<String> reviewReasons;
 }
 
 /// 편집 가능한 CAD 공간(방) 후보.
@@ -146,6 +164,8 @@ class CadRoom {
     this.closed = true,
     this.source = CadElementSource.analyzed,
     this.name,
+    this.reviewNeeded = false,
+    this.reviewReasons = const [],
   });
 
   final String id;
@@ -155,6 +175,12 @@ class CadRoom {
   final bool closed;
   final CadElementSource source;
   final String? name;
+
+  /// WO084/085 — true면 이 공간이 실제 독립 건축 공간인지 자동으로
+  /// 확정하지 못했다는 뜻이다([SSSpace.reviewNeeded] 승계) — 예: GPT
+  /// 의미 지도의 어떤 공간과도 매칭되지 않은 PhysicalRoom.
+  final bool reviewNeeded;
+  final List<String> reviewReasons;
 
   bool containsPoint(Point2 p) {
     var inside = false;
@@ -182,6 +208,8 @@ class CadRoom {
       closed: closed,
       source: source,
       name: name,
+      reviewNeeded: reviewNeeded,
+      reviewReasons: reviewReasons,
     );
   }
 }
@@ -465,50 +493,72 @@ CadFloorPlan buildCadFloorPlan(FloorPlanAnalysisResult result) {
 /// 화면/DXF/SVG/PDF/3D가 항상 하나의 캐노니컬 CAD geometry만 보게
 /// 한다(WO 절대 금지 — 별도 화면 전용 geometry를 만들지 않는다).
 CadFloorPlan buildCadFloorPlanFromSpatialModel(SSSpatialModel spatialModel) {
+  final walls = [
+    for (final wall in spatialModel.walls)
+      CadWall(
+        id: wall.id,
+        start: wall.start,
+        end: wall.end,
+        thicknessNormalized: wall.thicknessNormalized,
+        wallType: wall.kind == SSWallKind.exterior
+            ? CadWallType.exterior
+            : CadWallType.interior,
+        confidence: wall.confidence,
+        reviewNeeded: wall.reviewNeeded,
+        reviewReasons: wall.reviewReasons,
+      ),
+  ];
+  final openings = [
+    for (final opening in spatialModel.openings)
+      CadOpening(
+        id: opening.id,
+        type: switch (opening.kind) {
+          SSOpeningKind.door => OpeningType.door,
+          SSOpeningKind.window => OpeningType.window,
+          SSOpeningKind.openPassage ||
+          SSOpeningKind.unknown => OpeningType.unknown,
+        },
+        center: opening.center,
+        widthNormalized: opening.widthNormalized,
+        confidence: opening.confidence,
+        wallId: opening.wallId,
+        reviewNeeded: opening.reviewNeeded,
+        reviewReasons: opening.reviewReasons,
+      ),
+  ];
+  final rooms = [
+    for (final space in spatialModel.spaces)
+      CadRoom(
+        id: space.id,
+        polygon: space.polygon,
+        areaNormalized: space.areaNormalized,
+        confidence: space.confidence,
+        closed: space.closed,
+        name: space.label,
+        reviewNeeded: space.reviewNeeded,
+        reviewReasons: space.reviewReasons,
+      ),
+  ];
+
+  // WO084/085 §9 — "CAD 변환 완료, 일부 영역 확인 필요"를 [SSSpatialModel]의
+  // 개별 reviewReasons를 몰라도 한눈에 알 수 있게, 개수만 정직하게 요약해
+  // 기존 경고 표시 UI([floor_plan_preview.dart]가 이미 [CadFloorPlan.warnings]를
+  // 그대로 보여준다)에 얹는다 — 자동으로 확정된 것처럼 보이지 않게 한다.
+  final reviewWallCount = walls.where((w) => w.reviewNeeded).length;
+  final reviewOpeningCount = openings.where((o) => o.reviewNeeded).length;
+  final reviewRoomCount = rooms.where((r) => r.reviewNeeded).length;
+  final reviewSummary = reviewWallCount + reviewOpeningCount + reviewRoomCount > 0
+      ? 'CAD 변환 완료 — 일부 영역은 확인이 필요합니다'
+          '(벽 $reviewWallCount, 문/창 $reviewOpeningCount, 공간 $reviewRoomCount).'
+      : null;
+
   return CadFloorPlan(
     sourceWidthPx: spatialModel.sourceWidthPx,
     sourceHeightPx: spatialModel.sourceHeightPx,
-    walls: [
-      for (final wall in spatialModel.walls)
-        CadWall(
-          id: wall.id,
-          start: wall.start,
-          end: wall.end,
-          thicknessNormalized: wall.thicknessNormalized,
-          wallType: wall.kind == SSWallKind.exterior
-              ? CadWallType.exterior
-              : CadWallType.interior,
-          confidence: wall.confidence,
-        ),
-    ],
-    openings: [
-      for (final opening in spatialModel.openings)
-        CadOpening(
-          id: opening.id,
-          type: switch (opening.kind) {
-            SSOpeningKind.door => OpeningType.door,
-            SSOpeningKind.window => OpeningType.window,
-            SSOpeningKind.openPassage ||
-            SSOpeningKind.unknown => OpeningType.unknown,
-          },
-          center: opening.center,
-          widthNormalized: opening.widthNormalized,
-          confidence: opening.confidence,
-          wallId: opening.wallId,
-        ),
-    ],
-    rooms: [
-      for (final space in spatialModel.spaces)
-        CadRoom(
-          id: space.id,
-          polygon: space.polygon,
-          areaNormalized: space.areaNormalized,
-          confidence: space.confidence,
-          closed: space.closed,
-          name: space.label,
-        ),
-    ],
-    warnings: spatialModel.warnings,
+    walls: walls,
+    openings: openings,
+    rooms: rooms,
+    warnings: [...spatialModel.warnings, ?reviewSummary],
     objectCandidates: spatialModel.objects,
   );
 }
