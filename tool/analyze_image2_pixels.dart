@@ -1,6 +1,7 @@
 // SPACE SHIFT — Vision-Guided Full Pixel Wall Extraction POC.
 // 일회성 조사 스크립트(§3) — 구현 전 실제 이미지 픽셀 특성을 확인한다.
 // package:image만 사용(Flutter 의존 없음)해서 순수 dart run으로 실행.
+// ignore_for_file: avoid_print
 
 import 'dart:io';
 
