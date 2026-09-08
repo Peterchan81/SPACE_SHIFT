@@ -124,5 +124,21 @@ void main() {
       final service = createVisionInterpretationService();
       expect(service, isA<UnavailableVisionInterpretationService>());
     });
+
+    test('WO090 — urlOverride를 주면 실제 GptFloorplanEdgeFunctionVisionService를 만든다', () {
+      final service = createVisionInterpretationService(
+        urlOverride: 'https://project.supabase.co/functions/v1/gpt-floorplan-understand',
+      );
+      expect(service, isA<GptFloorplanEdgeFunctionVisionService>());
+      expect(
+        (service as GptFloorplanEdgeFunctionVisionService).endpoint.toString(),
+        'https://project.supabase.co/functions/v1/gpt-floorplan-understand',
+      );
+    });
+
+    test('urlOverride가 빈 문자열이면 여전히 안전한 기본값을 돌려준다', () {
+      final service = createVisionInterpretationService(urlOverride: '');
+      expect(service, isA<UnavailableVisionInterpretationService>());
+    });
   });
 }

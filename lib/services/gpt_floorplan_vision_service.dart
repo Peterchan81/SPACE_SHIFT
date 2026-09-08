@@ -82,8 +82,13 @@ class UnavailableVisionInterpretationService implements VisionInterpretationServ
 /// Edge Function 구현을, 없으면 [UnavailableVisionInterpretationService]를
 /// 돌려준다 — [createAiGenerationService](ai_generation_provider.dart)와
 /// 동일한 "URL이 없으면 안전하게 폴백" 팩토리 패턴.
-VisionInterpretationService createVisionInterpretationService() {
-  final url = AppEnvironment.gptFloorPlanEdgeFunctionUrl;
+///
+/// WO090 — [urlOverride]는 [ai_generation_provider.dart]의
+/// `edgeFunctionUrlOverride`와 동일한 이유로 존재한다: dart-define 없이도
+/// "URL이 실제로 설정된 경우" 분기를 테스트할 수 있게 한다. 지정하지
+/// 않으면(실사용 경로) [AppEnvironment.gptFloorPlanEdgeFunctionUrl]을 쓴다.
+VisionInterpretationService createVisionInterpretationService({String? urlOverride}) {
+  final url = urlOverride ?? AppEnvironment.gptFloorPlanEdgeFunctionUrl;
   if (url.isEmpty) return const UnavailableVisionInterpretationService();
   return GptFloorplanEdgeFunctionVisionService(endpoint: Uri.parse(url));
 }
