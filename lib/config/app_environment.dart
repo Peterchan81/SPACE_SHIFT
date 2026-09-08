@@ -98,6 +98,15 @@ class AppEnvironment {
     defaultValue: '',
   );
 
+  /// V1 AI-IMAGE FLOW WO — 방향 수정: production은 이제 구조화 좌표
+  /// ([gptFloorPlanEdgeFunctionUrl])가 아니라, 원본 배치를 유지한 "깨끗한
+  /// CAD 스타일 2D 평면도 이미지"를 GPT가 새로 그려주는 이 경로를 쓴다.
+  /// 지정하지 않으면 안전하게 원본 사진을 그대로 보여준다.
+  static const String gptFloorPlanImageEdgeFunctionUrl = String.fromEnvironment(
+    'GPT_FLOORPLAN_IMAGE_EDGE_FUNCTION_URL',
+    defaultValue: '',
+  );
+
   /// `--dart-define=SUPABASE_URL=...`.
   ///
   /// Galaxy Tab 인터넷 기반 무선 업데이트(AppUpdateService)가 공개 배포

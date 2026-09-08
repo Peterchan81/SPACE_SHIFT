@@ -54,7 +54,6 @@ class UserWorkspacePanel extends StatefulWidget {
     required this.hasFloorPlanFile,
     required this.analysisPhase,
     required this.analysisStep,
-    required this.analysisResult,
     required this.analysisFailureMessage,
     required this.onReanalyze,
     required this.cad,
@@ -102,7 +101,6 @@ class UserWorkspacePanel extends StatefulWidget {
   final bool hasFloorPlanFile;
   final FloorPlanAnalysisPhase analysisPhase;
   final FloorPlanAnalysisStep? analysisStep;
-  final FloorPlanAnalysisResult? analysisResult;
   final String? analysisFailureMessage;
   final VoidCallback onReanalyze;
   final CadWorkspaceState cad;
@@ -231,7 +229,6 @@ class _UserWorkspacePanelState extends State<UserWorkspacePanel> {
                   hasFloorPlanFile: widget.hasFloorPlanFile,
                   analysisPhase: widget.analysisPhase,
                   analysisStep: widget.analysisStep,
-                  analysisResult: widget.analysisResult,
                   analysisFailureMessage: widget.analysisFailureMessage,
                   onReanalyze: widget.onReanalyze,
                   cad: widget.cad,

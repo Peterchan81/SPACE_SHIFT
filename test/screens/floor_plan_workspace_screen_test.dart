@@ -20,22 +20,24 @@
 // 11. 좌측 하단 "설정" 버튼이 노출되고, 탭하면 SettingsScreen으로
 //     진입하며, 뒤로가기로 이 화면으로 돌아오면 업로드한 평면도/View
 //     선택 상태가 유지된다(MASTER 공통 기능, WO 2/12/13).
-// 12. "평면도 분석 시작"을 누르면 실제 단계 문구와 함께 로딩 상태가
-//     표시된다(가짜 timer가 아니라 서비스 단계 콜백을 그대로 반영).
-// 13. 분석이 성공하면 CAD geometry 오버레이가 나타나지만, 번호 marker와
-//     작업 목록은 그대로 비어 있다 — 분석 객체는 사용자 작업이 아니다.
-// 14. CAD 오버레이에서 벽을 탭하면 그 geometry가 선택되어 우측 패널에
-//     "도면 요소" 정보가 표시된다(사용자 작업 선택과는 별개 상태).
-// 15. 분석이 실패하면 안전한 실패 메시지를 보여주고, 원본 이미지와
+// 12. "AI 평면도 생성"을 누르면 로딩 상태가 표시된다(가짜 timer가 아니라
+//     서비스 단계 콜백을 그대로 반영).
+// 13. 분석이 성공하면 번호 marker와 작업 목록은 그대로 비어 있다 —
+//     분석/생성 결과는 사용자 작업이 아니다.
+// 14. 분석이 실패하면 안전한 실패 메시지를 보여주고, 원본 이미지와
 //     빈 작업 목록은 그대로 유지된다(가짜 완료로 둔갑하지 않는다).
-// 16. 선택된 CAD 벽을 삭제하면 사라지고, 실행 취소하면 되돌아온다.
-// 17. 선택된 CAD 벽을 "작업으로 추가"하면 그때 처음으로 작업 번호 ①이
-//     부여되고, marker/작업 목록/우측 패널이 동일 작업으로 동기화된다.
-// 18. (2D 단순화 WO) 분석 직후 축척(문 기준 추정)/천장고(기본값)가
+// 15. (2D 단순화 WO) 분석 직후 축척(문 기준 추정)/천장고(기본값)가
 //     자동으로 채워져 곧바로 [3D 아이소 만들기]를 누를 수 있고, 누르면
 //     실제 Space3DViewV2가 뜬다. "치수 보정"으로 실측값을 입력하면 추정
 //     표시가 사라지고 그 값으로 교체된다(기존 수동 보정 기능은 보조
-//     기능으로 유지).
+//     기능으로 유지 — 내부 geometry는 계속 존재하므로 이 기능은 깨지지
+//     않는다).
+// 16. V1 AI-IMAGE FLOW WO — 방향 수정: GPT는 좌표(SSSpatialModel)가 아니라
+//     원본 배치를 유지한 "깨끗한 CAD 스타일 2D 평면도 이미지"를 새로
+//     그려서 돌려준다. 그 이미지가 있으면 중앙 화면에 그대로 보여주고,
+//     없으면(생성 실패/미설정) 원본 사진을 그대로 보여준다 — 좌표 기반
+//     CAD 오버레이 탭 선택/"작업으로 추가"/CadStructureTab은 더 이상
+//     production 흐름에 없다(코드 자체는 삭제하지 않았다).
 
 import 'dart:async';
 import 'dart:convert';
@@ -52,11 +54,10 @@ import 'package:ason_space/screens/photo_select_screen.dart';
 import 'package:ason_space/screens/settings_screen.dart';
 import 'package:ason_space/services/floor_plan_analysis_service.dart';
 import 'package:ason_space/services/floor_plan_upload_service.dart';
+import 'package:ason_space/services/gpt_floorplan_image_service.dart';
 import 'package:ason_space/widgets/workspace/cad_floor_plan_overlay.dart';
-import 'package:ason_space/widgets/workspace/cad_structure_tab.dart';
 import 'package:ason_space/widgets/workspace/floor_plan_analysis_overlay.dart'
     show ContainFitTransform, FloorPlanAnalysisOverlay;
-import 'package:ason_space/widgets/workspace/selected_item_header.dart';
 
 /// 실제 플랫폼 파일 선택창 대신, 미리 정해진 결과를 순서대로 반환하는
 /// 가짜 서비스. 취소를 흉내내려면 목록에 null을 넣으면 된다.
@@ -79,6 +80,44 @@ final Uint8List _fakeImageBytes = base64Decode(
   'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk'
   '+A8AAQUBAScY42YAAAAASUVORK5CYII=',
 );
+
+/// 원본과 구분할 수 있도록 다른 1x1 PNG(파란 픽셀) — "GPT가 새로 그려준
+/// 이미지가 실제로 화면에 보이는가"를 원본과 다른 바이트로 확실히
+/// 구분해서 검증하기 위함이다.
+final Uint8List _fakeGeneratedImageBytes = base64Decode(
+  'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADElEQVR4nGNh'
+  'YPgPAAETAQQEubHGAAAAAElFTkSuQmCC',
+);
+
+/// V1 AI-IMAGE FLOW WO — 실제 네트워크 호출 없이 "GPT가 CAD 스타일
+/// 평면도 이미지를 생성해 돌려준다"를 흉내내는 가짜 서비스.
+class _FakeFloorPlanImageService implements FloorPlanImageGenerationService {
+  const _FakeFloorPlanImageService();
+
+  @override
+  Future<Uint8List> generate(Uint8List originalImageBytes) async =>
+      _fakeGeneratedImageBytes;
+}
+
+/// 항상 실패하는 가짜 서비스 — "GPT 생성이 실패하면 원본 사진을 그대로
+/// 보여준다"를 검증할 때 쓴다.
+class _FailingFloorPlanImageService implements FloorPlanImageGenerationService {
+  const _FailingFloorPlanImageService();
+
+  @override
+  Future<Uint8List> generate(Uint8List originalImageBytes) async {
+    throw Exception('AI 평면도 생성 기능이 아직 설정되지 않았습니다.');
+  }
+}
+
+/// `Image.memory(bytes, cacheWidth: ...)`는 내부적으로 [MemoryImage]를
+/// [ResizeImage]로 감싼다 — 이 helper로 실제 원본 provider까지 벗겨내야
+/// bytes를 비교할 수 있다.
+bool _imageShowsBytes(Image image, Uint8List expectedBytes) {
+  var provider = image.image;
+  if (provider is ResizeImage) provider = provider.imageProvider;
+  return provider is MemoryImage && provider.bytes == expectedBytes;
+}
 
 FloorPlanFile _fakeImageFile(String name) => FloorPlanFile(
   fileName: name,
@@ -201,13 +240,18 @@ void main() {
     WidgetTester tester, {
     FloorPlanUploadService uploadService = const FloorPlanUploadService(),
     FloorPlanAnalysisService analysisService = const FloorPlanAnalysisService(),
+    // V1 AI-IMAGE FLOW WO — 기본값은 "GPT 생성 성공" 경로다(실사용
+    // 앱이 실제로 도달하길 기대하는 정상 흐름). 실패/미설정 폴백은
+    // _FailingFloorPlanImageService를 명시적으로 넘긴 테스트에서만 확인한다.
+    FloorPlanImageGenerationService floorPlanImageService =
+        const _FakeFloorPlanImageService(),
   }) async {
     // 2D 단순화 WO — 우측 패널 상단에 "평면도 준비 완료"(공간 크기/천장
     // 높이) 카드가 새로 추가되어 세로 공간이 더 필요해졌다. 800이면
-    // 그 아래 CadStructureTab/선택 안내 등이 ListView의 lazy 빌드
-    // 범위(viewport+cacheExtent) 밖으로 밀려 스크롤해도 찾을 수 없는
-    // 위젯이 됐다 — 테스트 스위트 전체가 공유하는 뷰포트를 넉넉하게
-    // 키워 해결한다(개별 테스트마다 스크롤 로직을 추가하지 않는다).
+    // 그 아래 선택 안내 등이 ListView의 lazy 빌드 범위(viewport+
+    // cacheExtent) 밖으로 밀려 스크롤해도 찾을 수 없는 위젯이 됐다 —
+    // 테스트 스위트 전체가 공유하는 뷰포트를 넉넉하게 키워 해결한다
+    // (개별 테스트마다 스크롤 로직을 추가하지 않는다).
     await tester.binding.setSurfaceSize(const Size(1280, 1200));
     addTearDown(() => tester.binding.setSurfaceSize(null));
     await tester.pumpWidget(
@@ -215,6 +259,7 @@ void main() {
         home: FloorPlanWorkspaceScreen(
           uploadService: uploadService,
           analysisService: analysisService,
+          floorPlanImageService: floorPlanImageService,
         ),
       ),
     );
@@ -286,7 +331,7 @@ void main() {
     // 도면 분석 상태/시작 버튼은 중앙 캔버스가 아니라 우측 "사용자 작업
     // 환경" 패널에서 보여준다 — 중앙은 평면도 자체만 크고 깨끗하게
     // 보이는 화면이다.
-    expect(find.text('평면도 분석 시작'), findsOneWidget);
+    expect(find.text('AI 평면도 생성'), findsOneWidget);
     expect(find.text('평면도를 업로드해주세요'), findsNothing);
   });
 
@@ -318,7 +363,7 @@ void main() {
 
     await tester.tap(find.widgetWithText(OutlinedButton, '파일 선택'));
     await tester.pumpAndSettle();
-    expect(find.text('평면도 분석 시작'), findsOneWidget);
+    expect(find.text('AI 평면도 생성'), findsOneWidget);
 
     await tester.tap(find.text('3D 아이소'));
     await tester.pump();
@@ -326,13 +371,13 @@ void main() {
     expect(find.text('3D 공간이 아직 생성되지 않았습니다'), findsOneWidget);
     // 3D View에서는 2D 전용 도면 분석/표시 설정 섹션 대신, 3D 단계
     // 안내가 우측 패널에 보인다(WO 22번).
-    expect(find.text('평면도 분석 시작'), findsNothing);
+    expect(find.text('AI 평면도 생성'), findsNothing);
 
     await tester.tap(find.text('2D 평면도'));
     await tester.pump();
 
     // 3D를 다녀왔어도 업로드한 파일 상태 자체는 그대로 남아있다.
-    expect(find.text('평면도 분석 시작'), findsOneWidget);
+    expect(find.text('AI 평면도 생성'), findsOneWidget);
     expect(find.textContaining('floor_plan_1.png'), findsWidgets);
   });
 
@@ -395,7 +440,7 @@ void main() {
     expect(find.textContaining('floor_plan_1.png'), findsWidgets);
   });
 
-  testWidgets('평면도 분석 시작을 누르면 실제 단계 문구와 함께 로딩 상태가 표시된다', (tester) async {
+  testWidgets('AI 평면도 생성을 누르면 실제 단계 콜백을 따라 로딩 상태가 표시된다', (tester) async {
     final analysisService = _FakeFloorPlanAnalysisService(
       const FloorPlanAnalysisOutcome.success(_fakeAnalysisResult),
     );
@@ -410,17 +455,21 @@ void main() {
     await tester.tap(find.widgetWithText(OutlinedButton, '파일 선택'));
     await tester.pumpAndSettle();
 
-    await tester.tap(find.text('평면도 분석 시작'));
+    await tester.tap(find.text('AI 평면도 생성'));
     await tester.pump();
 
-    expect(find.textContaining('벽을 분석하는 중입니다'), findsOneWidget);
+    // V1 AI-IMAGE FLOW WO §8 — 내부 엔진 단계 이름 대신 하나의 단순한
+    // 문구만 사용자에게 보여준다. 이 텍스트가 1단계에서도, fake 서비스가
+    // 2단계로 넘어간 뒤에도 계속 보인다는 것으로 "로딩 상태가 실제 단계
+    // 콜백을 따라간다"(가짜 timer가 아니다)를 확인한다.
+    expect(find.textContaining('AI 평면도를 생성하는 중입니다'), findsOneWidget);
 
     // fake 서비스는 테스트가 명시적으로 완료시켜주기 전까지 1단계에
     // 머물러 있는다 — 실제로 "1단계 작업이 끝났을 때"만 2단계로
     // 넘어간다는 것을 보장하기 위함이다(가짜 timer로 흉내내지 않는다).
     analysisService.proceedToSecondStep();
     await tester.pump();
-    expect(find.textContaining('문/창 후보를 분석하는 중입니다'), findsOneWidget);
+    expect(find.textContaining('AI 평면도를 생성하는 중입니다'), findsOneWidget);
 
     analysisService.finish();
     await tester.pumpAndSettle();
@@ -444,23 +493,12 @@ void main() {
 
     await tester.tap(find.widgetWithText(OutlinedButton, '파일 선택'));
     await tester.pumpAndSettle();
-    await tester.tap(find.text('평면도 분석 시작'));
+    await tester.tap(find.text('AI 평면도 생성'));
     await tester.pump();
     analysisService.proceedToSecondStep();
     analysisService.finish();
     await tester.pumpAndSettle();
     return analysisService;
-  }
-
-  Future<void> tapWall(WidgetTester tester, Point2 normalized) async {
-    final overlayRect = tester.getRect(find.byType(CadFloorPlanOverlay));
-    final transform = ContainFitTransform.compute(
-      overlayRect.size,
-      const Size(800, 600),
-    );
-    final screenPoint = transform.mapNormalized(normalized);
-    await tester.tapAt(overlayRect.topLeft + screenPoint);
-    await tester.pumpAndSettle();
   }
 
   /// 실기 FAIL 재수정 WO(11/12번) — "치수 보정" 모드에서 벽 구간을
@@ -483,15 +521,23 @@ void main() {
     await tester.pumpAndSettle();
   }
 
-  testWidgets('분석이 성공해도 번호 marker/작업 목록은 비어 있고 CAD geometry만 표시된다', (
+  testWidgets('분석이 성공하면 GPT가 생성한 평면도 이미지가 표시되고, 번호 marker/작업 목록은 비어 있다', (
     tester,
   ) async {
     await pumpAnalyzed(tester);
 
-    // 기본(non-debug) 상태에서는 CAD 오버레이만 보이고, confidence color
-    // 분석 확인 오버레이는 보이지 않는다(WO 5번).
-    expect(find.byType(CadFloorPlanOverlay), findsOneWidget);
+    // V1 AI-IMAGE FLOW WO — 좌표 기반 CadFloorPlanOverlay는 더 이상
+    // 기본(non-calibrating) 상태에서 그려지지 않는다. 대신 GPT가 새로
+    // 그려준 평면도 이미지(_fakeGeneratedImageBytes, 원본과 다른 바이트)가
+    // 화면에 그려진다.
+    expect(find.byType(CadFloorPlanOverlay), findsNothing);
     expect(find.byType(FloorPlanAnalysisOverlay), findsNothing);
+    final images = tester.widgetList<Image>(find.byType(Image));
+    expect(
+      images.any((img) => _imageShowsBytes(img, _fakeGeneratedImageBytes)),
+      isTrue,
+      reason: 'GPT가 생성한 평면도 이미지가 화면 어딘가에 그려져 있어야 한다',
+    );
 
     // 분석 geometry는 사용자 작업이 아니므로, 분석 직후에도 "작업 목록"은
     // 여전히 0개다(WO 1/2번) — "외벽"/"내벽" 같은 작업 이름은 사용자가
@@ -511,36 +557,38 @@ void main() {
     );
   });
 
-  testWidgets('CAD 오버레이에서 벽을 탭하면 도면 요소 정보가 우측 패널에 표시된다(작업 생성 아님)', (
-    tester,
-  ) async {
-    await pumpAnalyzed(tester);
-
-    // 외벽(wall-ext-1) 위의 한 점. wall-ext-1의 중점(0.5,0.05)은 내벽
-    // wall-int-1의 시작점과 정확히 겹치는 T자 교차점이라 삭제 후
-    // 재선택 테스트에서 다른 벽이 선택되는 혼선이 생길 수 있어, 교차점을
-    // 피한 (0.2, 0.05)를 쓴다.
-    await tapWall(tester, const Point2(0.2, 0.05));
-
-    // 우측 패널 상단의 도면 분석 상태/표시 설정 섹션 때문에 CadStructureTab
-    // 내용이 스크롤 영역 아래로 밀려 있을 수 있다 — 존재 여부만
-    // 확인하므로 skipOffstage: false로 찾는다.
-    final cadStructureTabFinder = find.byType(
-      CadStructureTab,
-      skipOffstage: false,
+  testWidgets('GPT 평면도 생성이 실패해도 화면은 죽지 않고 원본 사진을 정직하게 보여준다', (tester) async {
+    final analysisService = _FakeFloorPlanAnalysisService(
+      const FloorPlanAnalysisOutcome.success(_fakeAnalysisResult),
     );
-    expect(cadStructureTabFinder, findsOneWidget);
-    expect(find.text('wall-ext-1', skipOffstage: false), findsOneWidget);
+    await pumpScreen(
+      tester,
+      uploadService: _FakeFloorPlanUploadService([
+        _fakeImageFile('floor_plan.png'),
+      ]),
+      analysisService: analysisService,
+      floorPlanImageService: const _FailingFloorPlanImageService(),
+    );
+
+    await tester.tap(find.widgetWithText(OutlinedButton, '파일 선택'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('AI 평면도 생성'));
+    await tester.pump();
+    analysisService.proceedToSecondStep();
+    analysisService.finish();
+    await tester.pumpAndSettle();
+
+    // 생성된 이미지는 없고(실패), 원본 사진(_fakeImageBytes)이 그대로
+    // 보인다 — 가짜로 성공한 것처럼 보이지 않는다.
+    final images = tester.widgetList<Image>(find.byType(Image));
     expect(
-      find.descendant(
-        of: cadStructureTabFinder,
-        matching: find.text('외벽', skipOffstage: false),
-        skipOffstage: false,
-      ),
-      findsOneWidget,
+      images.any((img) => _imageShowsBytes(img, _fakeImageBytes)),
+      isTrue,
+      reason: '생성 실패 시 원본 사진이 그대로 보여야 한다',
     );
-    // 벽을 선택한 것만으로는 사용자 작업이 생기지 않는다.
-    expect(find.text('아직 등록된 작업이 없습니다.'), findsOneWidget);
+    expect(images.any((img) => _imageShowsBytes(img, _fakeGeneratedImageBytes)), isFalse);
+    expect(find.textContaining('AI 평면도 생성에 실패해 원본 이미지를 표시하고 있습니다'), findsOneWidget);
+    expect(tester.takeException(), isNull);
   });
 
   testWidgets('분석이 실패하면 안전한 메시지를 보여주고 원본 이미지/빈 작업 목록을 유지한다', (tester) async {
@@ -560,7 +608,7 @@ void main() {
 
     await tester.tap(find.widgetWithText(OutlinedButton, '파일 선택'));
     await tester.pumpAndSettle();
-    await tester.tap(find.text('평면도 분석 시작'));
+    await tester.tap(find.text('AI 평면도 생성'));
     await tester.pump();
     analysisService.proceedToSecondStep();
     analysisService.finish();
@@ -571,89 +619,6 @@ void main() {
     expect(find.textContaining('floor_plan.png'), findsWidgets);
     expect(find.text('아직 등록된 작업이 없습니다.'), findsOneWidget);
     expect(tester.takeException(), isNull);
-  });
-
-  testWidgets('선택된 CAD 벽을 삭제하면 사라지고, 실행 취소하면 되돌아온다', (tester) async {
-    await pumpAnalyzed(tester);
-    await tapWall(tester, const Point2(0.2, 0.05));
-    expect(find.byType(CadStructureTab, skipOffstage: false), findsOneWidget);
-
-    // 우측 패널 상단에 도면 분석 상태/표시 설정 섹션이 함께 있어 "도면
-    // 보정" 카드가 화면 밖으로 스크롤되어 있을 수 있다.
-    final deleteButton = find.widgetWithText(
-      OutlinedButton,
-      '삭제',
-      skipOffstage: false,
-    );
-    await tester.ensureVisible(deleteButton);
-    await tester.pumpAndSettle();
-    await tester.tap(deleteButton);
-    await tester.pumpAndSettle();
-
-    // 삭제되면 선택도 함께 풀려 빈 선택 안내로 돌아간다.
-    expect(
-      find.text('선택된 항목이 없습니다.\n평면도에서 작업할 영역을 선택해주세요.', skipOffstage: false),
-      findsOneWidget,
-    );
-    // 삭제된 벽이 있던 자리를 다시 눌러도 더 이상 선택되지 않는다.
-    // (0.2, 0.05)는 room-1의 상단 경계와 맞닿아 있어, 벽이 사라진 뒤
-    // 그 경계 판정에 따라 room이 대신 선택될 수 있으므로 도면 어디에도
-    // geometry가 없는 (0.9, 0.9)로 확인한다.
-    await tapWall(tester, const Point2(0.9, 0.9));
-    expect(find.byType(CadStructureTab), findsNothing);
-
-    final undoButton = find.widgetWithText(
-      OutlinedButton,
-      '실행 취소',
-      skipOffstage: false,
-    );
-    await tester.ensureVisible(undoButton);
-    await tester.pumpAndSettle();
-    await tester.tap(undoButton);
-    await tester.pumpAndSettle();
-
-    // 되돌린 뒤 같은 자리를 다시 누르면 벽이 실제로 복원되어 있어야 한다.
-    await tapWall(tester, const Point2(0.2, 0.05));
-    expect(find.byType(CadStructureTab, skipOffstage: false), findsOneWidget);
-    expect(find.text('wall-ext-1', skipOffstage: false), findsOneWidget);
-  });
-
-  testWidgets('CAD 벽을 "작업으로 추가"하면 그때 처음 작업 번호가 부여되고 3곳이 동기화된다', (tester) async {
-    await pumpAnalyzed(tester);
-    await tapWall(tester, const Point2(0.2, 0.05));
-
-    // 우측 패널 상단의 도면 분석 상태/표시 설정 섹션 때문에 "작업으로
-    // 추가" 버튼이 화면 밖으로 스크롤되어 있을 수 있다.
-    final addButton = find.widgetWithText(
-      FilledButton,
-      '작업으로 추가',
-      skipOffstage: false,
-    );
-    await tester.ensureVisible(addButton);
-    await tester.pumpAndSettle();
-    await tester.tap(addButton);
-    await tester.pumpAndSettle();
-
-    // geometry 선택은 풀리고, 새로 만들어진 사용자 작업이 선택된 채로
-    // 우측 패널(SelectedItemHeader)에 번호 1과 함께 나타난다.
-    expect(find.byType(CadStructureTab), findsNothing);
-    expect(
-      find.descendant(
-        of: find.byType(SelectedItemHeader),
-        matching: find.text('1'),
-      ),
-      findsOneWidget,
-    );
-    expect(
-      find.descendant(
-        of: find.byType(SelectedItemHeader),
-        matching: find.text('외벽 작업'),
-      ),
-      findsOneWidget,
-    );
-    // 작업 목록에도 같은 작업이 반영된다 — 더 이상 0개가 아니다.
-    expect(find.text('아직 등록된 작업이 없습니다.'), findsNothing);
-    expect(find.text('외벽 작업'), findsWidgets);
   });
 
   testWidgets('2D 단순화 — 분석 직후 축척(문 기준 추정)/천장고(기본값)가 자동으로 '

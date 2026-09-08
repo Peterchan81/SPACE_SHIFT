@@ -110,11 +110,19 @@ class FloorPlanPreview extends StatelessWidget {
     }
 
     final result = analysisResult;
-    final floorPlan = cad.floorPlan;
-    final showOriginal =
-        cad.displayMode != FloorPlanDisplayMode.cad || floorPlan == null;
-    final showCad =
-        floorPlan != null && cad.displayMode != FloorPlanDisplayMode.original;
+    final generatedImage = cad.generatedFloorPlanImageBytes;
+    // V1 AI-IMAGE FLOW WO — "CAD" 표시 슬롯은 이제 좌표 기반
+    // CadFloorPlanOverlay가 아니라 GPT가 새로 그려준 평면도 이미지
+    // 그 자체를 보여준다. 분석 확인(debug) 오버레이는 여전히 원본
+    // 사진의 픽셀 evidence를 보여주는 별개의 고급 기능이라(WO 5번,
+    // "치수 보정"과 같은 위치에 숨겨진 CadToolbar에서만 켤 수 있다)
+    // 그대로 유지한다 — [floorPlan]은 이제 화면에 직접 그려지지 않고
+    // 3D 아이소 생성에만 쓰인다(§9).
+    final showDebugOverlay =
+        cad.debugOverlay && cad.displayMode != FloorPlanDisplayMode.original && result != null;
+    final showGeneratedImage =
+        !showDebugOverlay && generatedImage != null && cad.displayMode != FloorPlanDisplayMode.original;
+    final showOriginal = !showDebugOverlay && !showGeneratedImage;
 
     return Stack(
       fit: StackFit.expand,
@@ -137,7 +145,7 @@ class FloorPlanPreview extends StatelessWidget {
                 )
               : null,
         ),
-        if (showCad && cad.debugOverlay && result != null)
+        if (showDebugOverlay)
           Positioned.fill(
             child: FloorPlanAnalysisOverlay(
               result: result,
@@ -147,14 +155,32 @@ class FloorPlanPreview extends StatelessWidget {
               onSelect: (id) => cadCallbacks.onSelectObject(id),
             ),
           )
-        else if (showCad)
+        else if (showGeneratedImage)
+          Center(
+            child: Image.memory(
+              generatedImage,
+              fit: BoxFit.contain,
+              cacheWidth: 1600,
+            ),
+          ),
+        // V1 AI-IMAGE FLOW WO — "치수 보정"은 좌표 기반 CAD 결과를
+        // 상시 노출하는 기능이 아니라, 사용자가 명시적으로 "치수 보정"을
+        // 눌러 실제 축척(mm)을 입력하려 할 때만 켜지는 opt-in 고급
+        // 기능이다(WO 절대 금지 목록의 "좌표 복원 연구"와는 다르다 —
+        // 이미 있던 기존 기능을 그대로 재사용할 뿐이다). 벽 구간을
+        // 드래그로 고르는 제스처/미리보기 선은 [CadFloorPlanOverlay]가
+        // 담당하므로, 이 모드일 때만 위에 겹쳐 보여준다. floorPlan은
+        // 화면에 그려지는 이미지(생성 이미지 또는 원본)와 같은 소스에서
+        // 나온 것이라 좌표가 어긋나지 않는다(§9 — 생성된 이미지를
+        // 기준으로 재계산한 geometry를 그대로 쓴다).
+        if (cad.calibrating && cad.floorPlan != null)
           Positioned.fill(
             child: CadFloorPlanOverlay(
-              floorPlan: floorPlan,
+              floorPlan: cad.floorPlan!,
               selectedId: cad.selectedObjectId,
               onSelect: cadCallbacks.onSelectObject,
               onWallEndpointChanged: cadCallbacks.onWallEndpointChanged,
-              calibrating: cad.calibrating,
+              calibrating: true,
               onCalibrationDragEnd: cadCallbacks.onCalibrationDragEnd,
             ),
           ),
@@ -382,38 +408,27 @@ class _AnalysisActionBar extends StatelessWidget {
   const _AnalysisActionBar({
     required this.phase,
     required this.step,
-    required this.result,
     required this.failureMessage,
     required this.onStartAnalysis,
-    this.interpretationWarnings = const [],
+    required this.hasGeneratedImage,
   });
 
   final FloorPlanAnalysisPhase phase;
   final FloorPlanAnalysisStep? step;
-  final FloorPlanAnalysisResult? result;
   final String? failureMessage;
   final VoidCallback onStartAnalysis;
 
-  /// SS 건축도면 이해 엔진 V1 WO — evidence 단계(FloorPlanAnalysisResult)
-  /// 이후, 해석 단계([SSSpatialModelBuilder] → [CadFloorPlan.warnings])
-  /// 에서 새로 생긴 안내(예: "가구/설비로 보이는 N개 후보를 공간
-  /// 목록에서 제외했습니다"). 서로 다른 두 단계의 경고를 한 곳에서
-  /// 함께 보여줘야, 사용자가 "왜 이 화면이 됐는지"를 빠짐없이 알 수
-  /// 있다.
-  final List<String> interpretationWarnings;
+  /// V1 AI-IMAGE FLOW WO — true면 GPT가 실제로 새 CAD 스타일 평면도
+  /// 이미지를 만들어냈다는 뜻이다. false면(생성 실패/미설정) 완료
+  /// 문구를 "생성 완료"가 아니라 정직하게 "원본 이미지 유지"로
+  /// 보여준다 — 실패했는데 성공한 것처럼 보이지 않게 한다.
+  final bool hasGeneratedImage;
 
-  String get _stepLabel {
-    switch (step) {
-      case FloorPlanAnalysisStep.preparingAndWalls:
-        return '이미지를 준비하고 벽을 분석하는 중입니다...';
-      case FloorPlanAnalysisStep.roomsAndOpenings:
-        return '공간과 문/창 후보를 분석하는 중입니다...';
-      case FloorPlanAnalysisStep.finalizing:
-        return '결과를 정리하는 중입니다...';
-      case null:
-        return '평면도를 분석하는 중입니다...';
-    }
-  }
+  // V1 AI-IMAGE FLOW WO §8 — 내부적으로는 여전히 여러 단계(기본 분석 →
+  // AI 평면도 생성)를 거치지만, 사용자에게는 개발자용 엔진 단계 이름
+  // ("벽 분석 중"/"문·창 후보 분석 중" 등) 대신 하나의 단순한 문구만
+  // 보여준다.
+  String get _stepLabel => 'AI 평면도를 생성하는 중입니다...';
 
   @override
   Widget build(BuildContext context) {
@@ -430,7 +445,7 @@ class _AnalysisActionBar extends StatelessWidget {
           child: ElevatedButton.icon(
             onPressed: onStartAnalysis,
             icon: const Icon(Icons.auto_awesome_rounded, size: 18),
-            label: const Text('평면도 분석 시작'),
+            label: const Text('AI 평면도 생성'),
             style: ElevatedButton.styleFrom(
               backgroundColor: SpaceShiftColors.textPrimary,
               foregroundColor: Colors.white,
@@ -459,8 +474,7 @@ class _AnalysisActionBar extends StatelessWidget {
           ],
         ),
         FloorPlanAnalysisPhase.completed => _CompletedSummary(
-          result: result,
-          interpretationWarnings: interpretationWarnings,
+          hasGeneratedImage: hasGeneratedImage,
           onReanalyze: onStartAnalysis,
         ),
         FloorPlanAnalysisPhase.failed => Column(
@@ -510,35 +524,32 @@ class _AnalysisActionBar extends StatelessWidget {
 
 class _CompletedSummary extends StatelessWidget {
   const _CompletedSummary({
-    required this.result,
+    required this.hasGeneratedImage,
     required this.onReanalyze,
-    this.interpretationWarnings = const [],
   });
 
-  final FloorPlanAnalysisResult? result;
+  final bool hasGeneratedImage;
   final VoidCallback onReanalyze;
-  final List<String> interpretationWarnings;
 
   @override
   Widget build(BuildContext context) {
-    final result = this.result;
-    final warnings = [...?result?.warnings, ...interpretationWarnings];
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Row(
           children: [
-            const Icon(
-              Icons.check_circle_outline_rounded,
+            Icon(
+              hasGeneratedImage ? Icons.check_circle_outline_rounded : Icons.info_outline_rounded,
               size: 18,
-              color: Color(0xFF22C55E),
+              color: hasGeneratedImage ? const Color(0xFF22C55E) : const Color(0xFFB45309),
             ),
             const SizedBox(width: 8),
-            const Expanded(
+            Expanded(
               child: Text(
-                '도면 구조를 CAD로 변환했습니다. 벽/공간을 눌러 확인하고, 실제 '
-                '작업 대상은 우측 패널에서 "작업으로 추가"해주세요.',
-                style: TextStyle(
+                hasGeneratedImage
+                    ? 'AI 평면도 생성 완료 — 확인 후 3D 아이소로 진행해주세요.'
+                    : 'AI 평면도 생성에 실패해 원본 이미지를 표시하고 있습니다.',
+                style: const TextStyle(
                   fontSize: 12.5,
                   color: SpaceShiftColors.textPrimary,
                   height: 1.4,
@@ -547,24 +558,13 @@ class _CompletedSummary extends StatelessWidget {
             ),
           ],
         ),
-        if (warnings.isNotEmpty) ...[
-          const SizedBox(height: 6),
-          for (final warning in warnings)
-            Padding(
-              padding: const EdgeInsets.only(left: 26, top: 2),
-              child: Text(
-                warning,
-                style: const TextStyle(fontSize: 12, color: Color(0xFFB45309)),
-              ),
-            ),
-        ],
         const SizedBox(height: 10),
         SizedBox(
           width: double.infinity,
           child: OutlinedButton.icon(
             onPressed: onReanalyze,
             icon: const Icon(Icons.refresh_rounded, size: 18),
-            label: const Text('다시 분석'),
+            label: const Text('AI 평면도 다시 생성'),
             style: OutlinedButton.styleFrom(
               minimumSize: const Size.fromHeight(40),
               foregroundColor: SpaceShiftColors.textPrimary,
@@ -805,7 +805,6 @@ class FloorPlanStatusSection extends StatelessWidget {
     required this.hasFloorPlanFile,
     required this.analysisPhase,
     required this.analysisStep,
-    required this.analysisResult,
     required this.analysisFailureMessage,
     required this.onReanalyze,
     required this.cad,
@@ -815,7 +814,6 @@ class FloorPlanStatusSection extends StatelessWidget {
   final bool hasFloorPlanFile;
   final FloorPlanAnalysisPhase analysisPhase;
   final FloorPlanAnalysisStep? analysisStep;
-  final FloorPlanAnalysisResult? analysisResult;
   final String? analysisFailureMessage;
 
   /// 분석 시작/재시도/다시 분석 버튼 모두가 공유하는 단일 콜백 — 이미
@@ -848,10 +846,9 @@ class FloorPlanStatusSection extends StatelessWidget {
         _AnalysisActionBar(
           phase: analysisPhase,
           step: analysisStep,
-          result: analysisResult,
           failureMessage: analysisFailureMessage,
           onStartAnalysis: onReanalyze,
-          interpretationWarnings: cad.floorPlan?.warnings ?? const [],
+          hasGeneratedImage: cad.generatedFloorPlanImageBytes != null,
         ),
         if (analysisPhase == FloorPlanAnalysisPhase.completed) ...[
           const SizedBox(height: 16),

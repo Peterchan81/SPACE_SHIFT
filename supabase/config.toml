@@ -36,5 +36,13 @@ verify_jwt = false
 
 # GPT FLOORPLAN WO — 업로드된 평면도를 GPT Vision으로 구조 이해하는
 # Edge Function. OpenAI Secret(OPENAI_API_KEY)은 이 함수 환경에만 저장한다.
+# V1 AI-IMAGE FLOW WO — 방향 수정으로 production 화면에서는 더 이상
+# 호출하지 않지만(아래 gpt-floorplan-cad-image로 대체), R&D/대체 경로로
+# 배포 상태를 유지한다(삭제하지 않는다).
 [functions.gpt-floorplan-understand]
+verify_jwt = false
+
+# V1 AI-IMAGE FLOW WO — 원본 평면도 사진을 GPT(gpt-image-1)로 "깨끗한
+# CAD 스타일 2D 평면도 이미지"로 다시 그리는 production Edge Function.
+[functions.gpt-floorplan-cad-image]
 verify_jwt = false

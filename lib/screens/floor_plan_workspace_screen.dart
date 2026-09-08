@@ -1,3 +1,5 @@
+import 'dart:typed_data';
+
 import 'package:flutter/material.dart';
 
 import '../models/cad_floor_plan.dart';
@@ -11,11 +13,9 @@ import '../models/workspace_task_item.dart';
 import '../models/workspace_viewport_transform.dart';
 import '../services/floor_plan_analysis_service.dart';
 import '../services/floor_plan_upload_service.dart';
-import '../services/gpt_floorplan_vision_service.dart';
+import '../services/gpt_floorplan_image_service.dart';
 import '../services/space_scene_builder.dart';
 import '../services/space_scene_builder_v2.dart';
-import '../services/vision_guided_spatial_model_builder.dart';
-import '../services/vision_interpretation_service.dart';
 import '../theme/space_shift_colors.dart';
 import '../widgets/workspace/ceiling_height_sheet.dart';
 import '../widgets/workspace/settings_entry_button.dart';
@@ -58,7 +58,7 @@ class FloorPlanWorkspaceScreen extends StatefulWidget {
     this.demoMode = false,
     this.uploadService = const FloorPlanUploadService(),
     this.analysisService = const FloorPlanAnalysisService(),
-    this.visionInterpretationService,
+    this.floorPlanImageService,
   });
 
   final String projectName;
@@ -72,11 +72,11 @@ class FloorPlanWorkspaceScreen extends StatefulWidget {
   final FloorPlanUploadService uploadService;
   final FloorPlanAnalysisService analysisService;
 
-  /// GPT FLOORPLAN WO — 테스트가 실제 네트워크 호출 없이 GPT 응답을
+  /// V1 AI-IMAGE FLOW WO — 테스트가 실제 네트워크 호출 없이 GPT 응답을
   /// 흉내낼 수 있도록 주입 지점을 둔다. 지정하지 않으면(실사용 경로)
-  /// [_createProductionVisionService]가 dart-define 설정에 따라 안전한
-  /// 기본값 또는 실제 Edge Function 구현을 고른다.
-  final VisionInterpretationService? visionInterpretationService;
+  /// [_createProductionFloorPlanImageService]가 dart-define 설정에 따라
+  /// 안전한 기본값 또는 실제 Edge Function 구현을 고른다.
+  final FloorPlanImageGenerationService? floorPlanImageService;
 
   @override
   State<FloorPlanWorkspaceScreen> createState() =>
@@ -89,18 +89,18 @@ class FloorPlanWorkspaceScreen extends StatefulWidget {
 /// "천장고 입력" 시트에서 바꿀 수 있다.
 const double kDefaultCeilingHeightMm = 2400;
 
-/// GPT FLOORPLAN → STRUCTURED 2D → REAL 3D ISO FLOW WO §2 — pixel_wall_v4
-/// (WO088 Raster→CAD 자동 벡터화 POC)는 더 이상 V1 production 분석
-/// 경로가 아니다. 코드/테스트는 R&D 자산으로 그대로 보존하되(삭제하지
-/// 않는다), 이 화면은 대신 GPT가 구조를 이해하고([VisionInterpretationService])
-/// 기존 픽셀 evidence 정밀화([VisionGuidedSpatialModelBuilder] →
-/// [HintedGeometryExtractor] → [TopologyValidator])로 최종 [SSSpatialModel]을
-/// 만드는 파이프라인을 쓴다(§4). GPT Edge Function이 아직 배포되지
-/// 않았으면([createVisionInterpretationService]가 안전한 기본값
-/// [UnavailableVisionInterpretationService]를 돌려줌) 즉시 실패하고,
-/// 호출부(§ 아래 [_startAnalysis])가 기존 geometry-only 분석 결과로
-/// 정직하게 폴백한다 — 절대 죽지 않는다(§14).
-VisionInterpretationService _createProductionVisionService() => createVisionInterpretationService();
+/// V1 AI-IMAGE FLOW WO — 방향 수정: pixel_wall_v4(WO088 POC)도, GPT가
+/// 좌표/topology(SSSpatialModel)를 만드는 이전 경로(gpt_floorplan_vision_service.dart,
+/// R&D/대체 경로로 보존)도 더 이상 이 화면의 production 경로가 아니다.
+/// V1이 실제로 원하는 것은 "GPT가 원본 배치를 유지한 깨끗한 CAD 스타일
+/// 2D 평면도 이미지를 새로 그려서 돌려주고, 그 이미지를 화면에 그대로
+/// 보여준다"이다(좌표 복원/centerline/snap 연구 아님). GPT Edge Function이
+/// 아직 배포되지 않았으면([createFloorPlanImageGenerationService]가 안전한
+/// 기본값 [UnavailableFloorPlanImageGenerationService]를 돌려줌) 즉시
+/// 실패하고, 호출부(§ 아래 [_startAnalysis])가 원본 사진을 그대로 보여주는
+/// 것으로 정직하게 폴백한다 — 절대 죽지 않는다.
+FloorPlanImageGenerationService _createProductionFloorPlanImageService() =>
+    createFloorPlanImageGenerationService();
 
 class _FloorPlanWorkspaceScreenState extends State<FloorPlanWorkspaceScreen> {
   WorkspaceStartMethod _startMethod = WorkspaceStartMethod.floorPlanUpload;
@@ -137,6 +137,13 @@ class _FloorPlanWorkspaceScreenState extends State<FloorPlanWorkspaceScreen> {
   CadFloorPlan? _cadFloorPlan;
   String? _selectedCadObjectId;
   final List<CadFloorPlan> _cadUndoStack = [];
+
+  /// V1 AI-IMAGE FLOW WO — GPT가 새로 그려준 "깨끗한 CAD 스타일 2D
+  /// 평면도" 이미지 그 자체(좌표가 아니라 픽셀). 중앙 화면은 CAD
+  /// 표시 모드일 때 이 이미지를 그대로 보여준다. null이면 아직 생성
+  /// 전이거나 생성에 실패한 것 — 이 경우 화면은 원본 사진을 보여준다.
+  Uint8List? _generatedFloorPlanImageBytes;
+  bool _isGeneratingFloorPlanImage = false;
 
   FloorPlanDisplayMode _displayMode = FloorPlanDisplayMode.cad;
   bool _debugOverlay = false;
@@ -189,6 +196,8 @@ class _FloorPlanWorkspaceScreenState extends State<FloorPlanWorkspaceScreen> {
       _cadFloorPlan = null;
       _selectedCadObjectId = null;
       _cadUndoStack.clear();
+      _generatedFloorPlanImageBytes = null;
+      _isGeneratingFloorPlanImage = false;
       _displayMode = FloorPlanDisplayMode.cad;
       _debugOverlay = false;
       _calibrating = false;
@@ -205,15 +214,26 @@ class _FloorPlanWorkspaceScreenState extends State<FloorPlanWorkspaceScreen> {
     });
   }
 
-  VisionInterpretationService get _visionService =>
-      widget.visionInterpretationService ?? _createProductionVisionService();
+  FloorPlanImageGenerationService get _imageService =>
+      widget.floorPlanImageService ?? _createProductionFloorPlanImageService();
 
-  /// "평면도 분석 시작" — 실제 CV 파이프라인(FloorPlanAnalysisService)을
-  /// 호출해 벽/공간/문·창 후보를 계산하고, 편집 가능한 CAD geometry로
-  /// 변환한다. 분석 직후에는 작업 목록에 아무 것도 추가하지 않는다 —
-  /// 작업은 사용자가 실제로 만들 때만 생긴다(WO 2번). 실패하면 원본
-  /// 이미지는 그대로 두고 실패 이유만 보여준다(가짜 분석 완료를 만들지
-  /// 않는다).
+  /// "AI 평면도 생성" — V1 AI-IMAGE FLOW WO 방향 수정.
+  ///
+  /// 1) 기존 [FloorPlanAnalysisService](단순 픽셀 엔진, 좌표 복원 연구
+  ///    이전부터 있던 코드)로 baseline geometry를 확보한다 — 이 geometry는
+  ///    화면에 CAD 오버레이로 노출되지 않고, 오직 "3D 아이소 만들기"의
+  ///    내부 입력으로만 쓰인다(§9).
+  /// 2) [FloorPlanImageGenerationService]로 GPT에 원본 사진을 보내 "원본
+  ///    배치/벽/문/창을 유지한 깨끗한 CAD 스타일 2D 평면도 이미지"를
+  ///    새로 받는다. 이 이미지 자체가 중앙 2D 화면에 보여줄 결과다(좌표/
+  ///    폴리곤이 아니다).
+  /// 3) 생성된 이미지가 있으면, 그 이미지를 같은 baseline 엔진에 다시
+  ///    통과시켜 3D geometry를 더 정확하게 다시 계산한다(원본 사진보다
+  ///    정리된 이미지가 단순 픽셀 엔진에 더 안정적인 입력이기 때문 —
+  ///    새 좌표 복원 알고리즘을 만드는 것이 아니라 기존 엔진을 재사용).
+  ///    실패하면 조용히 원본 사진 기준 baseline을 그대로 쓴다.
+  /// GPT 이미지 생성이 실패해도(Edge Function 미배포/네트워크 오류)
+  /// 화면은 절대 죽지 않고 원본 사진을 정직하게 그대로 보여준다.
   Future<void> _startAnalysis() async {
     final file = _floorPlanFile;
     if (file == null) return;
@@ -222,6 +242,7 @@ class _FloorPlanWorkspaceScreenState extends State<FloorPlanWorkspaceScreen> {
       _analysisPhase = FloorPlanAnalysisPhase.analyzing;
       _analysisStep = FloorPlanAnalysisStep.preparingAndWalls;
       _analysisFailureMessage = null;
+      _generatedFloorPlanImageBytes = null;
     });
 
     final outcome = await widget.analysisService.analyze(
@@ -232,64 +253,64 @@ class _FloorPlanWorkspaceScreenState extends State<FloorPlanWorkspaceScreen> {
     );
     if (!mounted) return;
 
-    if (outcome.isSuccess) {
-      final result = outcome.result!;
-      // GPT FLOORPLAN WO §2/§4 — 이제 기본 geometry-only 분석
-      // (FloorPlanAnalysisService)을 먼저 안전한 baseline으로 확보해
-      // 두고, GPT 구조 이해 파이프라인이 실제로 벽/공간을 만들어내면
-      // 그 결과로 교체한다. GPT가 아직 설정되지 않았거나 실패해도
-      // 화면은 절대 비지 않는다 — 항상 이 baseline이 남는다(§14).
-      var cadFloorPlan = buildCadFloorPlan(result);
-      try {
-        final model = await VisionGuidedSpatialModelBuilder(
-          visionService: _visionService,
-        ).build(file.bytes!);
-        if (model.walls.isNotEmpty || model.spaces.isNotEmpty) {
-          cadFloorPlan = buildCadFloorPlanFromSpatialModel(model);
-        } else {
-          cadFloorPlan = cadFloorPlan.copyWithWarnings([
-            ...cadFloorPlan.warnings,
-            '평면도 구조를 자동으로 확인하지 못해 기본 분석 결과를 사용했습니다.',
-          ]);
-        }
-      } catch (_) {
-        // GPT 평면도 이해가 아직 설정되지 않았거나(Edge Function URL
-        // 미배포) 네트워크/응답 오류로 실패한 경우 — 원본 예외 내용은
-        // 사용자에게 노출하지 않고(이 프로젝트의 "원본 예외 비노출"
-        // 관례), 이미 확보해 둔 geometry-only baseline을 그대로 쓴다.
-        cadFloorPlan = cadFloorPlan.copyWithWarnings([
-          ...cadFloorPlan.warnings,
-          '평면도 구조 이해 기능을 사용할 수 없어 기본 분석 결과를 사용했습니다.',
-        ]);
-      }
-      setState(() {
-        _analysisPhase = FloorPlanAnalysisPhase.completed;
-        _analysisResult = result;
-        _analysisStep = null;
-        _cadFloorPlan = cadFloorPlan;
-        _selectedCadObjectId = null;
-        _cadUndoStack.clear();
-        // 2D 단순화 WO — 사용자가 이미 직접 보정한 축척은 절대 덮어쓰지
-        // 않는다([resolveAutoScale] 참고). 처음 분석이라면 문 기준
-        // 추정 또는(그마저 없으면) "알 수 없음" 임시 기준으로 자동
-        // 채워, 사용자가 기준점을 직접 찍지 않아도 3D로 진행할 수 있게
-        // 한다(핵심 원칙: "일단 만들어주고 정확도는 나중에").
-        _scale = resolveAutoScale(cadFloorPlan, _scale);
-        _ceilingHeightMm ??= kDefaultCeilingHeightMm;
-        // 재분석으로 geometry 자체가 바뀌었을 수 있어, 이전 3D 결과는
-        // 더 이상 지금 도면과 일치한다고 보장할 수 없다 — 다시 만들어야
-        // 한다(가짜로 그대로 두지 않는다).
-        _spaceScene = null;
-        _spaceSceneV2 = null;
-        _spaceGenerationFailureMessage = null;
-      });
-    } else {
+    if (!outcome.isSuccess) {
       setState(() {
         _analysisPhase = FloorPlanAnalysisPhase.failed;
         _analysisFailureMessage = outcome.message;
         _analysisStep = null;
       });
+      return;
     }
+
+    final result = outcome.result!;
+    var cadFloorPlan = buildCadFloorPlan(result);
+
+    setState(() => _isGeneratingFloorPlanImage = true);
+    Uint8List? generatedImage;
+    try {
+      generatedImage = await _imageService.generate(file.bytes!);
+      final generatedFile = FloorPlanFile(
+        fileName: file.fileName,
+        extension: 'png',
+        kind: FloorPlanFileKind.image,
+        sizeBytes: generatedImage.length,
+        bytes: generatedImage,
+      );
+      final generatedOutcome = await widget.analysisService.analyze(generatedFile);
+      if (generatedOutcome.isSuccess) {
+        cadFloorPlan = buildCadFloorPlan(generatedOutcome.result!);
+      }
+    } catch (_) {
+      // 원본 예외 내용은 사용자에게 노출하지 않는다(이 프로젝트의 "원본
+      // 예외 비노출" 관례) — generatedImage는 null로 남고, 화면은 원본
+      // 사진을 그대로 보여준다.
+      generatedImage = null;
+    }
+    if (!mounted) return;
+
+    setState(() {
+      _analysisPhase = FloorPlanAnalysisPhase.completed;
+      _analysisResult = result;
+      _analysisStep = null;
+      _isGeneratingFloorPlanImage = false;
+      _generatedFloorPlanImageBytes = generatedImage;
+      _cadFloorPlan = cadFloorPlan;
+      _selectedCadObjectId = null;
+      _cadUndoStack.clear();
+      // 2D 단순화 WO — 사용자가 이미 직접 보정한 축척은 절대 덮어쓰지
+      // 않는다([resolveAutoScale] 참고). 처음 분석이라면 문 기준
+      // 추정 또는(그마저 없으면) "알 수 없음" 임시 기준으로 자동
+      // 채워, 사용자가 기준점을 직접 찍지 않아도 3D로 진행할 수 있게
+      // 한다(핵심 원칙: "일단 만들어주고 정확도는 나중에").
+      _scale = resolveAutoScale(cadFloorPlan, _scale);
+      _ceilingHeightMm ??= kDefaultCeilingHeightMm;
+      // 재분석으로 geometry 자체가 바뀌었을 수 있어, 이전 3D 결과는
+      // 더 이상 지금 도면과 일치한다고 보장할 수 없다 — 다시 만들어야
+      // 한다(가짜로 그대로 두지 않는다).
+      _spaceScene = null;
+      _spaceSceneV2 = null;
+      _spaceGenerationFailureMessage = null;
+    });
   }
 
   CadWall? get _selectedCadWall {
@@ -707,6 +728,8 @@ class _FloorPlanWorkspaceScreenState extends State<FloorPlanWorkspaceScreen> {
     calibrationPixelLength: _calibrationPixelLength,
     scale: _scale,
     ceilingHeightMm: _ceilingHeightMm,
+    generatedFloorPlanImageBytes: _generatedFloorPlanImageBytes,
+    isGeneratingFloorPlanImage: _isGeneratingFloorPlanImage,
   );
 
   CadWorkspaceCallbacks get _cadWorkspaceCallbacks => CadWorkspaceCallbacks(
@@ -1041,7 +1064,6 @@ class _FloorPlanWorkspaceScreenState extends State<FloorPlanWorkspaceScreen> {
             hasFloorPlanFile: _floorPlanFile != null,
             analysisPhase: _analysisPhase,
             analysisStep: _analysisStep,
-            analysisResult: _analysisResult,
             analysisFailureMessage: _analysisFailureMessage,
             onReanalyze: _onReanalyzeRequested,
             cad: _cadWorkspaceState,
@@ -1173,7 +1195,6 @@ class _FloorPlanWorkspaceScreenState extends State<FloorPlanWorkspaceScreen> {
               hasFloorPlanFile: _floorPlanFile != null,
               analysisPhase: _analysisPhase,
               analysisStep: _analysisStep,
-              analysisResult: _analysisResult,
               analysisFailureMessage: _analysisFailureMessage,
               onReanalyze: _onReanalyzeRequested,
               cad: _cadWorkspaceState,

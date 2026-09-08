@@ -33,9 +33,24 @@ class CadWorkspaceState {
     this.calibrationPixelLength,
     this.scale,
     this.ceilingHeightMm,
+    this.generatedFloorPlanImageBytes,
+    this.isGeneratingFloorPlanImage = false,
   });
 
   final CadFloorPlan? floorPlan;
+
+  /// V1 AI-IMAGE FLOW WO — GPT가 원본 평면도 사진을 보고 새로 그려준
+  /// "깨끗한 CAD 스타일 2D 평면도" 이미지 그 자체(좌표/폴리곤이 아니라
+  /// PNG/JPEG 픽셀). 중앙 화면은 이제 이 이미지를 [FloorPlanDisplayMode.cad]
+  /// 슬롯에 그대로 보여준다 — [floorPlan](벽/공간 polygon)은 여전히 내부적
+  /// 으로 3D 아이소 생성에만 쓰이고, 화면에 CAD 오버레이/공간 번호/좌표로
+  /// 노출되지 않는다. null이면 아직 생성 전이거나 생성에 실패한 것 —
+  /// 이 경우 화면은 원본 사진을 그대로 보여준다(가짜로 CAD 결과를 만들지
+  /// 않는다).
+  final Uint8List? generatedFloorPlanImageBytes;
+
+  /// true인 동안 "AI 평면도 생성 중" 상태를 보여준다.
+  final bool isGeneratingFloorPlanImage;
   final String? selectedObjectId;
   final FloorPlanDisplayMode displayMode;
   final bool debugOverlay;
