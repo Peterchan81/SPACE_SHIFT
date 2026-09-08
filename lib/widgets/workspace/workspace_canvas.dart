@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 
 import '../../models/cad_floor_plan.dart';
@@ -6,10 +8,14 @@ import '../../models/floor_plan_file.dart';
 import '../../models/floor_plan_geometry.dart';
 import '../../models/space_scene.dart';
 import '../../models/space_scene_v2.dart';
+import '../../models/workspace_drawing_entity.dart';
 import '../../models/workspace_task_item.dart';
+import '../../models/workspace_viewport_transform.dart';
 import '../../theme/space_shift_colors.dart';
+import 'cad_floor_plan_overlay.dart' show cadFloorPlanHitTest;
 import 'floor_plan_analysis_overlay.dart' show ContainFitTransform;
 import 'floor_plan_preview.dart';
+import 'workspace_drawing_layer.dart';
 
 /// 중앙 공간 이미지/3D 작업 화면.
 ///
@@ -41,6 +47,14 @@ class WorkspaceCanvas extends StatelessWidget {
     this.spaceSceneV2,
     this.spaceGenerationFailureMessage,
     this.onExitTo2D,
+    this.tool = WorkspaceSelectionTool.select,
+    this.drawings = const [],
+    this.selectedDrawingId,
+    this.viewport = WorkspaceViewportTransform.identity,
+    this.onCreateDrawing,
+    this.onSelectDrawing,
+    this.onViewportChanged,
+    this.onCanvasSizeChanged,
   });
 
   final List<WorkspaceTaskItem> tasks;
@@ -64,6 +78,17 @@ class WorkspaceCanvas extends StatelessWidget {
   final SpaceSceneV2? spaceSceneV2;
   final String? spaceGenerationFailureMessage;
   final VoidCallback? onExitTo2D;
+
+  // WO089 CORE EDITING — 사용자 도형(직선/곡선/원형/자유영역) 편집 상태.
+  // 2D 평면도 모드에서만 활성화한다(§ 범위 — 3D는 이번 WO 대상 아님).
+  final WorkspaceSelectionTool tool;
+  final List<WorkspaceDrawingEntity> drawings;
+  final int? selectedDrawingId;
+  final WorkspaceViewportTransform viewport;
+  final ValueChanged<WorkspaceDrawingEntity>? onCreateDrawing;
+  final ValueChanged<int?>? onSelectDrawing;
+  final ValueChanged<WorkspaceViewportTransform>? onViewportChanged;
+  final ValueChanged<Size>? onCanvasSizeChanged;
 
   @override
   Widget build(BuildContext context) {
@@ -91,7 +116,17 @@ class WorkspaceCanvas extends StatelessWidget {
                 )
               : null;
 
-          return Stack(
+          // WO089 §5/§12 — viewport(pan/zoom)는 기존 콘텐츠(평면도 이미지/
+          // room marker/작업 marker) 전체를 시각적으로만 이동/확대한다.
+          // 이 Transform은 [WorkspaceDrawingLayer]를 감싸지 않는다 —
+          // 감싸면 그 안의 GestureDetector가 받는 로컬 좌표가 이미
+          // viewport만큼 역변환된 값이 되어, 그 레이어 내부에서 다시
+          // viewport.invert()를 적용하면 이중 변환이 된다. 대신
+          // [WorkspaceDrawingLayer]는 원본(미변환) 화면 좌표를 그대로 받고,
+          // 자기 페인터 안에서 documentToScreen(= fit + viewport 합성)으로
+          // 직접 그린다 — 그래서 두 레이어가 항상 같은 [viewport] 값 하나만
+          // 보고 시각적으로 정확히 겹친다(§28 하나의 일관된 아키텍처).
+          final existingContent = Stack(
             fit: StackFit.expand,
             children: [
               FloorPlanPreview(
@@ -142,6 +177,91 @@ class WorkspaceCanvas extends StatelessWidget {
                       onTap: () => onSelect(task.id),
                     ),
                   ),
+            ],
+          );
+
+          final showDrawingLayer =
+              viewMode == WorkspaceViewMode.plan2d && !cad.calibrating;
+          final documentSize = floorPlan != null
+              ? Size(
+                  floorPlan.sourceWidthPx.toDouble(),
+                  floorPlan.sourceHeightPx.toDouble(),
+                )
+              : Size(constraints.maxWidth, constraints.maxHeight);
+
+          return Stack(
+            fit: StackFit.expand,
+            children: [
+              Transform(
+                transform: Matrix4.identity()
+                  ..translateByDouble(
+                    viewport.offset.dx,
+                    viewport.offset.dy,
+                    0,
+                    1,
+                  )
+                  ..scaleByDouble(
+                    viewport.scale,
+                    viewport.scale,
+                    viewport.scale,
+                    1,
+                  ),
+                child: existingContent,
+              ),
+              if (showDrawingLayer)
+                WorkspaceDrawingLayer(
+                  tool: tool,
+                  drawings: drawings,
+                  selectedDrawingId: selectedDrawingId,
+                  viewport: viewport,
+                  documentSize: documentSize,
+                  onCreateDrawing: onCreateDrawing ?? (_) {},
+                  onSelectDrawing: (id) {
+                    onSelectDrawing?.call(id);
+                    // WO089 CORE EDITING — 사용자 도형을 선택하면, 화면에
+                    // 동시에 CAD 벽/공간이 "선택된 채"로 남아 두 선택
+                    // 상태가 우측 패널에서 충돌해 보이지 않도록 CAD
+                    // 선택은 비운다(아래 onSelectTapMiss가 반대 방향—
+                    // CAD geometry를 선택하면 도형 선택을 건드리지 않는
+                    // 이유는, 그쪽은 이 레이어가 자기 도형에서 못 찾았을
+                    // 때만 위임되는 "탭이 아무 데도 없었다"는 신호라
+                    // 이미 도형 선택이 null인 경로이기 때문이다).
+                    if (id != null) cadCallbacks.onSelectObject(null);
+                  },
+                  onViewportChanged: onViewportChanged ?? (_) {},
+                  onCanvasSizeChanged: onCanvasSizeChanged,
+                  onSelectTapMiss: (doc) {
+                    // WO089 CORE EDITING — 이 레이어가 기존
+                    // CadFloorPlanOverlay 위에 얹혀 모든 탭을 먼저
+                    // 받는다(§28, 하나의 gesture 소유자). 자기 도형에
+                    // 아무 것도 없으면, 원래 CadFloorPlanOverlay의
+                    // onTapUp이 하던 벽/문·창/공간 탭 선택을 그대로
+                    // 재현해 위임한다 — 그렇지 않으면 이 레이어가 opaque로
+                    // 모든 탭을 가로채 기존 CAD 선택 기능이 완전히
+                    // 죽는다(실제로 겪은 회귀).
+                    if (doc == null || floorPlan == null) {
+                      cadCallbacks.onSelectObject(null);
+                      return;
+                    }
+                    final fitForHit =
+                        transform ??
+                        ContainFitTransform.compute(
+                          Size(constraints.maxWidth, constraints.maxHeight),
+                          Size(
+                            floorPlan.sourceWidthPx.toDouble(),
+                            floorPlan.sourceHeightPx.toDouble(),
+                          ),
+                        );
+                    final shortSide = math.min(
+                      fitForHit.rect.width,
+                      fitForHit.rect.height,
+                    );
+                    final tolerance = shortSide > 0 ? 14.0 / shortSide : 0.03;
+                    cadCallbacks.onSelectObject(
+                      cadFloorPlanHitTest(floorPlan, doc, tolerance: tolerance),
+                    );
+                  },
+                ),
             ],
           );
         },

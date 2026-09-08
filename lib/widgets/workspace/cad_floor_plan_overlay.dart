@@ -221,41 +221,51 @@ class _CadFloorPlanOverlayState extends State<CadFloorPlanOverlay> {
       widget.onSelect(null);
       return;
     }
-
     final shortSide = math.min(transform.rect.width, transform.rect.height);
     if (shortSide <= 0) return;
-    final tolerance = 14.0 / shortSide;
-
-    for (final opening in widget.floorPlan.openings) {
-      if (opening.center.distanceTo(point) <= tolerance * 1.4) {
-        widget.onSelect(opening.id);
-        return;
-      }
-    }
-
-    String? nearestWallId;
-    var bestDistance = double.infinity;
-    for (final wall in widget.floorPlan.walls) {
-      final distance = _distanceToSegment(point, wall.start, wall.end);
-      if (distance <= tolerance && distance < bestDistance) {
-        bestDistance = distance;
-        nearestWallId = wall.id;
-      }
-    }
-    if (nearestWallId != null) {
-      widget.onSelect(nearestWallId);
-      return;
-    }
-
-    for (final room in widget.floorPlan.rooms) {
-      if (room.containsPoint(point)) {
-        widget.onSelect(room.id);
-        return;
-      }
-    }
-
-    widget.onSelect(null);
+    widget.onSelect(
+      cadFloorPlanHitTest(widget.floorPlan, point, tolerance: 14.0 / shortSide),
+    );
   }
+}
+
+/// [floorPlan]에서 [point](정규화 좌표, 0.0~1.0) 근처의 CAD geometry id를
+/// opening → wall → room 우선순위로 찾는다(기존 [_handleTap]의 판정
+/// 로직을 그대로 추출한 것 — 로직 중복 없이 재사용). 못 찾으면 null.
+///
+/// WO089 CORE EDITING — [WorkspaceDrawingLayer]가 이 오버레이 위에 얹혀
+/// "선택" 도구의 탭을 먼저 받는다(사용자가 그린 도형을 먼저 히트테스트
+/// 하기 위함). 그 레이어 자신의 도형에서 아무것도 안 맞으면, 이 함수로
+/// 기존 CAD 벽/문·창/공간 선택을 그대로 위임해 원래 탭 선택 동작이
+/// 깨지지 않게 한다(§28 — 새 GestureDetector를 얹으면서 기존 탭이
+/// 씹히는 문제를 조사해서 고친 결과).
+String? cadFloorPlanHitTest(
+  CadFloorPlan floorPlan,
+  Point2 point, {
+  required double tolerance,
+}) {
+  for (final opening in floorPlan.openings) {
+    if (opening.center.distanceTo(point) <= tolerance * 1.4) {
+      return opening.id;
+    }
+  }
+
+  String? nearestWallId;
+  var bestDistance = double.infinity;
+  for (final wall in floorPlan.walls) {
+    final distance = _distanceToSegment(point, wall.start, wall.end);
+    if (distance <= tolerance && distance < bestDistance) {
+      bestDistance = distance;
+      nearestWallId = wall.id;
+    }
+  }
+  if (nearestWallId != null) return nearestWallId;
+
+  for (final room in floorPlan.rooms) {
+    if (room.containsPoint(point)) return room.id;
+  }
+
+  return null;
 }
 
 /// 벽 끝점 하나를 드래그하기 위한, 화면 위치에 고정된 작은 히트테스트

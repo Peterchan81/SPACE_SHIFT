@@ -8,7 +8,9 @@ import '../models/floor_plan_file.dart';
 import '../models/floor_plan_geometry.dart';
 import '../models/space_scene.dart';
 import '../models/space_scene_v2.dart';
+import '../models/workspace_drawing_entity.dart';
 import '../models/workspace_task_item.dart';
+import '../models/workspace_viewport_transform.dart';
 import '../services/floor_plan_analysis_service.dart';
 import '../services/floor_plan_upload_service.dart';
 import '../services/space_scene_builder.dart';
@@ -25,6 +27,14 @@ import '../widgets/workspace/workspace_task_list.dart';
 import '../widgets/workspace/workspace_view_switcher.dart';
 import 'photo_select_screen.dart';
 import 'settings_screen.dart';
+
+/// WO089 CORE EDITING — 작업 항목([WorkspaceTaskItem])과 사용자 도형
+/// ([WorkspaceDrawingEntity]) 편집을 하나의 연대순 Undo/Redo 이력으로
+/// 합치기 위한 스냅샷. 기존 [_undoStack]/[_redoStack] 구조(리스트를
+/// 그대로 push/pop)를 그대로 재사용하되, 담는 내용만 tasks 하나에서
+/// {tasks, drawings} 묶음으로 넓혔다 — 두 번째 Undo 스택을 새로 만들지
+/// 않는다.
+typedef _WorkspaceSnapshot = ({List<WorkspaceTaskItem> tasks, List<WorkspaceDrawingEntity> drawings});
 
 /// 신규 MASTER 1번 — "평면도 업로드" 작업실이자, 로그인/회원가입 이후
 /// 진입하는 신규 MASTER 메인 작업 화면.
@@ -100,6 +110,21 @@ class _FloorPlanWorkspaceScreenState extends State<FloorPlanWorkspaceScreen> {
   late List<WorkspaceTaskItem> _tasks;
   int? _selectedTaskId;
 
+  /// WO089 CORE EDITING — 사용자가 직접 만든 도형(직선/곡선/원형/
+  /// 자유영역). [WorkspaceTaskItem]과는 별개 목록이다(§4 조사 결론 —
+  /// 작업 항목은 marker 하나뿐이라 도형 geometry를 담을 수 없다).
+  List<WorkspaceDrawingEntity> _drawings = [];
+  int? _selectedDrawingId;
+  int _nextDrawingId = 1;
+
+  /// §5 — 2D pan/zoom 상태. 문서 좌표([Point2])는 절대 건드리지 않고
+  /// 오직 이 transform만 바뀐다 — 그래서 Undo 이력에 넣지 않는다(§14).
+  WorkspaceViewportTransform _viewport = WorkspaceViewportTransform.identity;
+
+  /// §17 TAB TEST UI — 편집 모드/도형 개수/Zoom/선택 상태를 작게 보여주는
+  /// 디버그 패널. 릴리스에서 숨길 수 있도록 토글 가능한 상태로 둔다.
+  bool _showEditDebugInfo = true;
+
   FloorPlanFile? _floorPlanFile;
   FloorPlanAnalysisPhase _analysisPhase = FloorPlanAnalysisPhase.notStarted;
   FloorPlanAnalysisStep? _analysisStep;
@@ -137,8 +162,8 @@ class _FloorPlanWorkspaceScreenState extends State<FloorPlanWorkspaceScreen> {
   SpaceSceneV2? _spaceSceneV2;
   String? _spaceGenerationFailureMessage;
 
-  final List<List<WorkspaceTaskItem>> _undoStack = [];
-  final List<List<WorkspaceTaskItem>> _redoStack = [];
+  final List<_WorkspaceSnapshot> _undoStack = [];
+  final List<_WorkspaceSnapshot> _redoStack = [];
 
   @override
   void initState() {
@@ -755,30 +780,119 @@ class _FloorPlanWorkspaceScreenState extends State<FloorPlanWorkspaceScreen> {
   WorkspaceTaskItem? get _selectedTask =>
       _tasks.where((task) => task.id == _selectedTaskId).firstOrNull;
 
+  _WorkspaceSnapshot get _currentSnapshot => (tasks: List.of(_tasks), drawings: List.of(_drawings));
+
   void _mutate(
     List<WorkspaceTaskItem> Function(List<WorkspaceTaskItem>) mutator,
   ) {
     setState(() {
-      _undoStack.add(List.of(_tasks));
+      _undoStack.add(_currentSnapshot);
       _redoStack.clear();
       _tasks = mutator(List.of(_tasks));
     });
   }
 
+  /// WO089 CORE EDITING — [_mutate]와 정확히 같은 패턴(스냅샷 push →
+  /// redo 비우기 → 실제 변경)을 도형 목록에 적용한다. 같은
+  /// [_undoStack]/[_redoStack]을 공유해 작업 항목 편집과 도형 편집이
+  /// 하나의 연대순 Undo 이력으로 합쳐진다(기존 UI에 두 번째 Undo 버튼을
+  /// 새로 만들지 않는다).
+  void _mutateDrawings(
+    List<WorkspaceDrawingEntity> Function(List<WorkspaceDrawingEntity>) mutator,
+  ) {
+    setState(() {
+      _undoStack.add(_currentSnapshot);
+      _redoStack.clear();
+      _drawings = mutator(List.of(_drawings));
+    });
+  }
+
+  void _createDrawing(WorkspaceDrawingEntity draft) {
+    setState(() {
+      _undoStack.add(_currentSnapshot);
+      _redoStack.clear();
+      final entity = WorkspaceDrawingEntity(
+        id: _nextDrawingId++,
+        type: draft.type,
+        points: draft.points,
+        createdAt: draft.createdAt,
+        updatedAt: draft.updatedAt,
+      );
+      _drawings = [..._drawings, entity];
+      _selectedDrawingId = entity.id;
+    });
+  }
+
+  void _restoreSnapshot(_WorkspaceSnapshot snapshot) {
+    _tasks = snapshot.tasks;
+    _drawings = snapshot.drawings;
+    if (_selectedTaskId != null && !_tasks.any((t) => t.id == _selectedTaskId)) {
+      _selectedTaskId = null;
+    }
+    if (_selectedDrawingId != null && !_drawings.any((d) => d.id == _selectedDrawingId)) {
+      _selectedDrawingId = null;
+    }
+  }
+
   void _undo() {
     if (_undoStack.isEmpty) return;
     setState(() {
-      _redoStack.add(List.of(_tasks));
-      _tasks = _undoStack.removeLast();
+      _redoStack.add(_currentSnapshot);
+      _restoreSnapshot(_undoStack.removeLast());
     });
   }
 
   void _redo() {
     if (_redoStack.isEmpty) return;
     setState(() {
-      _undoStack.add(List.of(_tasks));
-      _tasks = _redoStack.removeLast();
+      _undoStack.add(_currentSnapshot);
+      _restoreSnapshot(_redoStack.removeLast());
     });
+  }
+
+  void _selectDrawing(int? id) => setState(() => _selectedDrawingId = id);
+
+  /// "지우기" 도구/선택된 도형 삭제 — 기존 [_deleteSelected](작업 항목
+  /// 삭제)와 같은 원칙으로, 항상 Undo 이력에 남긴다.
+  void _deleteSelectedDrawing() {
+    final id = _selectedDrawingId;
+    if (id == null) return;
+    _mutateDrawings((drawings) => drawings.where((d) => d.id != id).toList());
+    setState(() => _selectedDrawingId = null);
+  }
+
+  void _resetViewport() => setState(() => _viewport = WorkspaceViewportTransform.identity);
+
+  /// [WorkspaceDrawingLayer.onCanvasSizeChanged]가 보고한 실측 크기 —
+  /// §13 확대/축소 버튼이 화면 중심을 기준으로 zoom하는 데 쓴다.
+  Size _canvasSize = const Size(800, 600);
+
+  void _zoomStep(double factor) {
+    setState(() {
+      final center = Offset(_canvasSize.width / 2, _canvasSize.height / 2);
+      _viewport = _viewport.zoomBy(factor, focalPoint: center);
+    });
+  }
+
+  /// §13/§20 — 확대/축소/지우기는 "도구 모드"가 아니라 눌렀을 때 바로
+  /// 실행되는 1회성 동작이다(그 외 도구는 기존과 동일하게 활성 모드를
+  /// 바꾼다).
+  void _onToolSelected(WorkspaceSelectionTool tool) {
+    switch (tool) {
+      case WorkspaceSelectionTool.zoomIn:
+        _zoomStep(1.25);
+      case WorkspaceSelectionTool.zoomOut:
+        _zoomStep(0.8);
+      case WorkspaceSelectionTool.erase:
+        _deleteSelectedDrawing();
+      case WorkspaceSelectionTool.select:
+      case WorkspaceSelectionTool.line:
+      case WorkspaceSelectionTool.curve:
+      case WorkspaceSelectionTool.circle:
+      case WorkspaceSelectionTool.freeform:
+      case WorkspaceSelectionTool.move:
+        setState(() => _tool = tool);
+    }
   }
 
   void _updateSelected(WorkspaceTaskItem Function(WorkspaceTaskItem) update) {
@@ -911,7 +1025,7 @@ class _FloorPlanWorkspaceScreenState extends State<FloorPlanWorkspaceScreen> {
             cad: _cadWorkspaceState,
             cadCallbacks: _cadWorkspaceCallbacks,
             selectedTool: _tool,
-            onToolSelected: (tool) => setState(() => _tool = tool),
+            onToolSelected: _onToolSelected,
             onToggleVisible: () =>
                 _updateSelected((t) => t.copyWith(visible: !t.visible)),
             onToggleLocked: () =>
@@ -991,8 +1105,25 @@ class _FloorPlanWorkspaceScreenState extends State<FloorPlanWorkspaceScreen> {
               spaceGenerationFailureMessage: _spaceGenerationFailureMessage,
               onExitTo2D: () =>
                   setState(() => _viewMode = WorkspaceViewMode.plan2d),
+              tool: _tool,
+              drawings: _drawings,
+              selectedDrawingId: _selectedDrawingId,
+              viewport: _viewport,
+              onCreateDrawing: _createDrawing,
+              onSelectDrawing: _selectDrawing,
+              onViewportChanged: (v) => setState(() => _viewport = v),
+              onCanvasSizeChanged: (s) => _canvasSize = s,
             ),
           ),
+          if (_showEditDebugInfo)
+            _EditDebugInfoBar(
+              tool: _tool,
+              drawingCount: _drawings.length,
+              zoomPercent: (_viewport.scale * 100).round(),
+              selectedId: _selectedDrawingId,
+              onTap: _resetViewport,
+              onLongPress: () => setState(() => _showEditDebugInfo = false),
+            ),
           const SizedBox(height: 12),
           WorkspaceTaskList(
             tasks: _tasks,
@@ -1026,7 +1157,7 @@ class _FloorPlanWorkspaceScreenState extends State<FloorPlanWorkspaceScreen> {
               cad: _cadWorkspaceState,
               cadCallbacks: _cadWorkspaceCallbacks,
               selectedTool: _tool,
-              onToolSelected: (tool) => setState(() => _tool = tool),
+              onToolSelected: _onToolSelected,
               onToggleVisible: () =>
                   _updateSelected((t) => t.copyWith(visible: !t.visible)),
               onToggleLocked: () =>
@@ -1086,8 +1217,25 @@ class _FloorPlanWorkspaceScreenState extends State<FloorPlanWorkspaceScreen> {
             spaceGenerationFailureMessage: _spaceGenerationFailureMessage,
             onExitTo2D: () =>
                 setState(() => _viewMode = WorkspaceViewMode.plan2d),
+            tool: _tool,
+            drawings: _drawings,
+            selectedDrawingId: _selectedDrawingId,
+            viewport: _viewport,
+            onCreateDrawing: _createDrawing,
+            onSelectDrawing: _selectDrawing,
+            onViewportChanged: (v) => setState(() => _viewport = v),
+            onCanvasSizeChanged: (s) => _canvasSize = s,
           ),
         ),
+        if (_showEditDebugInfo)
+          _EditDebugInfoBar(
+            tool: _tool,
+            drawingCount: _drawings.length,
+            zoomPercent: (_viewport.scale * 100).round(),
+            selectedId: _selectedDrawingId,
+            onTap: _resetViewport,
+            onLongPress: () => setState(() => _showEditDebugInfo = false),
+          ),
         const SizedBox(height: 12),
         WorkspaceTaskList(
           tasks: _tasks,
@@ -1160,5 +1308,47 @@ class _FloorPlanWorkspaceScreenState extends State<FloorPlanWorkspaceScreen> {
     if (result != null && result.isNotEmpty) {
       _updateSelected((t) => t.copyWith(name: result));
     }
+  }
+}
+
+/// WO089 §17 TAB TEST UI — Galaxy Tab에서 편집 상태를 즉시 확인할 수
+/// 있는 작은 표시줄. 화면을 가리지 않도록 한 줄, 작은 글씨로만 표시하고
+/// (§17), [_showEditDebugInfo]로 언제든 끌 수 있다(릴리스에서 숨기는
+/// 구조).
+class _EditDebugInfoBar extends StatelessWidget {
+  const _EditDebugInfoBar({
+    required this.tool,
+    required this.drawingCount,
+    required this.zoomPercent,
+    required this.selectedId,
+    required this.onTap,
+    required this.onLongPress,
+  });
+
+  final WorkspaceSelectionTool tool;
+  final int drawingCount;
+  final int zoomPercent;
+  final int? selectedId;
+
+  /// 탭하면 zoom/pan을 초기화한다(§12 "reset/fit behavior").
+  final VoidCallback onTap;
+
+  /// 길게 누르면 이 표시줄 자체를 숨긴다(§17 "release에서 숨길 수 있는
+  /// debug flag 구조").
+  final VoidCallback onLongPress;
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: onTap,
+      onLongPress: onLongPress,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 4),
+        child: Text(
+          '편집 모드: ${tool.label}  ·  도형: $drawingCount  ·  Zoom: $zoomPercent%(탭=초기화)  ·  선택: ${selectedId ?? '없음'}',
+          style: const TextStyle(fontSize: 10, color: Colors.black45),
+        ),
+      ),
+    );
   }
 }

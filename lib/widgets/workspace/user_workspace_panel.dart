@@ -11,6 +11,7 @@ import 'display_tab.dart';
 import 'floor_plan_preview.dart';
 import 'furniture_tab.dart';
 import 'info_tab.dart';
+import 'selection_edit_tools.dart';
 import 'work_tab.dart';
 
 enum _PanelTab { work, furniture, display, info }
@@ -211,25 +212,53 @@ class _UserWorkspacePanelState extends State<UserWorkspacePanel> {
   Widget _buildTabContent() {
     switch (_tab) {
       case _PanelTab.work:
-        return ListView(
+        // WO089 CORE EDITING — SelectionEditTools를 이 목록 위쪽에 추가로
+        // 넣으면서 아래쪽 콘텐츠(CadStructureTab/빈 선택 안내 등)가 더
+        // 밀려나, 지연 빌드하는 ListView(Sliver 기반)의 기본 cacheExtent
+        // 밖으로 나가 테스트에서 skipOffstage:false로도 찾지 못하는
+        // widget이 생겼다(Element 자체가 생성되지 않음). 이 패널은
+        // 무한 스크롤이 아니라 항목 수가 적은 고정 속성 패널이므로,
+        // SingleChildScrollView+Column으로 바꿔 전체를 항상 즉시
+        // 빌드하게 한다(지연 로딩 hack이 아니라 이 목록의 실제 성격에
+        // 맞는 구조).
+        return SingleChildScrollView(
           padding: const EdgeInsets.all(16),
-          children: [
-            if (widget.viewMode == WorkspaceViewMode.plan2d)
-              FloorPlanStatusSection(
-                hasFloorPlanFile: widget.hasFloorPlanFile,
-                analysisPhase: widget.analysisPhase,
-                analysisStep: widget.analysisStep,
-                analysisResult: widget.analysisResult,
-                analysisFailureMessage: widget.analysisFailureMessage,
-                onReanalyze: widget.onReanalyze,
-                cad: widget.cad,
-                cadCallbacks: widget.cadCallbacks,
-              )
-            else
-              _StageNotice(viewMode: widget.viewMode),
-            const SizedBox(height: 16),
-            _buildSelectionContent(),
-          ],
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              if (widget.viewMode == WorkspaceViewMode.plan2d)
+                FloorPlanStatusSection(
+                  hasFloorPlanFile: widget.hasFloorPlanFile,
+                  analysisPhase: widget.analysisPhase,
+                  analysisStep: widget.analysisStep,
+                  analysisResult: widget.analysisResult,
+                  analysisFailureMessage: widget.analysisFailureMessage,
+                  onReanalyze: widget.onReanalyze,
+                  cad: widget.cad,
+                  cadCallbacks: widget.cadCallbacks,
+                )
+              else
+                _StageNotice(viewMode: widget.viewMode),
+              const SizedBox(height: 16),
+              // WO089 CORE EDITING — 선택 영역 편집 도구는 특정 작업 항목의
+              // 속성이 아니다(직선/곡선/원형/자유영역은 새 도형을 캔버스에
+              // 직접 만드는 동작이라, 기존 작업이 하나도 선택되지 않은
+              // 상태 — 심지어 평면도를 업로드하기 전 blank workspace 상태
+              // 에서도 그대로 접근 가능해야 한다). 기존에는 [WorkTab] 안에
+              // 있어 작업이 선택된 경우에만 보였다 — 그 위치를 그대로 두면
+              // 도구 자체를 쓸 수 없는 상태가 생기므로, 선택 상태와 무관한
+              // 이 자리로 옮긴다(WorkTab 내부 중복 정의는 제거).
+              if (widget.viewMode == WorkspaceViewMode.plan2d)
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 16),
+                  child: SelectionEditTools(
+                    selected: widget.selectedTool,
+                    onSelected: widget.onToolSelected,
+                  ),
+                ),
+              _buildSelectionContent(),
+            ],
+          ),
         );
       case _PanelTab.furniture:
         return const FurnitureTab();
@@ -281,8 +310,6 @@ class _UserWorkspacePanelState extends State<UserWorkspacePanel> {
     }
     return WorkTab(
       task: task,
-      selectedTool: widget.selectedTool,
-      onToolSelected: widget.onToolSelected,
       onToggleVisible: widget.onToggleVisible,
       onToggleLocked: widget.onToggleLocked,
       onRename: widget.onRename,
