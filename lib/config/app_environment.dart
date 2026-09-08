@@ -85,6 +85,19 @@ class AppEnvironment {
     defaultValue: '',
   );
 
+  /// GPT FLOORPLAN → STRUCTURED 2D → REAL 3D ISO FLOW WO — 사용자가
+  /// 업로드한 평면도를 GPT Vision이 이해해 구조화된 결과([VisionUnderstanding])로
+  /// 돌려주는 Supabase Edge Function URL. OpenAI API key는 이 함수
+  /// 안에서만 보관하고 앱에는 절대 넣지 않는다(§5). 지정하지 않으면
+  /// [createVisionInterpretationService]가 안전하게
+  /// `UnavailableVisionInterpretationService`로 동작해, 실제 네트워크
+  /// 호출 없이 즉시 "아직 설정되지 않음"으로 실패하고 기존 geometry
+  /// 전용 분석으로 폴백한다.
+  static const String gptFloorPlanEdgeFunctionUrl = String.fromEnvironment(
+    'GPT_FLOORPLAN_EDGE_FUNCTION_URL',
+    defaultValue: '',
+  );
+
   /// `--dart-define=SUPABASE_URL=...`.
   ///
   /// Galaxy Tab 인터넷 기반 무선 업데이트(AppUpdateService)가 공개 배포

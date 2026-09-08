@@ -148,6 +148,7 @@ class WorkspaceTaskItem {
     this.thicknessMm,
     this.visible = true,
     this.locked = false,
+    this.sourceCadId,
   });
 
   /// 작업 목록/marker/작업 Tab 전체에서 이 작업을 식별하는 고유 값.
@@ -170,6 +171,11 @@ class WorkspaceTaskItem {
 
   final bool visible;
   final bool locked;
+
+  /// GPT FLOORPLAN WO §11 — 이 작업이 CAD 벽/공간에서 "작업으로 추가"로
+  /// 만들어졌으면 그 원본 [CadWall.id]/[CadRoom.id]를 담는다. null이면
+  /// (도면과 무관하게 직접 만든 작업 등) 3D 재질 override 대상이 아니다.
+  final String? sourceCadId;
 
   WorkspaceTaskItem copyWith({
     String? name,
@@ -194,6 +200,7 @@ class WorkspaceTaskItem {
       thicknessMm: thicknessMm ?? this.thicknessMm,
       visible: visible ?? this.visible,
       locked: locked ?? this.locked,
+      sourceCadId: sourceCadId,
     );
   }
 }

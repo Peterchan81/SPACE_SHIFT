@@ -339,6 +339,9 @@ class VisionGuidedSpatialModelBuilder {
       source: foundCount >= 3 ? SSEntitySource.validated : SSEntitySource.vision,
       reviewNeeded: reviewNeeded,
       reviewReasons: reasons,
+      roomType: space.semanticType == VisionSpaceSemanticType.bathroom
+          ? SSRoomType.bathroom
+          : SSRoomType.other,
     );
   }
 

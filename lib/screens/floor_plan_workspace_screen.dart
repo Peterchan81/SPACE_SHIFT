@@ -1,5 +1,3 @@
-import 'dart:typed_data';
-
 import 'package:flutter/material.dart';
 
 import '../models/cad_floor_plan.dart';
@@ -13,11 +11,12 @@ import '../models/workspace_task_item.dart';
 import '../models/workspace_viewport_transform.dart';
 import '../services/floor_plan_analysis_service.dart';
 import '../services/floor_plan_upload_service.dart';
+import '../services/gpt_floorplan_vision_service.dart';
 import '../services/space_scene_builder.dart';
 import '../services/space_scene_builder_v2.dart';
+import '../services/vision_guided_spatial_model_builder.dart';
+import '../services/vision_interpretation_service.dart';
 import '../theme/space_shift_colors.dart';
-import '../vision_cad_poc/pixel_wall_v4/pixel_wall_pipeline.dart';
-import '../vision_cad_poc/pixel_wall_v4/semantic_provider.dart';
 import '../widgets/workspace/ceiling_height_sheet.dart';
 import '../widgets/workspace/settings_entry_button.dart';
 import '../widgets/workspace/start_method_panel.dart';
@@ -59,6 +58,7 @@ class FloorPlanWorkspaceScreen extends StatefulWidget {
     this.demoMode = false,
     this.uploadService = const FloorPlanUploadService(),
     this.analysisService = const FloorPlanAnalysisService(),
+    this.visionInterpretationService,
   });
 
   final String projectName;
@@ -72,6 +72,12 @@ class FloorPlanWorkspaceScreen extends StatefulWidget {
   final FloorPlanUploadService uploadService;
   final FloorPlanAnalysisService analysisService;
 
+  /// GPT FLOORPLAN WO — 테스트가 실제 네트워크 호출 없이 GPT 응답을
+  /// 흉내낼 수 있도록 주입 지점을 둔다. 지정하지 않으면(실사용 경로)
+  /// [_createProductionVisionService]가 dart-define 설정에 따라 안전한
+  /// 기본값 또는 실제 Edge Function 구현을 고른다.
+  final VisionInterpretationService? visionInterpretationService;
+
   @override
   State<FloorPlanWorkspaceScreen> createState() =>
       _FloorPlanWorkspaceScreenState();
@@ -83,24 +89,18 @@ class FloorPlanWorkspaceScreen extends StatefulWidget {
 /// "천장고 입력" 시트에서 바꿀 수 있다.
 const double kDefaultCeilingHeightMm = 2400;
 
-/// WO084/085 — 실제 Image2 회귀(96/105/23 vertices/edges/T-junction,
-/// PhysicalRooms 9)로 검증된 pixel_wall_v4 엔진을 production 분석 경로에
-/// 연결한다. 순수 pixel evidence만으로도 결정론적인 벽/개구부/공간을
-/// 만든다 — 매칭되지 않은 공간은 reviewNeeded로 정직하게 남긴다(가짜로
-/// 문/창/방을 확정하지 않는다, WO084 절대 원칙).
-///
-/// WO087 §15 — [SemanticProvider]로 실제 semantic evidence를 시도한다.
-/// 현재는 [UnavailableSemanticProvider](live GPT 호출은 이번 WO 범위
-/// 밖 — §3 보안 사고로 노출된 key 재사용 금지 + 범위 확장 금지 원칙)를
-/// 쓰지만, 호출부 코드를 전혀 바꾸지 않고 나중에 실제 live provider로
-/// 교체할 수 있다. semantic이 없어도(§16) 절대 죽지 않고 geometry-only로
-/// 안전하게 계속 진행한다.
-const SemanticProvider _productionSemanticProvider = UnavailableSemanticProvider();
-
-Future<PixelWallPipelineResult> _runPixelWallV4(Uint8List bytes) => runPixelWallPipelineWithSemanticProvider(
-  imageBytes: bytes,
-  provider: _productionSemanticProvider,
-);
+/// GPT FLOORPLAN → STRUCTURED 2D → REAL 3D ISO FLOW WO §2 — pixel_wall_v4
+/// (WO088 Raster→CAD 자동 벡터화 POC)는 더 이상 V1 production 분석
+/// 경로가 아니다. 코드/테스트는 R&D 자산으로 그대로 보존하되(삭제하지
+/// 않는다), 이 화면은 대신 GPT가 구조를 이해하고([VisionInterpretationService])
+/// 기존 픽셀 evidence 정밀화([VisionGuidedSpatialModelBuilder] →
+/// [HintedGeometryExtractor] → [TopologyValidator])로 최종 [SSSpatialModel]을
+/// 만드는 파이프라인을 쓴다(§4). GPT Edge Function이 아직 배포되지
+/// 않았으면([createVisionInterpretationService]가 안전한 기본값
+/// [UnavailableVisionInterpretationService]를 돌려줌) 즉시 실패하고,
+/// 호출부(§ 아래 [_startAnalysis])가 기존 geometry-only 분석 결과로
+/// 정직하게 폴백한다 — 절대 죽지 않는다(§14).
+VisionInterpretationService _createProductionVisionService() => createVisionInterpretationService();
 
 class _FloorPlanWorkspaceScreenState extends State<FloorPlanWorkspaceScreen> {
   WorkspaceStartMethod _startMethod = WorkspaceStartMethod.floorPlanUpload;
@@ -205,6 +205,9 @@ class _FloorPlanWorkspaceScreenState extends State<FloorPlanWorkspaceScreen> {
     });
   }
 
+  VisionInterpretationService get _visionService =>
+      widget.visionInterpretationService ?? _createProductionVisionService();
+
   /// "평면도 분석 시작" — 실제 CV 파이프라인(FloorPlanAnalysisService)을
   /// 호출해 벽/공간/문·창 후보를 계산하고, 편집 가능한 CAD geometry로
   /// 변환한다. 분석 직후에는 작업 목록에 아무 것도 추가하지 않는다 —
@@ -231,53 +234,32 @@ class _FloorPlanWorkspaceScreenState extends State<FloorPlanWorkspaceScreen> {
 
     if (outcome.isSuccess) {
       final result = outcome.result!;
-      // WO084/085 — 실제 Image2로 검증된 pixel_wall_v4 엔진(§ 위
-      // [_runPixelWallV4])이 기존 space-first 엔진보다 실제 벽/개구부
-      // topology를 더 정확히 잡아낸다(WO083 METRIC CAD FOUNDATION 기준선).
-      // 실패하거나(예외) 아무 geometry도 만들지 못하면 조용히 화면을
-      // 비우지 않고, 기존에 검증된 엔진 결과로 안전하게 되돌아간다 —
-      // 사용자에게는 항상 어떤 CAD 결과가 보여야 한다(§14 가짜 실패 금지
-      // 원칙의 반대편: 가짜 성공도 만들지 않되, 진짜 결과가 있으면 숨기지
-      // 않는다).
+      // GPT FLOORPLAN WO §2/§4 — 이제 기본 geometry-only 분석
+      // (FloorPlanAnalysisService)을 먼저 안전한 baseline으로 확보해
+      // 두고, GPT 구조 이해 파이프라인이 실제로 벽/공간을 만들어내면
+      // 그 결과로 교체한다. GPT가 아직 설정되지 않았거나 실패해도
+      // 화면은 절대 비지 않는다 — 항상 이 baseline이 남는다(§14).
       var cadFloorPlan = buildCadFloorPlan(result);
       try {
-        // 실기 테스트 WO — [compute]의 실제 Isolate.spawn은 위젯 테스트의
-        // fake-async 존과 맞물려 절대 끝나지 않는 대기를 만든다(가짜
-        // FloorPlanAnalysisService로 분석을 즉시 끝내는 테스트에서 실측
-        // 확인, pumpAndSettle 타임아웃). 이미지 분석 해상도가 이미
-        // 900px로 제한돼(engine.dart) 메인 스레드에서 계산해도 감당할
-        // 수 있는 비용이므로, 여기서는 isolate 없이 직접 호출한다.
-        final pixelResult = await _runPixelWallV4(file.bytes!);
-        final model = pixelResult.model;
+        final model = await VisionGuidedSpatialModelBuilder(
+          visionService: _visionService,
+        ).build(file.bytes!);
         if (model.walls.isNotEmpty || model.spaces.isNotEmpty) {
           cadFloorPlan = buildCadFloorPlanFromSpatialModel(model);
-          if (pixelResult.semanticStatus == SemanticProviderStatus.unavailable) {
-            // WO087 §16 — SEMANTIC_UNAVAILABLE은 FALLBACK_USED가 아니다:
-            // geometry 엔진은 정상 동작했다. semantic evidence가 없어
-            // 방 이름이 "공간 N"으로 남는다는 것만 정직하게 알린다.
-            cadFloorPlan = cadFloorPlan.copyWithWarnings([
-              ...cadFloorPlan.warnings,
-              'semantic 근거 없이 geometry만으로 분석했습니다(SEMANTIC_UNAVAILABLE) — 공간 이름은 자동으로 확정되지 않습니다.',
-            ]);
-          }
         } else {
-          // WO086 §13 — FALLBACK_USED: pixel_wall_v4가 예외 없이 끝났지만
-          // 벽/공간을 하나도 만들지 못했다(예: 극단적으로 단순하거나
-          // 퇴화된 이미지). 조용히 폴백하지 않고 왜 폴백했는지 남긴다.
           cadFloorPlan = cadFloorPlan.copyWithWarnings([
             ...cadFloorPlan.warnings,
-            'pixel_wall_v4 엔진이 벽/공간을 찾지 못해 기존 분석 결과로 대체했습니다(FALLBACK_USED).',
+            '평면도 구조를 자동으로 확인하지 못해 기본 분석 결과를 사용했습니다.',
           ]);
         }
       } catch (_) {
-        // WO086 §13 — FALLBACK_USED: pixel_wall_v4가 예외로 실패했다(예:
-        // 비정상적으로 작거나 손상된 이미지). 기존 엔진 결과(cadFloorPlan)를
-        // 그대로 쓰되, 왜 폴백했는지는 조용히 삼키지 않고 남긴다 — 원본
-        // 예외 내용은 사용자에게 노출하지 않는다(민감정보 우려 없음, 다만
-        // 이 프로젝트의 "원본 예외를 그대로 노출하지 않는다" 관례를 따름).
+        // GPT 평면도 이해가 아직 설정되지 않았거나(Edge Function URL
+        // 미배포) 네트워크/응답 오류로 실패한 경우 — 원본 예외 내용은
+        // 사용자에게 노출하지 않고(이 프로젝트의 "원본 예외 비노출"
+        // 관례), 이미 확보해 둔 geometry-only baseline을 그대로 쓴다.
         cadFloorPlan = cadFloorPlan.copyWithWarnings([
           ...cadFloorPlan.warnings,
-          'pixel_wall_v4 엔진 분석에 실패해 기존 분석 결과로 대체했습니다(FALLBACK_USED).',
+          '평면도 구조 이해 기능을 사용할 수 없어 기본 분석 결과를 사용했습니다.',
         ]);
       }
       setState(() {
@@ -448,6 +430,10 @@ class _FloorPlanWorkspaceScreenState extends State<FloorPlanWorkspaceScreen> {
         ? 1
         : _tasks.map((t) => t.id).reduce((a, b) => a > b ? a : b) + 1;
     final nextNumber = _tasks.length + 1;
+    // GPT FLOORPLAN WO §11 — 이 작업이 어느 CAD geometry에서 왔는지
+    // 기억해 둔다. "3D 아이소 만들기"가 이 값으로 사용자가 고른 색을
+    // 해당 벽/공간의 3D 기본 재질보다 우선 적용한다(_applyMaterialOverrides).
+    final sourceCadId = wall?.id ?? opening?.id ?? room?.id;
 
     _mutate(
       (tasks) => [
@@ -460,6 +446,7 @@ class _FloorPlanWorkspaceScreenState extends State<FloorPlanWorkspaceScreen> {
           finishLabel: category.finishOptions.first,
           color: color,
           markerPosition: markerPosition,
+          sourceCadId: sourceCadId,
         ),
       ],
     );
@@ -596,6 +583,40 @@ class _FloorPlanWorkspaceScreenState extends State<FloorPlanWorkspaceScreen> {
     });
   }
 
+  /// GPT FLOORPLAN WO §11 — "작업으로 추가"로 만들어진 [WorkspaceTaskItem]
+  /// 중 사용자가 색을 바꾼(원래 카테고리 기본색과 달라진) 것이 있으면,
+  /// 그 원본 CAD 벽/공간([WorkspaceTaskItem.sourceCadId])에
+  /// [CadWall.materialOverride]/[CadRoom.materialOverride]로 실어 보낸다.
+  /// 3D 빌더([space_scene_builder_v2.dart])는 이 override가 있으면 항상
+  /// roomType 기반 기본 재질보다 우선한다 — "사용자 override가 있으면
+  /// default보다 우선한다"는 원칙을 실제 데이터 경로로 연결한다.
+  CadFloorPlan _applyMaterialOverrides(CadFloorPlan plan) {
+    final overrideById = {
+      for (final task in _tasks)
+        if (task.sourceCadId != null) task.sourceCadId!: task.color,
+    };
+    if (overrideById.isEmpty) return plan;
+    return CadFloorPlan(
+      sourceWidthPx: plan.sourceWidthPx,
+      sourceHeightPx: plan.sourceHeightPx,
+      walls: [
+        for (final wall in plan.walls)
+          overrideById.containsKey(wall.id)
+              ? wall.copyWith(materialOverride: overrideById[wall.id])
+              : wall,
+      ],
+      openings: plan.openings,
+      rooms: [
+        for (final room in plan.rooms)
+          overrideById.containsKey(room.id)
+              ? room.withMaterialOverride(overrideById[room.id])
+              : room,
+      ],
+      warnings: plan.warnings,
+      objectCandidates: plan.objectCandidates,
+    );
+  }
+
   /// [3D 아이소 만들기] — geometry/축척/천장고가 모두 준비됐을 때만
   /// 눌릴 수 있다. NOMPASS V2 WO — 실제 화면에 표시하는 3D는
   /// [buildSpaceSceneV2]로 만든다(V1 [buildSpaceScene]은 삭제하지 않고
@@ -613,13 +634,14 @@ class _FloorPlanWorkspaceScreenState extends State<FloorPlanWorkspaceScreen> {
       return;
     }
 
+    final planWithMaterials = _applyMaterialOverrides(plan);
     final scene = buildSpaceScene(
-      plan: plan,
+      plan: planWithMaterials,
       scale: scale,
       ceilingHeightMm: ceilingHeightMm,
     );
     final sceneV2 = buildSpaceSceneV2(
-      plan: plan,
+      plan: planWithMaterials,
       scale: scale,
       ceilingHeightMm: ceilingHeightMm,
     );

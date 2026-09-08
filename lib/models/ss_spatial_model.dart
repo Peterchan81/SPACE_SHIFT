@@ -41,6 +41,13 @@ import 'floor_plan_geometry.dart';
 /// [SSSpace]가 실제 사용 가능한 건축 공간이라는 판단의 근거 강도.
 enum SSSpaceConfidence { high, medium, low, unknown }
 
+/// GPT FLOORPLAN → STRUCTURED 2D → REAL 3D ISO FLOW WO — 3D 기본 재질
+/// 선택에 필요한 최소 분류. [VisionSpaceSemanticType]처럼 세분화하지
+/// 않는다 — 이번 범위(§11)는 "욕실이냐 아니냐"만 default
+/// 바닥/벽재(우드 vs 타일)를 가르는 데 쓰이므로, 그 이상 구분을
+/// 추가하면 실제로 쓰이지 않는 값만 늘어난다.
+enum SSRoomType { bathroom, other }
+
 /// Vision Guided CAD POC WO — 이 값이 어디서 만들어졌는지. 기존 두
 /// interpreter(순수 픽셀 evidence)가 만드는 모든 entity는 기본값
 /// [SSEntitySource.geometry]를 그대로 쓴다(그 값 자체가 이미
@@ -80,6 +87,7 @@ class SSSpace {
     this.reviewNeeded = false,
     this.reviewReasons = const [],
     this.label,
+    this.roomType = SSRoomType.other,
   });
 
   final String id;
@@ -130,6 +138,11 @@ class SSSpace {
   /// 지어내지 않는다).
   final String? label;
 
+  /// GPT FLOORPLAN WO — Vision/GPT가 지목한 공간 용도로부터 유도한 3D
+  /// 기본 재질 분류(§11). 알 수 없으면 [SSRoomType.other](기존 두
+  /// interpreter/pixel 경로는 항상 이 기본값을 쓴다 — 하위 호환).
+  final SSRoomType roomType;
+
   bool containsPoint(Point2 p) {
     var inside = false;
     for (var i = 0, j = polygon.length - 1; i < polygon.length; j = i++) {
@@ -167,6 +180,7 @@ class SSSpace {
       reviewNeeded: reviewNeeded ?? this.reviewNeeded,
       reviewReasons: reviewReasons ?? this.reviewReasons,
       label: label,
+      roomType: roomType,
     );
   }
 }

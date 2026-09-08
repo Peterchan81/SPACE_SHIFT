@@ -33,3 +33,8 @@ verify_jwt = false
 # 현장미팅 문의를 접수하는 Edge Function.
 [functions.submit-site-meeting]
 verify_jwt = false
+
+# GPT FLOORPLAN WO — 업로드된 평면도를 GPT Vision으로 구조 이해하는
+# Edge Function. OpenAI Secret(OPENAI_API_KEY)은 이 함수 환경에만 저장한다.
+[functions.gpt-floorplan-understand]
+verify_jwt = false

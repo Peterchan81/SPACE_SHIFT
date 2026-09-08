@@ -1,6 +1,7 @@
 import 'dart:math' as math;
 
 import 'package:flutter/foundation.dart';
+import 'package:flutter/painting.dart' show Color;
 
 import '../services/ss_spatial_model_builder.dart';
 import 'floor_plan_geometry.dart';
@@ -35,6 +36,7 @@ class CadWall {
     this.heightMm,
     this.reviewNeeded = false,
     this.reviewReasons = const [],
+    this.materialOverride,
   });
 
   final String id;
@@ -69,6 +71,11 @@ class CadWall {
   final bool reviewNeeded;
   final List<String> reviewReasons;
 
+  /// GPT FLOORPLAN WO §11 — 사용자가 "작업/재질/마감재"에서 직접 고른
+  /// 색이 있으면 이 값이 채워진다. null이면 3D 빌더가 기본 재질(외벽/
+  /// 내벽 기준색)을 쓰고, 값이 있으면 항상 기본값보다 우선한다.
+  final Color? materialOverride;
+
   Point2 get centerStart => start;
   Point2 get centerEnd => end;
   double get lengthNormalized => start.distanceTo(end);
@@ -101,6 +108,7 @@ class CadWall {
     bool? edited,
     CadElementSource? source,
     double? heightMm,
+    Color? materialOverride,
   }) {
     return CadWall(
       id: id,
@@ -114,6 +122,7 @@ class CadWall {
       heightMm: heightMm ?? this.heightMm,
       reviewNeeded: reviewNeeded,
       reviewReasons: reviewReasons,
+      materialOverride: materialOverride ?? this.materialOverride,
     );
   }
 }
@@ -166,6 +175,8 @@ class CadRoom {
     this.name,
     this.reviewNeeded = false,
     this.reviewReasons = const [],
+    this.roomType = SSRoomType.other,
+    this.materialOverride,
   });
 
   final String id;
@@ -175,6 +186,17 @@ class CadRoom {
   final bool closed;
   final CadElementSource source;
   final String? name;
+
+  /// GPT FLOORPLAN WO §11 — 이 공간의 3D 기본 바닥/벽 재질을 고르는 데
+  /// 쓰는 최소 분류([SSSpace.roomType] 그대로 승계). 기존 pixel 전용
+  /// 경로는 항상 [SSRoomType.other](GPT 근거 없이 "욕실"로 임의 단정하지
+  /// 않는다).
+  final SSRoomType roomType;
+
+  /// 사용자가 "작업/재질/마감재"에서 직접 고른 바닥 색 — null이면 3D
+  /// 빌더가 [roomType] 기반 기본값(우드/타일)을 쓰고, 값이 있으면 항상
+  /// 우선한다(§11).
+  final Color? materialOverride;
 
   /// WO084/085 — true면 이 공간이 실제 독립 건축 공간인지 자동으로
   /// 확정하지 못했다는 뜻이다([SSSpace.reviewNeeded] 승계) — 예: GPT
@@ -210,6 +232,26 @@ class CadRoom {
       name: name,
       reviewNeeded: reviewNeeded,
       reviewReasons: reviewReasons,
+      roomType: roomType,
+      materialOverride: materialOverride,
+    );
+  }
+
+  /// GPT FLOORPLAN WO §11 — [materialOverride]만 바꾼 새 [CadRoom]을
+  /// 만든다(사용자가 "작업/재질/마감재"에서 색을 고른 경우).
+  CadRoom withMaterialOverride(Color? materialOverride) {
+    return CadRoom(
+      id: id,
+      polygon: polygon,
+      areaNormalized: areaNormalized,
+      confidence: confidence,
+      closed: closed,
+      source: source,
+      name: name,
+      reviewNeeded: reviewNeeded,
+      reviewReasons: reviewReasons,
+      roomType: roomType,
+      materialOverride: materialOverride,
     );
   }
 }
@@ -551,6 +593,7 @@ CadFloorPlan buildCadFloorPlanFromSpatialModel(SSSpatialModel spatialModel) {
         name: space.label,
         reviewNeeded: space.reviewNeeded,
         reviewReasons: space.reviewReasons,
+        roomType: space.roomType,
       ),
   ];
 

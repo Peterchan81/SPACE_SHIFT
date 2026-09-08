@@ -496,11 +496,12 @@ void main() {
     // 분석 geometry는 사용자 작업이 아니므로, 분석 직후에도 "작업 목록"은
     // 여전히 0개다(WO 1/2번) — "외벽"/"내벽" 같은 작업 이름은 사용자가
     // 실제로 작업을 만들기 전까지 작업 목록에 나타나지 않는다.
-    // ("공간 1"은 2D 정확도 개선 WO(4번)부터 우측 "평면도 준비 완료"
-    // 카드에 공간별 크기 목록으로 항상 보인다 — 작업 목록과는 별개다.)
+    // GPT FLOORPLAN WO §7 — "공간 1" 등 공간별 크기 목록은 V1
+    // production UI에서 제거됐다(우측 "평면도 준비 완료" 카드에는 더
+    // 이상 표시되지 않는다) — 존재하지 않는 것이 이제 올바른 상태다.
     expect(find.text('아직 등록된 작업이 없습니다.'), findsOneWidget);
     expect(find.text('외벽'), findsNothing);
-    expect(find.text('공간 1', skipOffstage: false), findsOneWidget);
+    expect(find.text('공간 1', skipOffstage: false), findsNothing);
     // 우측 패널 상단에 도면 분석 상태/표시 설정 섹션이 추가되어, 선택
     // 안내 카드가 스크롤 영역 아래로 밀려 화면 밖에 있을 수 있다 —
     // 존재 여부만 확인하므로 skipOffstage: false로 찾는다.
@@ -693,8 +694,11 @@ void main() {
       '[치수 적용]하면 그 값으로 축척이 교체되어 "추정" 문구가 사라진다', (tester) async {
     await pumpAnalyzed(tester);
 
-    expect(find.textContaining('추정'), findsWidgets);
-
+    // GPT FLOORPLAN WO §7 — "공간별 크기" 카드(추정 치수 문구를 보여주던
+    // 곳)가 V1 production UI에서 제거되어, 분석 직후 화면 전체에서
+    // "추정" 문구를 미리 찾는 전제는 더 이상 성립하지 않는다. 이
+    // 테스트의 핵심은 아래 "치수 보정" drag 흐름이므로, 그 흐름 자체가
+    // 실제로 만들어내는 "m (추정)" 문구(line 아래)로 검증을 이어간다.
     final calibrationButton = find.text('치수 보정', skipOffstage: false);
     await tester.ensureVisible(calibrationButton);
     await tester.pumpAndSettle();
@@ -730,10 +734,9 @@ void main() {
     await tester.tap(applyButton);
     await tester.pumpAndSettle();
 
-    // 실측값으로 교체된 뒤에는 더 이상 "추정" 문구가 공간 크기 옆에
-    // 붙지 않는다(치수 보정 모드도 자동으로 종료된다).
-    final areaLabel = find.textContaining('㎡', skipOffstage: false);
-    await tester.ensureVisible(areaLabel);
+    // 실측값으로 교체된 뒤에는 치수 보정 모드가 자동으로 종료된다.
+    // GPT FLOORPLAN WO §7 — 공간 크기(㎡) 옆 "(추정)" 표시는 그 UI
+    // 자체(공간별 크기 카드)가 제거되어 더 이상 존재하지 않는다.
     expect(find.textContaining('㎡ (추정)', skipOffstage: false), findsNothing);
     expect(find.text('선택한 벽', skipOffstage: false), findsNothing);
   });

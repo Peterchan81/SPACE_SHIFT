@@ -522,10 +522,7 @@ class _CompletedSummary extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final result = this.result;
-    final warnings = [
-      ...?result?.warnings,
-      ...interpretationWarnings,
-    ];
+    final warnings = [...?result?.warnings, ...interpretationWarnings];
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -727,63 +724,71 @@ class _StatusPlaceholder extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      color: const Color(0xFFF7F8FA),
-      child: Center(
-        child: Padding(
-          padding: const EdgeInsets.all(24),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Container(
-                width: 64,
-                height: 64,
-                decoration: BoxDecoration(
-                  color: Colors.white,
-                  shape: BoxShape.circle,
-                  border: Border.all(color: SpaceShiftColors.border),
-                ),
-                child: Icon(
-                  icon,
-                  size: 30,
-                  color: SpaceShiftColors.textSecondary,
+    final action = onAction;
+    final content = Center(
+      child: Padding(
+        padding: const EdgeInsets.all(24),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              width: 64,
+              height: 64,
+              decoration: BoxDecoration(
+                color: Colors.white,
+                shape: BoxShape.circle,
+                border: Border.all(color: SpaceShiftColors.border),
+              ),
+              child: Icon(icon, size: 30, color: SpaceShiftColors.textSecondary),
+            ),
+            const SizedBox(height: 14),
+            Text(
+              title,
+              textAlign: TextAlign.center,
+              style: const TextStyle(
+                fontSize: 14,
+                fontWeight: FontWeight.w600,
+                color: SpaceShiftColors.textPrimary,
+              ),
+            ),
+            const SizedBox(height: 4),
+            Text(
+              subtitle,
+              textAlign: TextAlign.center,
+              style: const TextStyle(fontSize: 12, color: SpaceShiftColors.textSecondary),
+            ),
+            if (actionLabel != null && action != null) ...[
+              const SizedBox(height: 16),
+              ElevatedButton.icon(
+                onPressed: action,
+                icon: const Icon(Icons.upload_file_rounded, size: 18),
+                label: Text(actionLabel!),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: SpaceShiftColors.textPrimary,
+                  foregroundColor: Colors.white,
                 ),
               ),
-              const SizedBox(height: 14),
-              Text(
-                title,
-                textAlign: TextAlign.center,
-                style: const TextStyle(
-                  fontSize: 14,
-                  fontWeight: FontWeight.w600,
-                  color: SpaceShiftColors.textPrimary,
-                ),
-              ),
-              const SizedBox(height: 4),
-              Text(
-                subtitle,
-                textAlign: TextAlign.center,
-                style: const TextStyle(
-                  fontSize: 12,
-                  color: SpaceShiftColors.textSecondary,
-                ),
-              ),
-              if (actionLabel != null && onAction != null) ...[
-                const SizedBox(height: 16),
-                ElevatedButton.icon(
-                  onPressed: onAction,
-                  icon: const Icon(Icons.upload_file_rounded, size: 18),
-                  label: Text(actionLabel!),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: SpaceShiftColors.textPrimary,
-                    foregroundColor: Colors.white,
-                  ),
-                ),
-              ],
             ],
-          ),
+          ],
         ),
       ),
+    );
+
+    // GPT FLOORPLAN → STRUCTURED 2D → REAL 3D ISO FLOW WO §1 — 파일이
+    // 아직 없는 중앙 큰 이미지 영역 "자체"에서도 평면도를 선택할 수
+    // 있어야 한다. 기존에는 안쪽의 작은 버튼만 탭 가능했다 — action이
+    // 있는 상태(= 실제로 파일을 고를 수 있는 placeholder, 예: "평면도를
+    // 업로드해주세요")에서만 배경 전체를 같은 handler에 연결한다(분석
+    // 중/실패 등 action이 없는 다른 placeholder 상태는 그대로 탭 불가).
+    return Container(
+      color: const Color(0xFFF7F8FA),
+      child: action == null
+          ? content
+          : GestureDetector(
+              behavior: HitTestBehavior.opaque,
+              onTap: action,
+              child: content,
+            ),
     );
   }
 }
@@ -886,82 +891,16 @@ class _SpaceSummaryCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final plan = cad.floorPlan;
-    final scale = cad.scale;
-    final estimated = scale != null && !scale.source.isReliable;
-
+    // GPT FLOORPLAN → STRUCTURED 2D → REAL 3D ISO FLOW WO §7 — "공간별
+    // 크기"(공간 1/공간 2... 개별 면적 목록 + 전체 면적 합계 + 추정치
+    // 경고)는 V1 production UI에서 제거한다. 이 정보를 만드는
+    // 데이터(roomAreaM2/totalAreaM2/CadRoom 등)는 삭제하지 않고 그대로
+    // 둔다 — 화면에서만 뺀다. 벽 선택/이름 변경 등은 여전히 중앙 CAD
+    // 오버레이에서 직접 탭해서 할 수 있다(이 카드가 없어져도 기능
+    // 자체가 사라지지 않는다).
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const Text(
-          '공간별 크기',
-          style: TextStyle(fontSize: 12, color: SpaceShiftColors.textSecondary),
-        ),
-        const SizedBox(height: 8),
-        if (plan == null || plan.rooms.isEmpty)
-          const Text(
-            '인식된 공간이 없습니다',
-            style: TextStyle(
-              fontSize: 13,
-              color: SpaceShiftColors.textSecondary,
-            ),
-          )
-        else
-          for (var i = 0; i < plan.rooms.length; i++)
-            _RoomAreaRow(
-              plan: plan,
-              room: plan.rooms[i],
-              index: i,
-              scale: scale,
-              selected: plan.rooms[i].id == cad.selectedObjectId,
-              onSelect: () => callbacks.onSelectObject(plan.rooms[i].id),
-              onRename: (name) =>
-                  callbacks.onRenameRoom(plan.rooms[i].id, name),
-            ),
-        // 2D 정확도 개선 WO(7번) — 추정 치수 경고는 개발자 용어 없이,
-        // 실측값처럼 보이지 않도록 항상 명시적으로 보여준다.
-        if (estimated) ...[
-          const SizedBox(height: 8),
-          Container(
-            padding: const EdgeInsets.all(10),
-            decoration: BoxDecoration(
-              color: const Color(0xFFFFF7ED),
-              borderRadius: BorderRadius.circular(8),
-              border: Border.all(color: const Color(0xFFFCD9B4)),
-            ),
-            child: Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Icon(
-                  Icons.info_outline_rounded,
-                  size: 15,
-                  color: Color(0xFFB45309),
-                ),
-                const SizedBox(width: 6),
-                Expanded(
-                  child: Text(
-                    scale.source == ScaleSource.estimatedFromDoor
-                        ? '평면도에 정확한 치수가 없어 문 크기와 공간 구조를 '
-                              '기준으로 대략 계산했습니다. 실제 현장 치수와 '
-                              '오차가 있을 수 있습니다.'
-                        : '도면 정보를 기준으로 계산한 추정 치수입니다. 실제 '
-                              '현장 치수와 오차가 있을 수 있습니다.',
-                    style: const TextStyle(
-                      fontSize: 11.5,
-                      color: Color(0xFF92400E),
-                      height: 1.4,
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ],
-        if (plan != null && plan.rooms.length > 1) ...[
-          const SizedBox(height: 8),
-          _TotalAreaRow(plan: plan, scale: scale, callbacks: callbacks),
-        ],
-        const SizedBox(height: 16),
         const Text(
           '천장 높이',
           style: TextStyle(fontSize: 12, color: SpaceShiftColors.textSecondary),
@@ -1107,276 +1046,6 @@ class _CalibrationSelectionPanelState
             child: TextButton(
               onPressed: widget.callbacks.onCancelCalibrationSelection,
               child: const Text('다시 선택'),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _RoomAreaRow extends StatelessWidget {
-  const _RoomAreaRow({
-    required this.plan,
-    required this.room,
-    required this.index,
-    required this.scale,
-    required this.selected,
-    required this.onSelect,
-    required this.onRename,
-  });
-
-  final CadFloorPlan plan;
-  final CadRoom room;
-  final int index;
-  final FloorPlanScale? scale;
-  final bool selected;
-  final VoidCallback onSelect;
-  final ValueChanged<String> onRename;
-
-  Future<void> _promptRename(BuildContext context) async {
-    final controller = TextEditingController(
-      text: room.name ?? displayRoomName(room, index),
-    );
-    final result = await showDialog<String>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('공간 이름 변경'),
-        content: TextField(
-          controller: controller,
-          autofocus: true,
-          decoration: const InputDecoration(hintText: '예: 거실, 안방'),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(),
-            child: const Text('취소'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.of(context).pop(controller.text),
-            child: const Text('저장'),
-          ),
-        ],
-      ),
-    );
-    if (result != null) onRename(result);
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final m2 = roomAreaM2(plan, room, scale);
-    final pyeong = m2 == null ? null : squareMetersToPyeong(m2);
-    final estimated = scale != null && !scale!.source.isReliable;
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 8),
-      child: InkWell(
-        // 실기 FAIL 재수정 WO(3번) — 행을 누르면(이름/아이콘이 아닌 곳)
-        // 중앙 도면의 같은 번호 marker가 highlight된다(양방향 동기화).
-        onTap: onSelect,
-        borderRadius: BorderRadius.circular(8),
-        child: Container(
-          padding: const EdgeInsets.all(8),
-          decoration: BoxDecoration(
-            color: selected
-                ? SpaceShiftColors.selectionAccent.withValues(alpha: 0.08)
-                : Colors.transparent,
-            borderRadius: BorderRadius.circular(8),
-            border: Border.all(
-              color: selected
-                  ? SpaceShiftColors.selectionAccent
-                  : Colors.transparent,
-            ),
-          ),
-          child: Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Container(
-                width: 20,
-                height: 20,
-                margin: const EdgeInsets.only(top: 1),
-                alignment: Alignment.center,
-                decoration: BoxDecoration(
-                  color: selected
-                      ? SpaceShiftColors.selectionAccent
-                      : Colors.white,
-                  shape: BoxShape.circle,
-                  border: Border.all(
-                    color: SpaceShiftColors.selectionAccent,
-                    width: selected ? 0 : 1.2,
-                  ),
-                ),
-                child: Text(
-                  '${index + 1}',
-                  style: TextStyle(
-                    fontSize: 11,
-                    fontWeight: FontWeight.bold,
-                    color: selected
-                        ? Colors.white
-                        : SpaceShiftColors.selectionAccent,
-                  ),
-                ),
-              ),
-              const SizedBox(width: 8),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      children: [
-                        Flexible(
-                          child: Text(
-                            displayRoomName(room, index),
-                            overflow: TextOverflow.ellipsis,
-                            style: const TextStyle(
-                              fontSize: 13.5,
-                              fontWeight: FontWeight.w600,
-                              color: SpaceShiftColors.textPrimary,
-                            ),
-                          ),
-                        ),
-                        const SizedBox(width: 4),
-                        InkWell(
-                          onTap: () => _promptRename(context),
-                          borderRadius: BorderRadius.circular(4),
-                          child: const Padding(
-                            padding: EdgeInsets.all(2),
-                            child: Icon(
-                              Icons.edit_outlined,
-                              size: 13,
-                              color: SpaceShiftColors.textSecondary,
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 2),
-                    Text(
-                      m2 == null
-                          ? '계산 불가'
-                          : scale?.source == ScaleSource.unknown
-                          ? '축척 미확정 · 참고 약 ${m2.toStringAsFixed(1)}㎡'
-                          : '약 ${m2.toStringAsFixed(1)}㎡ · 약 '
-                                '${pyeong!.toStringAsFixed(1)}평'
-                                '${estimated ? " (추정)" : ""}',
-                      style: const TextStyle(
-                        fontSize: 12.5,
-                        color: SpaceShiftColors.textSecondary,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _TotalAreaRow extends StatelessWidget {
-  const _TotalAreaRow({
-    required this.plan,
-    required this.scale,
-    required this.callbacks,
-  });
-
-  final CadFloorPlan plan;
-  final FloorPlanScale? scale;
-  final CadWorkspaceCallbacks callbacks;
-
-  @override
-  Widget build(BuildContext context) {
-    final m2 = totalAreaM2(plan, scale);
-    if (m2 == null) return const SizedBox.shrink();
-
-    // NOMPASS V2 WO(2/3번) — "unknown scale에서 임의 diagonal로 계산한
-    // 값을 정확한 면적처럼 표시하는 구조를 중단한다." 8m→13m fallback
-    // 조정은 근본 해결이 아니었다 — 숫자 자체를 크게/확정처럼 보여주지
-    // 않고, "축척 미확정" 상태와 보정 유도를 1순위로 보여준다. 추정값은
-    // 참고용 2차 정보로만 작게 남긴다.
-    if (scale == null || scale!.source == ScaleSource.unknown) {
-      final pyeong = squareMetersToPyeong(m2);
-      return Container(
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
-        decoration: BoxDecoration(
-          color: const Color(0xFFFFF7ED),
-          borderRadius: BorderRadius.circular(8),
-          border: Border.all(color: const Color(0xFFFCD9B4)),
-        ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Text(
-              '분석된 공간 · 축척 미확정',
-              style: TextStyle(
-                fontSize: 13,
-                fontWeight: FontWeight.w700,
-                color: SpaceShiftColors.textPrimary,
-              ),
-            ),
-            const SizedBox(height: 4),
-            const Text(
-              '실제 길이 1곳을 입력하면 공간 면적과 3D 크기를 정확하게 보정할 수 있습니다.',
-              style: TextStyle(
-                fontSize: 11.5,
-                color: Color(0xFF92400E),
-                height: 1.4,
-              ),
-            ),
-            const SizedBox(height: 4),
-            Text(
-              '참고 추정: 약 ${m2.toStringAsFixed(1)}㎡ · 약 ${pyeong.toStringAsFixed(1)}평 '
-              '(신뢰도 낮음)',
-              style: const TextStyle(
-                fontSize: 11,
-                color: SpaceShiftColors.textSecondary,
-              ),
-            ),
-            const SizedBox(height: 8),
-            SizedBox(
-              width: double.infinity,
-              child: OutlinedButton(
-                onPressed: callbacks.onStartCalibration,
-                style: OutlinedButton.styleFrom(
-                  foregroundColor: SpaceShiftColors.textPrimary,
-                  side: const BorderSide(color: Color(0xFFFCD9B4)),
-                  padding: const EdgeInsets.symmetric(vertical: 8),
-                ),
-                child: const Text('치수 보정', style: TextStyle(fontSize: 12.5)),
-              ),
-            ),
-          ],
-        ),
-      );
-    }
-
-    final pyeong = squareMetersToPyeong(m2);
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-      decoration: BoxDecoration(
-        color: SpaceShiftColors.background,
-        borderRadius: BorderRadius.circular(8),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const Text(
-            '전체',
-            style: TextStyle(
-              fontSize: 12.5,
-              fontWeight: FontWeight.w600,
-              color: SpaceShiftColors.textSecondary,
-            ),
-          ),
-          const SizedBox(height: 2),
-          Text(
-            '약 ${m2.toStringAsFixed(1)}㎡ · 약 ${pyeong.toStringAsFixed(1)}평'
-            '${!scale!.source.isReliable ? " (추정)" : ""}',
-            style: const TextStyle(
-              fontSize: 13.5,
-              fontWeight: FontWeight.w700,
-              color: SpaceShiftColors.textPrimary,
             ),
           ),
         ],

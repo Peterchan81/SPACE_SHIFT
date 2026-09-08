@@ -4,7 +4,9 @@ import 'package:flutter/material.dart';
 import 'package:vector_math/vector_math_64.dart';
 
 import '../models/cad_floor_plan.dart';
+import '../models/floor_plan_geometry.dart' show Point2;
 import '../models/space_scene_v2.dart';
+import '../models/ss_spatial_model.dart' show SSRoomType;
 import 'room_area_calculator_v2.dart';
 
 /// SpaceScene V2 빌더 — NOMPASS V2 WO: "기존 3D 구현(SpaceScene/
@@ -18,12 +20,55 @@ import 'room_area_calculator_v2.dart';
 /// 안정적인 직육면체를 만든다(WO 9번). 바닥은 벽과 완전히 분리된
 /// pipeline(WO 11번)이다.
 
-const List<Color> _wallColorsV2 = [
-  Color(0xFFC9C2B4), // exterior
-  Color(0xFFE7E2D8), // interior
-];
+// GPT FLOORPLAN → STRUCTURED 2D → REAL 3D ISO FLOW WO §11 — V1 기본 재질.
+// 고정된 최종 결과가 아니라 DEFAULT다: [CadWall.materialOverride]/
+// [CadRoom.materialOverride](사용자가 "작업/재질/마감재"에서 고른 색)가
+// 있으면 이 값보다 항상 우선한다(아래 [_wallColor]/[_floorColor] 참고).
+const Color _exteriorWallColorV2 = Color(0xFFC9C2B4);
+const Color _interiorWallColorV2 = Color(0xFFFAFAF7); // 일반 내부 벽: white.
+const Color _bathroomWallColorV2 = Color(0xFFD8E2E4); // bathroom wall: tile.
+const Color _woodFloorColorV2 = Color(0xFFD9CBB2); // 일반 공간 바닥: wood flooring.
+const Color _bathroomFloorColorV2 = Color(0xFFD3DEE1); // bathroom floor: tile.
 
-const Color _floorColorV2 = Color(0xFFD9CBB2);
+/// [wall]의 실제 렌더 색 — 사용자 override가 있으면 항상 우선한다. 없으면
+/// 외벽은 고정색, 내벽은 "이 벽이 욕실과 맞닿아 있는가"([_wallTouchesBathroom])
+/// 로 white/tile을 가른다.
+Color _wallColor(CadWall wall, List<CadRoom> rooms) {
+  final override = wall.materialOverride;
+  if (override != null) return override;
+  if (wall.wallType == CadWallType.exterior) return _exteriorWallColorV2;
+  return _wallTouchesBathroom(wall, rooms) ? _bathroomWallColorV2 : _interiorWallColorV2;
+}
+
+/// [room]의 실제 렌더 바닥색 — 사용자 override가 있으면 항상 우선한다.
+/// 없으면 [CadRoom.roomType]으로 우드/타일을 가른다.
+Color _floorColor(CadRoom room) {
+  return room.materialOverride ??
+      (room.roomType == SSRoomType.bathroom ? _bathroomFloorColorV2 : _woodFloorColorV2);
+}
+
+/// [wall]의 중심점에서 벽에 수직인 양쪽으로 살짝 들어간 두 점 중 하나라도
+/// 욕실 [CadRoom] 폴리곤 안에 있으면 true. 벽 자체는 어느 방에 속하는지
+/// 직접 알지 못하므로(WallEdge/adjacency 데이터가 아직 없음), 기존
+/// [CadRoom.containsPoint]를 재사용한 기하학적 근접 판정으로 실제
+/// renderer에 반영 가능한 최소 구현을 만든다 — 가짜로 항상 false를
+/// 반환하지 않는다.
+bool _wallTouchesBathroom(CadWall wall, List<CadRoom> rooms) {
+  final bathrooms = rooms.where((r) => r.roomType == SSRoomType.bathroom);
+  if (bathrooms.isEmpty) return false;
+  final dx = wall.end.x - wall.start.x;
+  final dy = wall.end.y - wall.start.y;
+  final len = math.sqrt(dx * dx + dy * dy);
+  if (len == 0) return false;
+  final midX = (wall.start.x + wall.end.x) / 2;
+  final midY = (wall.start.y + wall.end.y) / 2;
+  final nx = -dy / len;
+  final ny = dx / len;
+  final probe = wall.thicknessNormalized + 0.01;
+  final sideA = Point2(midX + nx * probe, midY + ny * probe);
+  final sideB = Point2(midX - nx * probe, midY - ny * probe);
+  return bathrooms.any((r) => r.containsPoint(sideA) || r.containsPoint(sideB));
+}
 
 bool _isFiniteVec3(Vector3 v) => v.x.isFinite && v.y.isFinite && v.z.isFinite;
 
@@ -111,7 +156,7 @@ SpaceSceneV2 buildSpaceSceneV2({
     final top = [for (final p in footprintMm) Vector3(p.x, heightMm, p.z)];
 
     final isExterior = wall.wallType == CadWallType.exterior;
-    final color = isExterior ? _wallColorsV2[0] : _wallColorsV2[1];
+    final color = _wallColor(wall, plan.rooms);
     final triangles = <SpaceTriangleV2>[];
 
     // top face(천장과 맞닿는 면) — 1 quad.
@@ -183,6 +228,7 @@ SpaceSceneV2 buildSpaceSceneV2({
       continue;
     }
     final pts = area.polygonMm;
+    final floorColor = _floorColor(room);
     final triangles = <SpaceTriangleV2>[];
     for (final tri in earTriangles) {
       final a = pts[tri[0]];
@@ -195,7 +241,7 @@ SpaceSceneV2 buildSpaceSceneV2({
         b = c;
         c = tmp;
       }
-      final t = makeTriangle(a, b, c, _floorColorV2, 'floor:${room.id}');
+      final t = makeTriangle(a, b, c, floorColor, 'floor:${room.id}');
       if (t != null) triangles.add(t);
     }
     if (triangles.isEmpty) continue;
@@ -208,7 +254,7 @@ SpaceSceneV2 buildSpaceSceneV2({
           sourceId: room.id,
           roomId: room.id,
           floorId: room.id,
-          color: _floorColorV2,
+          color: floorColor,
         ),
         triangles: triangles,
         polygonMm: pts,

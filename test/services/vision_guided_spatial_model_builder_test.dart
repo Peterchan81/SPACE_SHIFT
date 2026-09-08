@@ -7,6 +7,7 @@
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:ason_space/models/cad_floor_plan.dart';
+import 'package:ason_space/models/ss_spatial_model.dart' show SSRoomType;
 import 'package:ason_space/services/mock_vision_interpretation_service.dart';
 import 'package:ason_space/services/vision_guided_spatial_model_builder.dart';
 import 'package:ason_space/vision_cad_poc/sample_image2_fixture.dart';
@@ -78,6 +79,36 @@ void main() {
     expect(cad.openings, hasLength(validated.openings.length));
     expect(cad.sourceWidthPx, kImage2Width);
     expect(cad.sourceHeightPx, kImage2Height);
+  });
+
+  test('GPT FLOORPLAN WO §11 — bathroom으로 분류된 space는 SSSpace.roomType도 bathroom이다', () async {
+    final model = await builder.build(buildImage2Png());
+    // MockVisionInterpretationService가 bath1/bath2를
+    // VisionSpaceSemanticType.bathroom으로 표시한다 — 그 분류가
+    // SSSpace.roomType까지 실제로 전달돼야 3D 기본 재질(타일)이 맞는
+    // 공간에 적용된다.
+    final bathrooms = model.spaces.where((s) => s.id == 'space-bath1' || s.id == 'space-bath2');
+    expect(bathrooms, isNotEmpty);
+    for (final bath in bathrooms) {
+      expect(bath.roomType, SSRoomType.bathroom);
+    }
+    // bathroom이 아닌 공간(예: 거실)은 other로 남아야 한다 — 모든 공간을
+    // 임의로 bathroom 취급하지 않는다.
+    final living = model.spaces.where((s) => s.id == 'space-living');
+    expect(living, isNotEmpty);
+    for (final space in living) {
+      expect(space.roomType, SSRoomType.other);
+    }
+  });
+
+  test('GPT FLOORPLAN WO §11 — SSSpace.roomType은 CadRoom.roomType으로 그대로 승계된다', () async {
+    final model = await builder.build(buildImage2Png());
+    final cad = buildCadFloorPlanFromSpatialModel(model);
+    final roomTypeById = {for (final s in model.spaces) s.id: s.roomType};
+    for (final room in cad.rooms) {
+      expect(room.roomType, roomTypeById[room.id]);
+    }
+    expect(cad.rooms.any((r) => r.roomType == SSRoomType.bathroom), isTrue);
   });
 
   test('Topology Validator를 거친 뒤에도 reviewNeeded 항목의 geometry는 원래 값 그대로다', () async {
