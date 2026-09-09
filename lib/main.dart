@@ -33,7 +33,7 @@ class AsonSpaceApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'SPACE SHIFT',
+      title: 'SS CAD TEST',
       debugShowCheckedModeBanner: false,
       theme: ThemeData(
         useMaterial3: true,
@@ -71,6 +71,47 @@ class AsonSpaceApp extends StatelessWidget {
         ),
       ),
       home: const LoginScreen(),
+      // SS CAD TEST 전용 식별 배너 — 로그인 화면부터 모든 작업 화면까지
+      // 항상 눈에 띄게 떠 있어야 한다(원본 SPACE SHIFT와 최근 앱 화면 등에서
+      // 혼동해 실수로 조작하는 사고가 있었음). builder로 전역 오버레이해
+      // 개별 화면 코드는 건드리지 않는다. IgnorePointer로 터치를 절대
+      // 가로채지 않아 기존 CAD UI 동작에 영향이 없다.
+      builder: (context, child) {
+        if (child == null) return const SizedBox.shrink();
+        return Stack(
+          children: [child, const IgnorePointer(child: _CadTestBadge())],
+        );
+      },
+    );
+  }
+}
+
+/// SS CAD TEST(개발용) 식별 배너. 원본 SPACE SHIFT와 화면이 동일해 보여
+/// 사용자가 앱을 혼동한 사고 이후 도입 — 화면 최상단에 항상 고정 표시된다.
+class _CadTestBadge extends StatelessWidget {
+  const _CadTestBadge();
+
+  @override
+  Widget build(BuildContext context) {
+    return SafeArea(
+      child: Align(
+        alignment: Alignment.topCenter,
+        child: Container(
+          width: double.infinity,
+          color: const Color(0xFFFF7A00),
+          padding: const EdgeInsets.symmetric(vertical: 3),
+          child: const Text(
+            'SS CAD TEST · 개발용 (SPACE SHIFT 본체 아님)',
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              color: Colors.white,
+              fontSize: 11,
+              fontWeight: FontWeight.bold,
+              letterSpacing: 0.2,
+            ),
+          ),
+        ),
+      ),
     );
   }
 }

@@ -1,4 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <color name="ic_launcher_background">#071A2D</color>
+    <!-- SS CAD TEST 전용 색상 — 원본 SPACE SHIFT의 남색(#071A2D)과 확실히
+         구분되는 주황색. 최근 앱/앱 서랍에서 아이콘만 보고도 즉시 식별
+         가능하게 하기 위함(둘을 혼동한 사고 이후 도입). -->
+    <color name="ic_launcher_background">#FF7A00</color>
 </resources>
