@@ -224,4 +224,46 @@ void main() {
       );
     });
   });
+
+  group('사용자 실측 치수 보정이 GPT 재분석에도 덮어써지지 않는다', () {
+    test(
+      '치수 보정("치수 보정" UI에서 3800mm 입력)으로 만들어진 measured scale은 '
+      'buildConsolidatedVisionCadFloorPlan을 다시 실행해 새 GPT 결과가 나와도 '
+      'resolveAutoScale(newResult, existingMeasuredScale)에서 그대로 유지된다 '
+      '— floor_plan_workspace_screen.dart의 _onRunVisionConsolidation이 실제로 '
+      '호출하는 것과 동일한 순서로 재현한다.',
+      () async {
+        // "치수 보정"에서 사용자가 실제 벽 구간을 골라 3800mm를 입력하면
+        // 화면은 정확히 이 모양의 FloorPlanScale을 만든다(source 기본값이
+        // ScaleSource.measured — cad_floor_plan.dart 참고).
+        const userConfirmedScale = FloorPlanScale(
+          mmPerPixel: 31.9328,
+          referenceStart: Point2(0.1, 0.1),
+          referenceEnd: Point2(0.1, 0.219),
+          referenceLengthMm: 3800,
+        );
+        expect(userConfirmedScale.source, ScaleSource.measured);
+
+        final reAnalyzed = await buildConsolidatedVisionCadFloorPlan(
+          Uint8List(0),
+          // 재분석은 매번 새로운(약간 다른) GPT 결과를 3회 만들어 통합한다
+          // — 실제로 AI 결과가 회차마다 완전히 같지 않다는 전제를 지킨다.
+          buildOnce: (_) async => _rectRun(
+            0.001 * (DateTime.now().microsecondsSinceEpoch % 5),
+          ),
+          samples: 3,
+        );
+
+        final resolvedAfterReAnalysis = resolveAutoScale(
+          reAnalyzed,
+          userConfirmedScale,
+        );
+
+        expect(identical(resolvedAfterReAnalysis, userConfirmedScale), isTrue);
+        expect(resolvedAfterReAnalysis.mmPerPixel, 31.9328);
+        expect(resolvedAfterReAnalysis.referenceLengthMm, 3800);
+        expect(resolvedAfterReAnalysis.source, ScaleSource.measured);
+      },
+    );
+  });
 }
