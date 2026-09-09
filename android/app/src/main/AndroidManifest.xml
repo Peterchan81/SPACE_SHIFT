@@ -6,7 +6,7 @@
          직접 "설치"를 눌러야만 실제로 설치된다. -->
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES"/>
     <application
-        android:label="SPACE SHIFT"
+        android:label="SS CAD TEST"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher">
         <activity

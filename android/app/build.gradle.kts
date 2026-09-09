@@ -15,8 +15,10 @@ android {
     }
 
     defaultConfig {
-        // TODO: Specify your own unique Application ID (https://developer.android.com/studio/build/application-id.html).
-        applicationId = "com.example.ason_space"
+        // SS CAD TEST — Floorplan CAD 이식 검증용 독립 테스트 앱. 기존 SPACE
+        // SHIFT 본체(com.example.ason_space)와 별도 applicationId를 써서
+        // 같은 Galaxy Tab에 동시 설치되고, 서로의 설치본을 덮어쓰지 않는다.
+        applicationId = "com.example.ason_space.sscadtest"
         // You can update the following values to match your application needs.
         // For more information, see: https://flutter.dev/to/review-gradle-config.
         minSdk = flutter.minSdkVersion
@@ -45,8 +47,8 @@ flutter {
 }
 
 // `flutter build apk --release`가 완료될 때 Galaxy Tab 배포용 APK를
-// SPACE_SHIFT_V1_MASTER_TAB_E2E_vc{versionCode}.apk 규칙으로 함께 생성해,
-// 이번 WorkOrder(MASTER UI 정합성 통합) 설치본을 다른 빌드와 명확히 구분한다.
+// SS_CAD_TEST_vc{versionCode}.apk 규칙으로 함께 생성해, SPACE SHIFT 본체
+// 배포 빌드와 이 독립 CAD 검증 빌드를 파일명만으로도 명확히 구분한다.
 afterEvaluate {
     tasks.named("assembleRelease").configure {
         doLast {
@@ -54,7 +56,7 @@ afterEvaluate {
                 "outputs/flutter-apk/app-release.apk",
             ).get().asFile
             val versionCode = android.defaultConfig.versionCode
-            val outputName = "SPACE_SHIFT_V1_MASTER_TAB_E2E_vc${versionCode}.apk"
+            val outputName = "SS_CAD_TEST_vc${versionCode}.apk"
 
             copy {
                 from(sourceApk)
