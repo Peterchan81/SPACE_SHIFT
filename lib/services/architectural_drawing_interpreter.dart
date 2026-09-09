@@ -3,9 +3,10 @@ import 'dart:math' as math;
 import '../models/drawing_understanding.dart';
 import '../models/floor_plan_geometry.dart';
 
-class ArchitecturalDrawingInterpreter {
+class ArchitecturalDrawingInterpreter implements DrawingInterpreter {
   const ArchitecturalDrawingInterpreter();
 
+  @override
   ArchitecturalInterpretation interpret(FloorPlanAnalysisResult input) {
     final primitives = _primitives(input);
     final semantics = <String, SemanticPrimitive>{};
@@ -293,14 +294,7 @@ class ArchitecturalDrawingInterpreter {
 
     final relatedSpaces = [
       for (final space in spaces)
-        _relations(
-          space,
-          spaces,
-          openings,
-          validWalls,
-          input.walls,
-          objects,
-        ),
+        _relations(space, spaces, openings, validWalls, input.walls, objects),
     ];
     final dimensions = <DimensionEvidence>[
       for (final rejected in input.rejectedWalls)
@@ -647,7 +641,9 @@ class ArchitecturalDrawingInterpreter {
     // 추가한다(예: 벽 없이 트인 거실↔주방).
     final segments = _boundarySegmentsFor(space, spaces, allWalls, openings);
     for (final segment in segments) {
-      if (segment.oppositeSpaceId != null) adjacent.add(segment.oppositeSpaceId!);
+      if (segment.oppositeSpaceId != null) {
+        adjacent.add(segment.oppositeSpaceId!);
+      }
     }
 
     final containedObjectIds = [

@@ -1,18 +1,25 @@
 import '../models/drawing_understanding.dart';
 import '../models/floor_plan_geometry.dart';
 import '../models/ss_spatial_model.dart';
-import 'architectural_drawing_interpreter.dart';
+import 'envelope_first_interpreter.dart';
 
 /// Converts detector evidence into the stable spatial model consumed by CAD.
 ///
-/// Architectural classification remains in [ArchitecturalDrawingInterpreter];
-/// this adapter deliberately performs no detector-specific inference.
+/// Architectural classification lives behind [DrawingInterpreter] — this
+/// adapter deliberately performs no detector-specific inference of its own.
+///
+/// PC2 Envelope-first 실험 WO — 기본 해석 전략을 space-first
+/// ([ArchitecturalDrawingInterpreter], 방 flood-fill 후보를 먼저 보고
+/// 가구/설비인지 판별)에서 envelope-first([EnvelopeFirstInterpreter], 건물
+/// 외곽을 먼저 잡고 그 안을 내부 경계로 나눔)로 바꾼다. space-first
+/// 구현은 삭제하지 않고 그대로 남겨 두며, 이 생성자에 명시적으로
+/// 주입하면 언제든 비교할 수 있다.
 class SSSpatialModelBuilder {
   const SSSpatialModelBuilder({
-    this.interpreter = const ArchitecturalDrawingInterpreter(),
+    this.interpreter = const EnvelopeFirstInterpreter(),
   });
 
-  final ArchitecturalDrawingInterpreter interpreter;
+  final DrawingInterpreter interpreter;
 
   SSSpatialModel build(FloorPlanAnalysisResult result) {
     final interpretation = interpreter.interpret(result);

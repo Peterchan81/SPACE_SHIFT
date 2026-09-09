@@ -1,3 +1,5 @@
+import 'dart:typed_data';
+
 import 'package:flutter/material.dart';
 
 import '../../models/cad_floor_plan.dart';
@@ -34,6 +36,8 @@ class FloorPlanPreview extends StatelessWidget {
     this.spaceScene,
     this.spaceSceneV2,
     this.spaceGenerationFailureMessage,
+    this.generatedIsoImageBytes,
+    this.isGeneratingIsoImage = false,
     this.onExitTo2D,
   });
 
@@ -65,6 +69,15 @@ class FloorPlanPreview extends StatelessWidget {
   final SpaceSceneV2? spaceSceneV2;
   final String? spaceGenerationFailureMessage;
 
+  /// V1 GPT CAD-STYLE 2D → GPT ISO IMAGE FLOW WO §7/§8 — GPT가 Clean 2D
+  /// 결과를 기반으로 새로 그려준 3D 아이소메트릭 이미지. 값이 있으면
+  /// [spaceSceneV2](실시간 geometry, 삭제하지 않고 그대로 보존)보다
+  /// 우선 표시한다 — V1 기본 흐름은 이 AI 이미지를 먼저 보여준다.
+  final Uint8List? generatedIsoImageBytes;
+
+  /// true인 동안 "3D 아이소 생성 중" 상태를 보여준다.
+  final bool isGeneratingIsoImage;
+
   /// 실기 FAIL 재수정 WO(2번) — 3D 아이소 안에 명확한 "2D 평면도로
   /// 돌아가기" 버튼을 항상 보여준다(상단 View 탭 전환만으로는 눈에
   /// 띄지 않았다는 실사용 신고 대응).
@@ -77,15 +90,26 @@ class FloorPlanPreview extends StatelessWidget {
       // 완료 상태로 만들지 않는다." 이번 1차 구현은 궤도 카메라 하나뿐
       // (아이소 전용)이라, 3D 투시 전용 카메라/화면은 아직 없다 — 아이소가
       // 준비돼도 투시는 계속 준비 상태 안내로 남는다(다음 단계로 보고).
-      final sceneV2 = viewMode == WorkspaceViewMode.isometric3d
-          ? spaceSceneV2
-          : null;
+      final isIso = viewMode == WorkspaceViewMode.isometric3d;
+
+      // V1 GPT CAD-STYLE 2D → GPT ISO IMAGE FLOW WO §7/§8/§9 — V1 기본
+      // 흐름은 GPT가 그려준 아이소 이미지를 먼저 보여준다. 생성
+      // 중이면 로딩 상태를, 생성된 이미지가 있으면 그 이미지를 우선
+      // 표시하고, 없으면(아직 설정 안 됨/실패) 기존 실시간 geometry
+      // 3D(sceneV2 → scene 순, 둘 다 삭제하지 않고 그대로 보존)로
+      // 조용히 대체한다.
+      if (isIso && isGeneratingIsoImage) {
+        return const _IsoGenerationLoading();
+      }
+      final isoImage = isIso ? generatedIsoImageBytes : null;
+      if (isoImage != null) {
+        return _GeneratedIsoView(imageBytes: isoImage, onExitTo2D: onExitTo2D);
+      }
+      final sceneV2 = isIso ? spaceSceneV2 : null;
       if (sceneV2 != null) {
         return Space3DViewGpuV2(scene: sceneV2, onExitTo2D: onExitTo2D);
       }
-      final scene = viewMode == WorkspaceViewMode.isometric3d
-          ? spaceScene
-          : null;
+      final scene = isIso ? spaceScene : null;
       if (scene != null) {
         return Space3DView(scene: scene, onExitTo2D: onExitTo2D);
       }
@@ -572,6 +596,89 @@ class _CompletedSummary extends StatelessWidget {
             ),
           ),
         ),
+      ],
+    );
+  }
+}
+
+/// V1 GPT CAD-STYLE 2D → GPT ISO IMAGE FLOW WO §9 — "3D 아이소 생성
+/// 중" 상태. 사용자에게는 이 단순한 문구만 보여주고, GPT/OpenAI/
+/// geometry 관련 개발자 정보는 노출하지 않는다.
+class _IsoGenerationLoading extends StatelessWidget {
+  const _IsoGenerationLoading();
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      color: const Color(0xFFF7F8FA),
+      alignment: Alignment.center,
+      child: const Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          SizedBox(
+            width: 28,
+            height: 28,
+            child: CircularProgressIndicator(strokeWidth: 2.5),
+          ),
+          SizedBox(height: 14),
+          Text(
+            '3D 아이소 생성 중입니다...',
+            style: TextStyle(fontSize: 13.5, color: SpaceShiftColors.textSecondary),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// V1 GPT CAD-STYLE 2D → GPT ISO IMAGE FLOW WO §7/§9 — GPT가 그려준
+/// 3D 아이소메트릭 이미지를 그대로 보여준다. 실시간 geometry 3D
+/// ([Space3DViewGpuV2])와 똑같이 "2D 평면도로 돌아가기" 버튼을 항상
+/// 보여준다(실기 FAIL 재수정 WO 2번과 동일한 원칙).
+class _GeneratedIsoView extends StatelessWidget {
+  const _GeneratedIsoView({required this.imageBytes, this.onExitTo2D});
+
+  final Uint8List imageBytes;
+  final VoidCallback? onExitTo2D;
+
+  @override
+  Widget build(BuildContext context) {
+    return Stack(
+      children: [
+        Positioned.fill(
+          child: Container(
+            color: const Color(0xFFEFF2F5),
+            alignment: Alignment.center,
+            child: Image.memory(imageBytes, fit: BoxFit.contain),
+          ),
+        ),
+        if (onExitTo2D != null)
+          Positioned(
+            left: 12,
+            top: 12,
+            child: Material(
+              color: Colors.black.withValues(alpha: 0.55),
+              borderRadius: BorderRadius.circular(8),
+              child: InkWell(
+                borderRadius: BorderRadius.circular(8),
+                onTap: onExitTo2D,
+                child: const Padding(
+                  padding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(Icons.arrow_back_rounded, size: 16, color: Colors.white),
+                      SizedBox(width: 6),
+                      Text(
+                        '2D 평면도로 돌아가기',
+                        style: TextStyle(fontSize: 12.5, color: Colors.white),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ),
       ],
     );
   }

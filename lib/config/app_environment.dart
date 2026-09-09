@@ -107,6 +107,15 @@ class AppEnvironment {
     defaultValue: '',
   );
 
+  /// V1 GPT CAD-STYLE 2D → GPT ISO IMAGE FLOW WO — Clean 2D 평면도
+  /// 이미지를 입력으로 GPT가 3D 아이소메트릭 인테리어 이미지를 새로
+  /// 그려주는 Edge Function URL. 지정하지 않으면 안전하게 기존 실시간
+  /// geometry 3D(가능하면) 또는 준비 안내로 대체한다.
+  static const String gptFloorPlanIsoEdgeFunctionUrl = String.fromEnvironment(
+    'GPT_FLOORPLAN_ISO_EDGE_FUNCTION_URL',
+    defaultValue: '',
+  );
+
   /// `--dart-define=SUPABASE_URL=...`.
   ///
   /// Galaxy Tab 인터넷 기반 무선 업데이트(AppUpdateService)가 공개 배포

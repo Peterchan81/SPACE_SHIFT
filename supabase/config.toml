@@ -46,3 +46,9 @@ verify_jwt = false
 # CAD 스타일 2D 평면도 이미지"로 다시 그리는 production Edge Function.
 [functions.gpt-floorplan-cad-image]
 verify_jwt = false
+
+# V1 GPT CAD-STYLE 2D → GPT ISO IMAGE FLOW WO — Clean 2D 결과를 입력으로
+# 받아 GPT(gpt-image-1)로 3D 아이소메트릭 인테리어 이미지를 그리는
+# production Edge Function.
+[functions.gpt-floorplan-iso]
+verify_jwt = false
