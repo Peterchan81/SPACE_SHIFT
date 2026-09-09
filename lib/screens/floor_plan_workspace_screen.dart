@@ -220,20 +220,29 @@ class _FloorPlanWorkspaceScreenState extends State<FloorPlanWorkspaceScreen> {
   /// "AI 평면도 생성" — V1 AI-IMAGE FLOW WO 방향 수정.
   ///
   /// 1) 기존 [FloorPlanAnalysisService](단순 픽셀 엔진, 좌표 복원 연구
-  ///    이전부터 있던 코드)로 baseline geometry를 확보한다 — 이 geometry는
-  ///    화면에 CAD 오버레이로 노출되지 않고, 오직 "3D 아이소 만들기"의
-  ///    내부 입력으로만 쓰인다(§9).
+  ///    이전부터 있던 코드)로 **원본 사진**을 분석해 3D geometry
+  ///    baseline을 확보한다 — 이 geometry는 화면에 CAD 오버레이로
+  ///    노출되지 않고, 오직 "3D 아이소 만들기"의 내부 입력으로만
+  ///    쓰인다(§9).
   /// 2) [FloorPlanImageGenerationService]로 GPT에 원본 사진을 보내 "원본
   ///    배치/벽/문/창을 유지한 깨끗한 CAD 스타일 2D 평면도 이미지"를
   ///    새로 받는다. 이 이미지 자체가 중앙 2D 화면에 보여줄 결과다(좌표/
   ///    폴리곤이 아니다).
-  /// 3) 생성된 이미지가 있으면, 그 이미지를 같은 baseline 엔진에 다시
-  ///    통과시켜 3D geometry를 더 정확하게 다시 계산한다(원본 사진보다
-  ///    정리된 이미지가 단순 픽셀 엔진에 더 안정적인 입력이기 때문 —
-  ///    새 좌표 복원 알고리즘을 만드는 것이 아니라 기존 엔진을 재사용).
-  ///    실패하면 조용히 원본 사진 기준 baseline을 그대로 쓴다.
-  /// GPT 이미지 생성이 실패해도(Edge Function 미배포/네트워크 오류)
-  /// 화면은 절대 죽지 않고 원본 사진을 정직하게 그대로 보여준다.
+  ///
+  /// V1 재개 WO — 이전에는 생성된 이미지를 같은 픽셀 엔진에 다시 통과시켜
+  /// 3D geometry를 "더 정확하게" 다시 계산하려 했으나, 실제 GPT 결과로
+  /// 검증한 결과 역효과였다: GPT는 문을 실제 건축 도면처럼 벽에 진짜
+  /// 틈(arc 기호)으로 그리는데, 이 틈이 flood-fill 방 검출에서 인접한
+  /// 방들을 하나로 합쳐버려(원본 사진 기준 5개 방/21개 벽 → 생성 이미지
+  /// 기준 1개 방/4개 벽으로 붕괴, 실측 확인) 3D가 Clean 2D보다 훨씬
+  /// 단순해지는 문제가 있었다. 이 틈 감지 로직을 GPT의 그림체에 맞게
+  /// 튜닝하는 것은 금지된 raster→CAD 정확도 연구 영역이므로, 대신 **원본
+  /// 사진의 분석 결과를 그대로 3D geometry로 쓴다** — 이미 이 엔진이
+  /// 실제로 튜닝/검증된 입력이고, 새 연구 없이 Clean 2D(레이아웃 유지)와
+  /// 3D(같은 원본에서 유도)가 서로 어긋나지 않게 하는 가장 단순한 방법이다.
+  /// GPT 이미지 생성이 실패해도(Edge Function 미배포/네트워크 오류) 화면은
+  /// 절대 죽지 않고 원본 사진을 정직하게 그대로 보여준다 — 3D 준비 상태는
+  /// 이미지 생성 성공 여부와 무관하게 항상 갖춰진다.
   Future<void> _startAnalysis() async {
     final file = _floorPlanFile;
     if (file == null) return;
@@ -263,23 +272,12 @@ class _FloorPlanWorkspaceScreenState extends State<FloorPlanWorkspaceScreen> {
     }
 
     final result = outcome.result!;
-    var cadFloorPlan = buildCadFloorPlan(result);
+    final cadFloorPlan = buildCadFloorPlan(result);
 
     setState(() => _isGeneratingFloorPlanImage = true);
     Uint8List? generatedImage;
     try {
       generatedImage = await _imageService.generate(file.bytes!);
-      final generatedFile = FloorPlanFile(
-        fileName: file.fileName,
-        extension: 'png',
-        kind: FloorPlanFileKind.image,
-        sizeBytes: generatedImage.length,
-        bytes: generatedImage,
-      );
-      final generatedOutcome = await widget.analysisService.analyze(generatedFile);
-      if (generatedOutcome.isSuccess) {
-        cadFloorPlan = buildCadFloorPlan(generatedOutcome.result!);
-      }
     } catch (_) {
       // 원본 예외 내용은 사용자에게 노출하지 않는다(이 프로젝트의 "원본
       // 예외 비노출" 관례) — generatedImage는 null로 남고, 화면은 원본
