@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:three_js/three_js.dart' as three;
 
 import '../../models/space_scene_v2.dart';
+import '../../services/iso_cutaway.dart';
 import '../../theme/space_shift_colors.dart';
 
 /// WO092 §6 — 3D 아이소/3D 투시는 같은 실시간 scene을 쓰고 카메라
@@ -30,6 +31,15 @@ enum Space3DCameraMode { isometric, perspective }
 /// 화면을 탭하면 그 지점으로 ray를 쏴 실제로 부딪힌 mesh의 identity를
 /// [onObjectSelected]로 돌려주고, 선택된 mesh는 emissive 강조로 시각
 /// 구분한다.
+///
+/// WO093 — "3D 아이소 Cutaway/Dollhouse 표현 수정": [Space3DCameraMode.isometric]
+/// 에서는 일반 3D처럼 벽을 전부 세워두지 않는다. 매 프레임 카메라
+/// 위치를 기준으로 "카메라 → 각 방 중심" 시선을 가로막는 벽을
+/// [_applyIsoCutaway]가 찾아 숨겨서, 확대/회전 중에도 지금 보고 있는
+/// 방의 내부가 항상 보이게 한다(실기 확인된 문제: 확대하면 앞쪽 벽에
+/// 가려 작은 방 내부가 안 보임 — 카메라 문제가 아니라 렌더링 방식
+/// 문제였다). [Space3DCameraMode.perspective]는 이 cutaway를 전혀 타지
+/// 않고 기존처럼 모든 벽을 그대로 보여준다.
 class Space3DViewGpuV2 extends StatefulWidget {
   const Space3DViewGpuV2({
     super.key,
@@ -74,6 +84,19 @@ class _Space3DViewGpuV2State extends State<Space3DViewGpuV2> {
   final Map<String, SpaceObjectIdentityV2> _identityByObjectId = {};
   String? _appliedHighlightId;
 
+  /// WO093 — 아이소 cutaway/dollhouse 판정에 쓰는 벽 중심선(XZ 평면,
+  /// mm) 목록. 실제 mesh geometry가 아니라 [SpaceWallMeshV2.startMm]/
+  /// [endMm]만 쓰는 이유는 "가장 단순하고 안정적인 방법"(WO 지침)이라 —
+  /// 벽 두께까지 반영한 정확한 폴리곤 대신 중심선 하나로 충분히
+  /// 안정적으로 판단된다.
+  final List<WallSegmentXZ> _wallSegmentsXZ = [];
+
+  /// WO093 — "카메라 → 이 지점이 막혀 있으면 그 사이 벽을 숨긴다"의
+  /// 목적지 목록. 방(바닥) 하나당 하나씩, 실제로 바닥이 만들어진 방만
+  /// 대상으로 한다(삼각분할 실패 등으로 제외된 방은 애초에 안 보이는
+  /// 대상이라 판정에서도 제외).
+  final List<(double, double)> _roomCentroidsXZ = [];
+
   @override
   void initState() {
     super.initState();
@@ -86,6 +109,7 @@ class _Space3DViewGpuV2State extends State<Space3DViewGpuV2> {
     if (oldWidget.scene != widget.scene) {
       _rebuildMeshes(widget.scene);
       _applyHighlight();
+      _applyIsoCutaway();
     } else if (oldWidget.selectedObjectId != widget.selectedObjectId) {
       _applyHighlight();
     }
@@ -96,6 +120,8 @@ class _Space3DViewGpuV2State extends State<Space3DViewGpuV2> {
     // 화면이 이전 모드의 카메라 위치 그대로 멈춰 있게 된다.
     if (oldWidget.cameraMode != widget.cameraMode) {
       _resetCamera();
+      // WO093 §1 — 투시로 전환하면 cutaway를 완전히 끈다(모든 벽 원복).
+      _applyIsoCutaway();
     }
   }
 
@@ -130,6 +156,7 @@ class _Space3DViewGpuV2State extends State<Space3DViewGpuV2> {
     _applyHighlight();
 
     _resetCamera();
+    _applyIsoCutaway();
 
     _controls = three.OrbitControls(_threeJs.camera, _threeJs.globalKey)
       ..enableDamping = true
@@ -147,7 +174,14 @@ class _Space3DViewGpuV2State extends State<Space3DViewGpuV2> {
       }
     };
 
-    _threeJs.addAnimationEvent((dt) => _controls?.update());
+    _threeJs.addAnimationEvent((dt) {
+      _controls?.update();
+      // WO093 §5 — 회전/확대(damping 관성 포함)로 카메라 위치가 매
+      // 프레임 바뀔 수 있어, cutaway 판정도 매 프레임 다시 계산한다.
+      // 벽/방 개수가 이 앱 규모(수십 개 이내)라 매 프레임 재계산해도
+      // 비용이 미미하다.
+      _applyIsoCutaway();
+    });
   }
 
   /// WO092 §5 — 기존에는 색상별로 삼각형을 합쳐 mesh 몇 개만 만들었지만
@@ -163,12 +197,30 @@ class _Space3DViewGpuV2State extends State<Space3DViewGpuV2> {
     _meshByObjectId.clear();
     _identityByObjectId.clear();
     _appliedHighlightId = null;
+    _wallSegmentsXZ.clear();
+    _roomCentroidsXZ.clear();
 
     for (final wall in scene3d.wallMeshes) {
       _addObjectMesh(wall.identity, wall.triangles, doubleSided: true);
+      _wallSegmentsXZ.add((
+        objectId: wall.identity.objectId,
+        sx: wall.startMm.x,
+        sz: wall.startMm.z,
+        ex: wall.endMm.x,
+        ez: wall.endMm.z,
+        topY: wall.identity.dimensions?.heightMm ?? 0,
+      ));
     }
     for (final floor in scene3d.floorMeshes) {
       _addObjectMesh(floor.identity, floor.triangles, doubleSided: true);
+      if (floor.polygonMm.isNotEmpty) {
+        var cx = 0.0, cz = 0.0;
+        for (final p in floor.polygonMm) {
+          cx += p.x;
+          cz += p.z;
+        }
+        _roomCentroidsXZ.add((cx / floor.polygonMm.length, cz / floor.polygonMm.length));
+      }
     }
     // WO092 §4 — 천장은 방 안쪽(-Y)을 향하는 단면(FrontSide)만 그린다.
     // 기본 아이소 카메라(위에서 내려다봄)는 이 면의 뒤쪽을 보게 되어
@@ -258,6 +310,41 @@ class _Space3DViewGpuV2State extends State<Space3DViewGpuV2> {
     }
   }
 
+  /// WO093 — "3D 아이소 Cutaway/Dollhouse 표현 수정": 아이소 모드에서
+  /// 카메라와 각 방(바닥 중심) 사이를 가로막는 벽을 모두 찾아 숨긴다.
+  /// 매 프레임 카메라 위치 기준으로 다시 계산해서, 회전/확대해도(§5)
+  /// "지금 실제로 가로막는 벽"만 정확히 숨겨진다 — 고정된 "바깥쪽 벽
+  /// 2개"를 미리 정해 숨기는 방식이 아니라, 모든 방을 대상으로 매번
+  /// 판정하기 때문에 특정 작은 방을 확대해도(§2 "확대해도 방 내부가
+  /// 계속 보여야 함") 그 방을 가리는 벽(외벽이든 내벽이든)이 그때그때
+  /// 숨겨진다. 3D 투시 모드([Space3DCameraMode.perspective])는 기존
+  /// 방식을 그대로 유지해야 하므로(§1) 이 함수를 타지 않고 항상 모든
+  /// 벽을 보여준다.
+  ///
+  /// 실제 판정 로직은 [computeIsoCutawayHiddenWallIds](iso_cutaway.dart)에
+  /// 있다 — 카메라 높이까지 반영한 3D 시선 판정이라(단순 XZ 평면
+  /// 투영만으로는 "멀리서 내려다볼 때 낮은 칸막이벽 때문에 먼 방까지
+  /// 숨겨지는" 오판이 실제로 발생했다), 위젯 없이도 단위 테스트로
+  /// 검증할 수 있다.
+  void _applyIsoCutaway() {
+    if (widget.cameraMode != Space3DCameraMode.isometric) {
+      for (final segment in _wallSegmentsXZ) {
+        _meshByObjectId[segment.objectId]?.visible = true;
+      }
+      return;
+    }
+    final hidden = computeIsoCutawayHiddenWallIds(
+      cameraX: _threeJs.camera.position.x,
+      cameraY: _threeJs.camera.position.y,
+      cameraZ: _threeJs.camera.position.z,
+      wallSegments: _wallSegmentsXZ,
+      roomCentroidsXZ: _roomCentroidsXZ,
+    );
+    for (final segment in _wallSegmentsXZ) {
+      _meshByObjectId[segment.objectId]?.visible = !hidden.contains(segment.objectId);
+    }
+  }
+
   /// WO092 §5 — 화면을 탭한 지점으로 실제 ray를 쏴서 부딪힌 mesh를
   /// 찾는다. [OrbitControls]는 raw pointer Listener로 회전/확대를
   /// 처리하므로(gesture arena를 타지 않음) 이 [GestureDetector]의 탭
@@ -273,7 +360,13 @@ class _Space3DViewGpuV2State extends State<Space3DViewGpuV2> {
 
     final raycaster = three.Raycaster();
     raycaster.setFromCamera(three.Vector2(ndcX, ndcY), _threeJs.camera);
-    final pickable = _meshByObjectId.values.toList(growable: false);
+    // WO093 §4 — cutaway로 숨겨진(invisible) 벽은 화면에 보이지 않으므로
+    // 탭 대상에서도 제외한다. three_js의 Raycaster는 `.visible`을 직접
+    // 확인하지 않아서(원본 three.js와 달리 이 포팅에는 그 필터가 없다)
+    // 걸러주지 않으면 안 보이는 벽이 선택되어 "보이는 것과 실제 선택되는
+    // 것이 다른" 혼란(§4 "Cutaway 때문에 객체 선택 기능이 깨지면 안 됨")
+    // 이 생긴다.
+    final pickable = _meshByObjectId.values.where((m) => m.visible).toList(growable: false);
     final hits = raycaster.intersectObjects(pickable, false);
     if (hits.isEmpty) {
       widget.onObjectSelected!(null);
