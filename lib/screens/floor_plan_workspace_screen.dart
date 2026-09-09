@@ -14,6 +14,7 @@ import '../models/workspace_viewport_transform.dart';
 import '../services/floor_plan_analysis_service.dart';
 import '../services/floor_plan_upload_service.dart';
 import '../services/gpt_floorplan_image_service.dart';
+import '../services/gpt_floorplan_iso_service.dart';
 import '../services/space_scene_builder.dart';
 import '../services/space_scene_builder_v2.dart';
 import '../theme/space_shift_colors.dart';
@@ -59,6 +60,7 @@ class FloorPlanWorkspaceScreen extends StatefulWidget {
     this.uploadService = const FloorPlanUploadService(),
     this.analysisService = const FloorPlanAnalysisService(),
     this.floorPlanImageService,
+    this.floorPlanIsoService,
   });
 
   final String projectName;
@@ -77,6 +79,12 @@ class FloorPlanWorkspaceScreen extends StatefulWidget {
   /// [_createProductionFloorPlanImageService]가 dart-define 설정에 따라
   /// 안전한 기본값 또는 실제 Edge Function 구현을 고른다.
   final FloorPlanImageGenerationService? floorPlanImageService;
+
+  /// V1 GPT CAD-STYLE 2D → GPT ISO IMAGE FLOW WO — 테스트 주입 지점.
+  /// 지정하지 않으면(실사용 경로) [_createProductionFloorPlanIsoService]가
+  /// dart-define 설정에 따라 안전한 기본값 또는 실제 Edge Function
+  /// 구현을 고른다.
+  final FloorPlanIsoImageGenerationService? floorPlanIsoService;
 
   @override
   State<FloorPlanWorkspaceScreen> createState() =>
@@ -101,6 +109,16 @@ const double kDefaultCeilingHeightMm = 2400;
 /// 것으로 정직하게 폴백한다 — 절대 죽지 않는다.
 FloorPlanImageGenerationService _createProductionFloorPlanImageService() =>
     createFloorPlanImageGenerationService();
+
+/// V1 GPT CAD-STYLE 2D → GPT ISO IMAGE FLOW WO — "3D 아이소 만들기"를
+/// 누르면 GPT가 Clean 2D 결과를 기반으로 3D 아이소메트릭 이미지를
+/// 새로 그려준다(§7). 기존 실시간 geometry 3D(SpaceSceneBuilderV2/
+/// Space3DViewGpuV2)는 삭제하지 않고 그대로 보존한다 — 이 서비스가
+/// 아직 설정되지 않았거나 실패하면([UnavailableFloorPlanIsoImageService]
+/// 또는 네트워크 오류) 호출부(§ 아래 [_onGenerate3D])가 그 실시간
+/// geometry 결과로 안전하게 폴백한다.
+FloorPlanIsoImageGenerationService _createProductionFloorPlanIsoService() =>
+    createFloorPlanIsoImageService();
 
 class _FloorPlanWorkspaceScreenState extends State<FloorPlanWorkspaceScreen> {
   WorkspaceStartMethod _startMethod = WorkspaceStartMethod.floorPlanUpload;
@@ -169,6 +187,14 @@ class _FloorPlanWorkspaceScreenState extends State<FloorPlanWorkspaceScreen> {
   SpaceSceneV2? _spaceSceneV2;
   String? _spaceGenerationFailureMessage;
 
+  /// V1 GPT CAD-STYLE 2D → GPT ISO IMAGE FLOW WO — GPT가 Clean 2D
+  /// 결과를 기반으로 새로 그려준 3D 아이소메트릭 이미지. V1 기본
+  /// 흐름에서는 이 값이 있으면 [_spaceSceneV2](실시간 geometry, 그대로
+  /// 보존)보다 우선 표시된다 — null이면(생성 전/실패) 실시간 3D로
+  /// 안전하게 대체한다(§8).
+  Uint8List? _generatedIsoImageBytes;
+  bool _isGeneratingIsoImage = false;
+
   final List<_WorkspaceSnapshot> _undoStack = [];
   final List<_WorkspaceSnapshot> _redoStack = [];
 
@@ -210,12 +236,17 @@ class _FloorPlanWorkspaceScreenState extends State<FloorPlanWorkspaceScreen> {
       _spaceScene = null;
       _spaceSceneV2 = null;
       _spaceGenerationFailureMessage = null;
+      _generatedIsoImageBytes = null;
+      _isGeneratingIsoImage = false;
       _viewMode = WorkspaceViewMode.plan2d;
     });
   }
 
   FloorPlanImageGenerationService get _imageService =>
       widget.floorPlanImageService ?? _createProductionFloorPlanImageService();
+
+  FloorPlanIsoImageGenerationService get _isoService =>
+      widget.floorPlanIsoService ?? _createProductionFloorPlanIsoService();
 
   /// "AI 평면도 생성" — V1 AI-IMAGE FLOW WO 방향 수정.
   ///
@@ -304,10 +335,13 @@ class _FloorPlanWorkspaceScreenState extends State<FloorPlanWorkspaceScreen> {
       _ceilingHeightMm ??= kDefaultCeilingHeightMm;
       // 재분석으로 geometry 자체가 바뀌었을 수 있어, 이전 3D 결과는
       // 더 이상 지금 도면과 일치한다고 보장할 수 없다 — 다시 만들어야
-      // 한다(가짜로 그대로 두지 않는다).
+      // 한다(가짜로 그대로 두지 않는다). AI ISO 이미지도 이전 Clean 2D
+      // 기준으로 만들어진 것이라 마찬가지로 무효화한다.
       _spaceScene = null;
       _spaceSceneV2 = null;
       _spaceGenerationFailureMessage = null;
+      _generatedIsoImageBytes = null;
+      _isGeneratingIsoImage = false;
     });
   }
 
@@ -637,12 +671,17 @@ class _FloorPlanWorkspaceScreenState extends State<FloorPlanWorkspaceScreen> {
   }
 
   /// [3D 아이소 만들기] — geometry/축척/천장고가 모두 준비됐을 때만
-  /// 눌릴 수 있다. NOMPASS V2 WO — 실제 화면에 표시하는 3D는
-  /// [buildSpaceSceneV2]로 만든다(V1 [buildSpaceScene]은 삭제하지 않고
-  /// 그대로 계속 계산해 둔다 — "기존 구현 삭제 금지", 필요하면 언제든
-  /// 되돌릴 수 있다). 생성에 실패하면(예: geometry가 비정상) 2D 화면을
-  /// 유지하고 이유를 보여준다(viewMode를 바꾸지 않는다).
-  void _onGenerate3D() {
+  /// 눌릴 수 있다. NOMPASS V2 WO — 실시간 geometry 3D는 여전히
+  /// [buildSpaceSceneV2]로 만들어 둔다(삭제하지 않는다 — §8, 항상
+  /// 실패 없이 계산되는 안전한 폴백이자 향후 정확도 강화 대상).
+  ///
+  /// V1 GPT CAD-STYLE 2D → GPT ISO IMAGE FLOW WO §7 — 하지만 V1 기본
+  /// 흐름에서 사용자에게 먼저 보여주는 것은 GPT가 Clean 2D 결과(있으면,
+  /// 없으면 원본 사진)를 기반으로 새로 그려주는 3D 아이소메트릭
+  /// **이미지**다. 이 생성이 실패하거나 아직 설정되지 않았으면
+  /// ([UnavailableFloorPlanIsoImageService]) 조용히 실시간 geometry 3D로
+  /// 대체한다 — 화면은 절대 죽지 않는다.
+  Future<void> _onGenerate3D() async {
     final plan = _cadFloorPlan;
     final scale = _scale;
     final ceilingHeightMm = _ceilingHeightMm;
@@ -671,6 +710,8 @@ class _FloorPlanWorkspaceScreenState extends State<FloorPlanWorkspaceScreen> {
         _spaceGenerationFailureMessage =
             '벽/바닥 geometry를 3D로 옮기지 못했습니다 — 도면에서 실제로 인식된 '
             '벽/공간이 없는 것 같습니다.';
+        _generatedIsoImageBytes = null;
+        _isGeneratingIsoImage = false;
       });
       return;
     }
@@ -680,7 +721,31 @@ class _FloorPlanWorkspaceScreenState extends State<FloorPlanWorkspaceScreen> {
       _spaceSceneV2 = sceneV2;
       _spaceGenerationFailureMessage = null;
       _viewMode = WorkspaceViewMode.isometric3d;
+      _generatedIsoImageBytes = null;
+      _isGeneratingIsoImage = true;
     });
+
+    // §7 — "원본 평면도 + GPT Clean 2D 결과를 GPT에 다시 전달". 이미
+    // 검증된 단일 이미지 edit 패턴을 그대로 재사용해, Clean 2D가 있으면
+    // 그것을(더 정돈된 참조), 없으면 원본 사진을 입력으로 보낸다.
+    final referenceImage = _generatedFloorPlanImageBytes ?? _floorPlanFile?.bytes;
+    if (referenceImage == null) {
+      setState(() => _isGeneratingIsoImage = false);
+      return;
+    }
+    try {
+      final isoImage = await _isoService.generate(referenceImage);
+      if (!mounted) return;
+      setState(() {
+        _generatedIsoImageBytes = isoImage;
+        _isGeneratingIsoImage = false;
+      });
+    } catch (_) {
+      // 원본 예외 내용은 노출하지 않는다 — 이미 위에서 세팅해 둔 실시간
+      // geometry 3D(_spaceSceneV2)로 조용히 대체된다.
+      if (!mounted) return;
+      setState(() => _isGeneratingIsoImage = false);
+    }
   }
 
   /// "다시 분석" — 이미 CAD를 사용자가 보정한 적이 있다면(실행취소 스택이
@@ -1145,6 +1210,8 @@ class _FloorPlanWorkspaceScreenState extends State<FloorPlanWorkspaceScreen> {
               spaceScene: _spaceScene,
               spaceSceneV2: _spaceSceneV2,
               spaceGenerationFailureMessage: _spaceGenerationFailureMessage,
+              generatedIsoImageBytes: _generatedIsoImageBytes,
+              isGeneratingIsoImage: _isGeneratingIsoImage,
               onExitTo2D: () =>
                   setState(() => _viewMode = WorkspaceViewMode.plan2d),
               tool: _tool,
@@ -1256,6 +1323,8 @@ class _FloorPlanWorkspaceScreenState extends State<FloorPlanWorkspaceScreen> {
             spaceScene: _spaceScene,
             spaceSceneV2: _spaceSceneV2,
             spaceGenerationFailureMessage: _spaceGenerationFailureMessage,
+            generatedIsoImageBytes: _generatedIsoImageBytes,
+            isGeneratingIsoImage: _isGeneratingIsoImage,
             onExitTo2D: () =>
                 setState(() => _viewMode = WorkspaceViewMode.plan2d),
             tool: _tool,

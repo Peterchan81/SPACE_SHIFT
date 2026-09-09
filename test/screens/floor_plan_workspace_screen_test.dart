@@ -55,6 +55,7 @@ import 'package:ason_space/screens/settings_screen.dart';
 import 'package:ason_space/services/floor_plan_analysis_service.dart';
 import 'package:ason_space/services/floor_plan_upload_service.dart';
 import 'package:ason_space/services/gpt_floorplan_image_service.dart';
+import 'package:ason_space/services/gpt_floorplan_iso_service.dart';
 import 'package:ason_space/widgets/workspace/cad_floor_plan_overlay.dart';
 import 'package:ason_space/widgets/workspace/floor_plan_analysis_overlay.dart'
     show ContainFitTransform, FloorPlanAnalysisOverlay;
@@ -108,6 +109,32 @@ class _FailingFloorPlanImageService implements FloorPlanImageGenerationService {
   Future<Uint8List> generate(Uint8List originalImageBytes) async {
     throw Exception('AI 평면도 생성 기능이 아직 설정되지 않았습니다.');
   }
+}
+
+/// Clean 2D 이미지와도 구분되는 세 번째 1x1 PNG(초록 픽셀) — "GPT가
+/// 새로 그려준 3D 아이소 이미지가 Clean 2D와 혼동되지 않고 실제로
+/// 화면에 보이는가"를 확실히 구분해서 검증하기 위함이다.
+final Uint8List _fakeIsoImageBytes = base64Decode(
+  'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAAAXNSR0IArs4c6QAAAARnQU1B'
+  'AACxjwv8YQUAAAAJcEhZcwAADsMAAA7DAcdvqGQAAAANSURBVBhXY+A6wfUfAAOYAdyk2jRL'
+  'AAAAAElFTkSuQmCC',
+);
+
+/// V1 GPT CAD-STYLE 2D → GPT ISO IMAGE FLOW WO — 실제 네트워크 호출 없이
+/// "GPT가 Clean 2D를 기반으로 3D 아이소 이미지를 생성해 돌려준다"를
+/// 흉내내는 가짜 서비스. [_FakeFloorPlanAnalysisService]와 같은 이유로
+/// Completer를 쓴다 — 진짜 delay 없이 바로 완료되면 "생성 중" 중간
+/// 상태를 테스트가 관찰할 기회 자체가 없어진다(await가 낀 테스트 코드
+/// 자체가 microtask를 먼저 흘려보내 버린다).
+class _FakeFloorPlanIsoImageService implements FloorPlanIsoImageGenerationService {
+  _FakeFloorPlanIsoImageService();
+
+  final Completer<Uint8List> _completer = Completer<Uint8List>();
+
+  void finish() => _completer.complete(_fakeIsoImageBytes);
+
+  @override
+  Future<Uint8List> generate(Uint8List cleanTwoDImageBytes) => _completer.future;
 }
 
 /// `Image.memory(bytes, cacheWidth: ...)`는 내부적으로 [MemoryImage]를
@@ -245,6 +272,13 @@ void main() {
     // _FailingFloorPlanImageService를 명시적으로 넘긴 테스트에서만 확인한다.
     FloorPlanImageGenerationService floorPlanImageService =
         const _FakeFloorPlanImageService(),
+    // V1 GPT CAD-STYLE 2D → GPT ISO IMAGE FLOW WO — 기존 테스트는
+    // "3D 아이소 만들기"를 실제로 누르지 않으므로(네이티브 GPU 위젯
+    // 제약, 위 주석 참고) 이 서비스를 호출할 일이 없다 — 실제로
+    // ISO 생성 흐름을 검증하는 테스트만 [_FakeFloorPlanIsoImageService]를
+    // 명시적으로 넘긴다.
+    FloorPlanIsoImageGenerationService floorPlanIsoService =
+        const UnavailableFloorPlanIsoImageService(),
   }) async {
     // 2D 단순화 WO — 우측 패널 상단에 "평면도 준비 완료"(공간 크기/천장
     // 높이) 카드가 새로 추가되어 세로 공간이 더 필요해졌다. 800이면
@@ -260,6 +294,7 @@ void main() {
           uploadService: uploadService,
           analysisService: analysisService,
           floorPlanImageService: floorPlanImageService,
+          floorPlanIsoService: floorPlanIsoService,
         ),
       ),
     );
@@ -478,8 +513,10 @@ void main() {
   /// 여러 새 테스트가 공통으로 필요로 하는 "평면도 선택 → 분석 완료"
   /// 상태까지 진행한다.
   Future<_FakeFloorPlanAnalysisService> pumpAnalyzed(
-    WidgetTester tester,
-  ) async {
+    WidgetTester tester, {
+    FloorPlanIsoImageGenerationService floorPlanIsoService =
+        const UnavailableFloorPlanIsoImageService(),
+  }) async {
     final analysisService = _FakeFloorPlanAnalysisService(
       const FloorPlanAnalysisOutcome.success(_fakeAnalysisResult),
     );
@@ -489,6 +526,7 @@ void main() {
         _fakeImageFile('floor_plan.png'),
       ]),
       analysisService: analysisService,
+      floorPlanIsoService: floorPlanIsoService,
     );
 
     await tester.tap(find.widgetWithText(OutlinedButton, '파일 선택'));
@@ -652,6 +690,43 @@ void main() {
 
     expect(tester.widget<ElevatedButton>(generateButton).onPressed, isNotNull);
     expect(find.textContaining('3D 아이소 생성 준비가 완료'), findsOneWidget);
+  });
+
+  testWidgets('V1 GPT CAD-STYLE 2D → GPT ISO IMAGE FLOW WO §7/§9 — "3D 아이소 '
+      '만들기"를 누르면 생성 중 안내가 먼저 보이고, GPT가 만들어준 아이소 '
+      '이미지가 그대로 화면에 표시된다(네이티브 GPU 3D 위젯은 전혀 '
+      '마운트되지 않아 flutter_test에서도 끝까지 검증할 수 있다)', (tester) async {
+    final isoService = _FakeFloorPlanIsoImageService();
+    await pumpAnalyzed(tester, floorPlanIsoService: isoService);
+
+    await tester.tap(find.text('3D 아이소'));
+    await tester.pump();
+
+    final generateButton = find.widgetWithText(
+      ElevatedButton,
+      '3D 아이소 만들기',
+      skipOffstage: false,
+    );
+    await tester.ensureVisible(generateButton);
+    await tester.pumpAndSettle();
+
+    await tester.tap(generateButton);
+    await tester.pump();
+    expect(find.text('3D 아이소 생성 중입니다...'), findsOneWidget);
+
+    // _FakeFloorPlanAnalysisService와 같은 이유로 Completer를 직접
+    // 완료시켜, "생성 중" 상태가 실제로 끝나고 결과 이미지로
+    // 바뀌는 전환을 결정론적으로 관찰한다(가짜 timer가 아니다).
+    isoService.finish();
+    await tester.pumpAndSettle();
+
+    final generatedIsoImage = find.byWidgetPredicate(
+      (widget) => widget is Image && _imageShowsBytes(widget, _fakeIsoImageBytes),
+    );
+    expect(generatedIsoImage, findsOneWidget);
+    expect(find.text('2D 평면도로 돌아가기'), findsOneWidget);
+    expect(find.text('3D 아이소 생성 중입니다...'), findsNothing);
+    expect(tester.takeException(), isNull);
   });
 
   testWidgets('실기 FAIL 재수정 WO(11~14번) — "치수 보정"에서 벽 구간을 실제로 '

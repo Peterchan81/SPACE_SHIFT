@@ -1,4 +1,4 @@
-import 'dart:math' as math;
+import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 
@@ -12,8 +12,6 @@ import '../../models/workspace_drawing_entity.dart';
 import '../../models/workspace_task_item.dart';
 import '../../models/workspace_viewport_transform.dart';
 import '../../theme/space_shift_colors.dart';
-import 'cad_floor_plan_overlay.dart' show cadFloorPlanHitTest;
-import 'floor_plan_analysis_overlay.dart' show ContainFitTransform;
 import 'floor_plan_preview.dart';
 import 'workspace_drawing_layer.dart';
 
@@ -46,6 +44,8 @@ class WorkspaceCanvas extends StatelessWidget {
     this.spaceScene,
     this.spaceSceneV2,
     this.spaceGenerationFailureMessage,
+    this.generatedIsoImageBytes,
+    this.isGeneratingIsoImage = false,
     this.onExitTo2D,
     this.tool = WorkspaceSelectionTool.select,
     this.drawings = const [],
@@ -77,6 +77,12 @@ class WorkspaceCanvas extends StatelessWidget {
   /// 않고 계속 넘겨받되, 실기 화면 표시에는 더 이상 쓰이지 않는다.
   final SpaceSceneV2? spaceSceneV2;
   final String? spaceGenerationFailureMessage;
+
+  /// V1 GPT CAD-STYLE 2D → GPT ISO IMAGE FLOW WO — GPT가 그려준 3D
+  /// 아이소메트릭 이미지. 있으면 [FloorPlanPreview]가 [spaceSceneV2]
+  /// (실시간 geometry, 그대로 보존)보다 우선 표시한다(§8).
+  final Uint8List? generatedIsoImageBytes;
+  final bool isGeneratingIsoImage;
   final VoidCallback? onExitTo2D;
 
   // WO089 CORE EDITING — 사용자 도형(직선/곡선/원형/자유영역) 편집 상태.
@@ -102,19 +108,18 @@ class WorkspaceCanvas extends StatelessWidget {
       child: LayoutBuilder(
         builder: (context, constraints) {
           final floorPlan = cad.floorPlan;
-          final showRoomMarkers =
-              viewMode == WorkspaceViewMode.plan2d &&
-              floorPlan != null &&
-              !cad.calibrating;
-          final transform = showRoomMarkers
-              ? ContainFitTransform.compute(
-                  Size(constraints.maxWidth, constraints.maxHeight),
-                  Size(
-                    floorPlan.sourceWidthPx.toDouble(),
-                    floorPlan.sourceHeightPx.toDouble(),
-                  ),
-                )
-              : null;
+          // V1 GPT CAD-STYLE 2D → GPT ISO IMAGE FLOW WO §2 — 번호
+          // marker(①②③..., 아래 [_RoomNumberMarker])는 "색깔 공간
+          // 박스/공간 번호" 계열의 옛 좌표 기반 CAD 표시 UX였다.
+          // [cad.floorPlan]은 이제 화면에 보이는 이미지(AI Clean 2D
+          // 또는 원본 사진)와 무관하게 3D 생성용 내부 데이터로만 쓰이므로,
+          // 이 marker를 계속 그리면 (1) V1이 금지한 공간 번호가 다시
+          // 노출되고 (2) floorPlan의 좌표계(원본 사진 픽셀 기준)가 실제
+          // 화면에 보이는 이미지(AI가 새로 그린 별도 해상도의 이미지일
+          // 수 있음)와 어긋나 위치도 맞지 않는다. [_RoomNumberMarker]/
+          // [_polygonCentroid]는 삭제하지 않고 그대로 두되(추후 실시간
+          // geometry 3D 강화 단계에서 재사용 가능), production 2D
+          // 화면에서는 더 이상 그리지 않는다.
 
           // WO089 §5/§12 — viewport(pan/zoom)는 기존 콘텐츠(평면도 이미지/
           // room marker/작업 marker) 전체를 시각적으로만 이동/확대한다.
@@ -139,33 +144,10 @@ class WorkspaceCanvas extends StatelessWidget {
                 spaceScene: spaceScene,
                 spaceSceneV2: spaceSceneV2,
                 spaceGenerationFailureMessage: spaceGenerationFailureMessage,
+                generatedIsoImageBytes: generatedIsoImageBytes,
+                isGeneratingIsoImage: isGeneratingIsoImage,
                 onExitTo2D: onExitTo2D,
               ),
-              // 실기 FAIL 재수정 WO(3번) — "각 공간이 도면의 어디인지 알 수
-              // 없다"는 신고 대응. 우측 목록과 같은 번호(①②③...)를 room
-              // polygon 중심에 표시하고, 탭하면 같은 selectObject 콜백으로
-              // 선택돼 우측 목록과 자동으로 동기화된다(별도 selection 상태를
-              // 새로 만들지 않는다 — 기존 CadFloorPlanOverlay 선택 하이라이트
-              // 재사용).
-              if (transform != null && floorPlan != null)
-                for (var i = 0; i < floorPlan.rooms.length; i++)
-                  Builder(
-                    builder: (context) {
-                      final room = floorPlan.rooms[i];
-                      final centroid = _polygonCentroid(room.polygon);
-                      final screenPos = transform.mapNormalized(centroid);
-                      return Positioned(
-                        left: screenPos.dx - 14,
-                        top: screenPos.dy - 14,
-                        child: _RoomNumberMarker(
-                          number: i + 1,
-                          color: SpaceShiftColors.roomAccentColorFor(i),
-                          selected: room.id == cad.selectedObjectId,
-                          onTap: () => cadCallbacks.onSelectObject(room.id),
-                        ),
-                      );
-                    },
-                  ),
               for (final task in tasks)
                 if (task.visible)
                   Positioned(
@@ -230,37 +212,16 @@ class WorkspaceCanvas extends StatelessWidget {
                   },
                   onViewportChanged: onViewportChanged ?? (_) {},
                   onCanvasSizeChanged: onCanvasSizeChanged,
-                  onSelectTapMiss: (doc) {
-                    // WO089 CORE EDITING — 이 레이어가 기존
-                    // CadFloorPlanOverlay 위에 얹혀 모든 탭을 먼저
-                    // 받는다(§28, 하나의 gesture 소유자). 자기 도형에
-                    // 아무 것도 없으면, 원래 CadFloorPlanOverlay의
-                    // onTapUp이 하던 벽/문·창/공간 탭 선택을 그대로
-                    // 재현해 위임한다 — 그렇지 않으면 이 레이어가 opaque로
-                    // 모든 탭을 가로채 기존 CAD 선택 기능이 완전히
-                    // 죽는다(실제로 겪은 회귀).
-                    if (doc == null || floorPlan == null) {
-                      cadCallbacks.onSelectObject(null);
-                      return;
-                    }
-                    final fitForHit =
-                        transform ??
-                        ContainFitTransform.compute(
-                          Size(constraints.maxWidth, constraints.maxHeight),
-                          Size(
-                            floorPlan.sourceWidthPx.toDouble(),
-                            floorPlan.sourceHeightPx.toDouble(),
-                          ),
-                        );
-                    final shortSide = math.min(
-                      fitForHit.rect.width,
-                      fitForHit.rect.height,
-                    );
-                    final tolerance = shortSide > 0 ? 14.0 / shortSide : 0.03;
-                    cadCallbacks.onSelectObject(
-                      cadFloorPlanHitTest(floorPlan, doc, tolerance: tolerance),
-                    );
-                  },
+                  // V1 GPT CAD-STYLE 2D → GPT ISO IMAGE FLOW WO §2 —
+                  // WO089에서는 이 레이어가 자기 도형에서 못 찾은 탭을
+                  // 기존 CadFloorPlanOverlay의 벽/문·창/공간 탭 선택으로
+                  // 위임했다. 이제 [floorPlan]은 화면에 보이는 이미지(AI
+                  // Clean 2D 또는 원본 사진)와 다른 좌표계(항상 원본 사진
+                  // 픽셀 기준)를 갖는 내부 3D 전용 데이터라, 화면에 보이는
+                  // 좌표로 그 hit-test를 그대로 재사용하면 (1) 위치가
+                  // 어긋나고 (2) 선택되면 V1이 금지한 CAD 요소 정보 패널이
+                  // 다시 노출된다. onSelectTapMiss를 생략하면 자기 도형에
+                  // 없는 탭은 조용히 무시된다(안전한 기본값).
                 ),
             ],
           );

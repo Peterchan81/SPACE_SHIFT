@@ -14,21 +14,31 @@
 const OPENAI_IMAGE_EDIT_ENDPOINT = "https://api.openai.com/v1/images/edits";
 const OPENAI_IMAGE_MODEL = "gpt-image-1";
 
+// V1 GPT CAD-STYLE 2D → GPT ISO IMAGE FLOW WO §5 — 정확한 계약 문구를
+// 그대로 반영한다(순서도 그대로 유지 — 모델이 우선순위로 읽는다는
+// 전제).
 const CAD_STYLE_PROMPT =
-  "Redraw this floor plan photo as a clean, simple black-and-white " +
-  "CAD-style 2D architectural floor plan drawing, viewed from directly " +
-  "above (top-down/plan view). Preserve the exact layout: keep every " +
-  "room's position and shape, every wall's position and thickness, and " +
-  "every door and window in the same place they appear in the original " +
-  "photo. Do not add any room, wall, door, or window that is not in the " +
-  "original. Do not remove or merge any room, wall, door, or window that " +
-  "is in the original. Do not change the overall proportions or aspect " +
-  "ratio of the building outline. You may clean up and simplify: remove " +
-  "furniture, appliances, decorative patterns, floor textures, photo " +
-  "noise/glare, and any handwriting or dimension text — replace them " +
-  "with plain white/light-gray floor fill and simple black wall lines, " +
-  "like a professional architectural line drawing. Use standard door " +
-  "arc symbols for doors and double-line symbols for windows if visible.";
+  "Redraw the attached original floor plan as a clean CAD-style black-" +
+  "and-white 2D architectural floor plan, viewed from directly above " +
+  "(top-down plan view), on a plain white background. " +
+  "Preserve the overall spatial layout and outer shape of the original " +
+  "floor plan as closely as possible. " +
+  "Do not arbitrarily change the position of the original walls, rooms, " +
+  "doors, or windows. " +
+  "Do not create any new room that is not present in the original. " +
+  "Remove color, floor textures, decorations, watermarks, furniture, " +
+  "appliances, handwriting, and dimension text from the original — " +
+  "redraw the space with plain white/light-gray floor fill and clean " +
+  "black wall lines instead, like a tidy professional architectural " +
+  "drawing. Clearly distinguish exterior walls (thicker/darker) from " +
+  "interior walls (thinner). Show every door as an opening with a door " +
+  "leaf and a swing arc (standard architectural door symbol). Show every " +
+  "window as an architectural window symbol (e.g. a double line) at its " +
+  "wall opening. Do not invent or print any dimension/measurement text " +
+  "unless it was clearly legible in the original — if the original has " +
+  "no reliable dimensions, do not add any. Keep the wall/room/opening " +
+  "structure visually unambiguous, since this drawing will be used as " +
+  "the basis for generating a matching 3D isometric view next.";
 
 const CORS_HEADERS: Record<string, string> = {
   "Access-Control-Allow-Origin": "*",
