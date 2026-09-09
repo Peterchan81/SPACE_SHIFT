@@ -435,7 +435,16 @@ class _AnalysisActionBar extends StatelessWidget {
     required this.failureMessage,
     required this.onStartAnalysis,
     required this.hasGeneratedImage,
+    required this.isRunningVisionConsolidation,
+    required this.onRunVisionConsolidation,
+    required this.canExportDxf,
+    required this.onExportDxf,
   });
+
+  final bool isRunningVisionConsolidation;
+  final VoidCallback onRunVisionConsolidation;
+  final bool canExportDxf;
+  final VoidCallback onExportDxf;
 
   final FloorPlanAnalysisPhase phase;
   final FloorPlanAnalysisStep? step;
@@ -500,6 +509,10 @@ class _AnalysisActionBar extends StatelessWidget {
         FloorPlanAnalysisPhase.completed => _CompletedSummary(
           hasGeneratedImage: hasGeneratedImage,
           onReanalyze: onStartAnalysis,
+          isRunningVisionConsolidation: isRunningVisionConsolidation,
+          onRunVisionConsolidation: onRunVisionConsolidation,
+          canExportDxf: canExportDxf,
+          onExportDxf: onExportDxf,
         ),
         FloorPlanAnalysisPhase.failed => Column(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -550,10 +563,18 @@ class _CompletedSummary extends StatelessWidget {
   const _CompletedSummary({
     required this.hasGeneratedImage,
     required this.onReanalyze,
+    required this.isRunningVisionConsolidation,
+    required this.onRunVisionConsolidation,
+    required this.canExportDxf,
+    required this.onExportDxf,
   });
 
   final bool hasGeneratedImage;
   final VoidCallback onReanalyze;
+  final bool isRunningVisionConsolidation;
+  final VoidCallback onRunVisionConsolidation;
+  final bool canExportDxf;
+  final VoidCallback onExportDxf;
 
   @override
   Widget build(BuildContext context) {
@@ -589,6 +610,62 @@ class _CompletedSummary extends StatelessWidget {
             onPressed: onReanalyze,
             icon: const Icon(Icons.refresh_rounded, size: 18),
             label: const Text('AI 평면도 다시 생성'),
+            style: OutlinedButton.styleFrom(
+              minimumSize: const Size.fromHeight(40),
+              foregroundColor: SpaceShiftColors.textPrimary,
+              side: const BorderSide(color: SpaceShiftColors.border),
+            ),
+          ),
+        ),
+        const Divider(height: 24, color: SpaceShiftColors.border),
+        // GPT CAD 핵심 이식 — 기존 GPT CAD 이미지 생성 흐름(위)과 완전히
+        // 별개로, 같은 원본 사진을 구조화된 walls/doors/windows/rooms로
+        // 이해한다(Floorplan-CAD-Test에서 검증된 다회 분석 통합, WO086).
+        Text(
+          'GPT 구조 분석(실측 가능)',
+          style: TextStyle(
+            fontSize: 12.5,
+            fontWeight: FontWeight.w600,
+            color: SpaceShiftColors.textPrimary,
+          ),
+        ),
+        const SizedBox(height: 4),
+        const Text(
+          '같은 사진을 3번 분석해 일치하는 벽/문/창/공간은 신뢰도를 높이고, '
+          '1회만 검출된 요소는 낮은 신뢰도로 표시합니다. 벽을 선택해 실측값을 '
+          '입력하면(치수 보정) 그 값은 다시 분석해도 덮어써지지 않습니다.',
+          style: TextStyle(
+            fontSize: 11.5,
+            color: SpaceShiftColors.textSecondary,
+            height: 1.4,
+          ),
+        ),
+        const SizedBox(height: 10),
+        SizedBox(
+          width: double.infinity,
+          child: FilledButton.icon(
+            onPressed: isRunningVisionConsolidation ? null : onRunVisionConsolidation,
+            icon: isRunningVisionConsolidation
+                ? const SizedBox(
+                    width: 16,
+                    height: 16,
+                    child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                  )
+                : const Icon(Icons.auto_fix_high_rounded, size: 18),
+            label: Text(isRunningVisionConsolidation ? '구조 분석 중(3회)...' : 'GPT 구조 분석 실행'),
+            style: FilledButton.styleFrom(
+              backgroundColor: SpaceShiftColors.textPrimary,
+              minimumSize: const Size.fromHeight(40),
+            ),
+          ),
+        ),
+        const SizedBox(height: 8),
+        SizedBox(
+          width: double.infinity,
+          child: OutlinedButton.icon(
+            onPressed: canExportDxf ? onExportDxf : null,
+            icon: const Icon(Icons.file_download_outlined, size: 18),
+            label: const Text('DXF 내보내기'),
             style: OutlinedButton.styleFrom(
               minimumSize: const Size.fromHeight(40),
               foregroundColor: SpaceShiftColors.textPrimary,
@@ -914,6 +991,10 @@ class FloorPlanStatusSection extends StatelessWidget {
     required this.analysisStep,
     required this.analysisFailureMessage,
     required this.onReanalyze,
+    required this.isRunningVisionConsolidation,
+    required this.onRunVisionConsolidation,
+    required this.canExportDxf,
+    required this.onExportDxf,
     required this.cad,
     required this.cadCallbacks,
   });
@@ -927,6 +1008,12 @@ class FloorPlanStatusSection extends StatelessWidget {
   /// 사용자가 CAD를 보정한 뒤 다시 분석해 그 보정 내용이 사라질 위험이
   /// 있을 때만 확인 절차를 적용하는 판단은 호출부(화면)가 한다.
   final VoidCallback onReanalyze;
+
+  /// GPT CAD 핵심 이식 — "GPT 구조 분석(3회 통합)"/"DXF 내보내기".
+  final bool isRunningVisionConsolidation;
+  final VoidCallback onRunVisionConsolidation;
+  final bool canExportDxf;
+  final VoidCallback onExportDxf;
 
   final CadWorkspaceState cad;
   final CadWorkspaceCallbacks cadCallbacks;
@@ -956,6 +1043,10 @@ class FloorPlanStatusSection extends StatelessWidget {
           failureMessage: analysisFailureMessage,
           onStartAnalysis: onReanalyze,
           hasGeneratedImage: cad.generatedFloorPlanImageBytes != null,
+          isRunningVisionConsolidation: isRunningVisionConsolidation,
+          onRunVisionConsolidation: onRunVisionConsolidation,
+          canExportDxf: canExportDxf,
+          onExportDxf: onExportDxf,
         ),
         if (analysisPhase == FloorPlanAnalysisPhase.completed) ...[
           const SizedBox(height: 16),

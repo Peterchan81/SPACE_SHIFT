@@ -56,6 +56,10 @@ class UserWorkspacePanel extends StatefulWidget {
     required this.analysisStep,
     required this.analysisFailureMessage,
     required this.onReanalyze,
+    required this.isRunningVisionConsolidation,
+    required this.onRunVisionConsolidation,
+    required this.canExportDxf,
+    required this.onExportDxf,
     required this.cad,
     required this.cadCallbacks,
     required this.selectedTool,
@@ -103,6 +107,16 @@ class UserWorkspacePanel extends StatefulWidget {
   final FloorPlanAnalysisStep? analysisStep;
   final String? analysisFailureMessage;
   final VoidCallback onReanalyze;
+
+  /// GPT CAD 핵심 이식 — "GPT 구조 분석(3회 통합)"이 지금 실행 중인지.
+  final bool isRunningVisionConsolidation;
+  final VoidCallback onRunVisionConsolidation;
+
+  /// GPT CAD 핵심 이식 — [cad]에 내보낼 CAD geometry가 있는지("DXF
+  /// 내보내기" 버튼 활성화 조건).
+  final bool canExportDxf;
+  final VoidCallback onExportDxf;
+
   final CadWorkspaceState cad;
   final CadWorkspaceCallbacks cadCallbacks;
 
@@ -231,6 +245,10 @@ class _UserWorkspacePanelState extends State<UserWorkspacePanel> {
                   analysisStep: widget.analysisStep,
                   analysisFailureMessage: widget.analysisFailureMessage,
                   onReanalyze: widget.onReanalyze,
+                  isRunningVisionConsolidation: widget.isRunningVisionConsolidation,
+                  onRunVisionConsolidation: widget.onRunVisionConsolidation,
+                  canExportDxf: widget.canExportDxf,
+                  onExportDxf: widget.onExportDxf,
                   cad: widget.cad,
                   cadCallbacks: widget.cadCallbacks,
                 )

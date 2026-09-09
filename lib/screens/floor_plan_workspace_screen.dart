@@ -11,12 +11,17 @@ import '../models/space_scene_v2.dart';
 import '../models/workspace_drawing_entity.dart';
 import '../models/workspace_task_item.dart';
 import '../models/workspace_viewport_transform.dart';
+import '../services/dxf_export_service.dart';
+import '../services/e2e_dxf_exporter.dart';
 import '../services/floor_plan_analysis_service.dart';
 import '../services/floor_plan_upload_service.dart';
 import '../services/gpt_floorplan_image_service.dart';
 import '../services/gpt_floorplan_iso_service.dart';
+import '../services/gpt_floorplan_vision_service.dart';
 import '../services/space_scene_builder.dart';
 import '../services/space_scene_builder_v2.dart';
+import '../services/vision_consolidation.dart';
+import '../services/vision_guided_spatial_model_builder.dart';
 import '../theme/space_shift_colors.dart';
 import '../widgets/workspace/ceiling_height_sheet.dart';
 import '../widgets/workspace/settings_entry_button.dart';
@@ -165,6 +170,11 @@ class _FloorPlanWorkspaceScreenState extends State<FloorPlanWorkspaceScreen> {
 
   FloorPlanDisplayMode _displayMode = FloorPlanDisplayMode.cad;
   bool _debugOverlay = false;
+
+  /// GPT CAD 핵심 이식 — Floorplan-CAD-Test에서 검증된 다회 분석 통합
+  /// (WO086)이 지금 실행 중인지. true인 동안 관련 버튼을 비활성화해
+  /// 중복 실행을 막는다.
+  bool _isRunningVisionConsolidation = false;
 
   bool _calibrating = false;
   String? _calibrationWallId;
@@ -779,6 +789,64 @@ class _FloorPlanWorkspaceScreenState extends State<FloorPlanWorkspaceScreen> {
     await _startAnalysis();
   }
 
+  /// GPT CAD 핵심 이식 — "GPT 구조 분석(3회 통합)" 버튼. 기존 GPT CAD
+  /// 이미지 생성 흐름([_imageService])과 기존 픽셀 분석 엔진
+  /// ([widget.analysisService])은 전혀 건드리지 않는다 — 이미 완성돼
+  /// 있던 [VisionGuidedSpatialModelBuilder](gpt-floorplan-understand
+  /// 기반, R&D/대체 경로로 보존되어 있던 것)를 같은 원본 사진에 3번
+  /// 돌리고, [consolidateCadFloorPlans]로 통합한 결과를 [_cadFloorPlan]에
+  /// 반영해 기존 "도면 보정"(벽 클릭→치수 보정) 흐름과 DXF 내보내기가
+  /// 그대로 이 통합 결과를 쓰게 한다.
+  ///
+  /// [_scale]은 [resolveAutoScale]을 그대로 재사용해 결정한다 — 사용자가
+  /// 이미 실측 보정을 마쳤다면([ScaleSource.measured]) 이 재분석으로
+  /// 절대 덮어쓰지 않는다(요구사항: "사용자 confirmed 치수는 AI가 절대
+  /// 덮어쓰지 않는다").
+  Future<void> _onRunVisionConsolidation() async {
+    final file = _floorPlanFile;
+    final bytes = file?.bytes;
+    if (bytes == null || _isRunningVisionConsolidation) return;
+
+    setState(() => _isRunningVisionConsolidation = true);
+    try {
+      final builder = VisionGuidedSpatialModelBuilder(
+        visionService: createVisionInterpretationService(),
+      );
+      final consolidated = await buildConsolidatedVisionCadFloorPlan(
+        bytes,
+        buildOnce: builder.buildCad,
+      );
+      if (!mounted) return;
+      setState(() {
+        _cadUndoStack.add(_cadFloorPlan ?? consolidated);
+        _cadFloorPlan = consolidated;
+        _selectedCadObjectId = null;
+        _scale = resolveAutoScale(consolidated, _scale);
+      });
+    } catch (_) {
+      // 원본 예외 내용은 노출하지 않는다(이 프로젝트의 기존 관례) —
+      // 화면은 이전 CAD 상태를 그대로 유지한다.
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('GPT 구조 분석에 실패했습니다. 잠시 후 다시 시도해주세요.')),
+      );
+    } finally {
+      if (mounted) setState(() => _isRunningVisionConsolidation = false);
+    }
+  }
+
+  /// GPT CAD 핵심 이식 — "DXF 내보내기" 버튼. 기존
+  /// [E2eDxfExporter](Canonical [CadFloorPlan]에서 직접 DXF를 만드는,
+  /// 이미 완성돼 있던 서비스)를 그대로 호출하고, 기존
+  /// [ResultImageService]와 같은 패턴의 [DxfExportService]로 공유한다 —
+  /// 새 저장/공유 메커니즘을 만들지 않는다.
+  Future<void> _onExportDxf() async {
+    final plan = _cadFloorPlan;
+    if (plan == null) return;
+    final result = const E2eDxfExporter().export(plan, scale: _scale);
+    await const DxfExportService().share(result.dxfContent);
+  }
+
   CadWorkspaceState get _cadWorkspaceState => CadWorkspaceState(
     floorPlan: _cadFloorPlan,
     selectedObjectId: _selectedCadObjectId,
@@ -1129,6 +1197,10 @@ class _FloorPlanWorkspaceScreenState extends State<FloorPlanWorkspaceScreen> {
             analysisStep: _analysisStep,
             analysisFailureMessage: _analysisFailureMessage,
             onReanalyze: _onReanalyzeRequested,
+            isRunningVisionConsolidation: _isRunningVisionConsolidation,
+            onRunVisionConsolidation: _onRunVisionConsolidation,
+            canExportDxf: _cadFloorPlan != null,
+            onExportDxf: _onExportDxf,
             cad: _cadWorkspaceState,
             cadCallbacks: _cadWorkspaceCallbacks,
             selectedTool: _tool,
@@ -1262,6 +1334,10 @@ class _FloorPlanWorkspaceScreenState extends State<FloorPlanWorkspaceScreen> {
               analysisStep: _analysisStep,
               analysisFailureMessage: _analysisFailureMessage,
               onReanalyze: _onReanalyzeRequested,
+              isRunningVisionConsolidation: _isRunningVisionConsolidation,
+              onRunVisionConsolidation: _onRunVisionConsolidation,
+              canExportDxf: _cadFloorPlan != null,
+              onExportDxf: _onExportDxf,
               cad: _cadWorkspaceState,
               cadCallbacks: _cadWorkspaceCallbacks,
               selectedTool: _tool,

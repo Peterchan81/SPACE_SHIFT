@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import '../models/cad_floor_plan.dart';
 import '../models/floor_plan_geometry.dart';
 
@@ -62,6 +64,8 @@ class E2eDxfExporter {
       ('SS-EXTERIOR-WALL', 1),
       ('SS-INTERIOR-WALL', 5),
       ('SS-SPACE', 3),
+      ('SS-DOOR', 2),
+      ('SS-WINDOW', 6),
     ]) {
       buffer.writeln('0');
       buffer.writeln('LAYER');
@@ -111,6 +115,34 @@ class E2eDxfExporter {
         final b = room.polygon[(i + 1) % room.polygon.length];
         line('SS-SPACE', a, b);
       }
+    }
+
+    // GPT CAD 핵심 이식 — 문/창을 자신이 붙은 벽의 방향을 따라 그 벽 위의
+    // 짧은 구간(폭 widthNormalized)으로 그린다 — 벽처럼 실제 선분이라
+    // DXF 뷰어에서 별도 레이어로 켜고 끌 수 있다.
+    final wallById = {for (final wall in plan.walls) wall.id: wall};
+    final diagonalPx = plan.diagonalPx;
+    for (final opening in plan.openings) {
+      final wall = wallById[opening.wallId];
+      if (wall == null) continue;
+      final dxPx = (wall.end.x - wall.start.x) * plan.sourceWidthPx;
+      final dyPx = (wall.end.y - wall.start.y) * plan.sourceHeightPx;
+      final lenPx = math.sqrt(dxPx * dxPx + dyPx * dyPx);
+      if (lenPx <= 0) continue;
+      final uxPx = dxPx / lenPx;
+      final uyPx = dyPx / lenPx;
+      final halfWidthPx = (opening.widthNormalized * diagonalPx) / 2;
+      final centerXPx = opening.center.x * plan.sourceWidthPx;
+      final centerYPx = opening.center.y * plan.sourceHeightPx;
+      final a = Point2(
+        (centerXPx - uxPx * halfWidthPx) / plan.sourceWidthPx,
+        (centerYPx - uyPx * halfWidthPx) / plan.sourceHeightPx,
+      );
+      final b = Point2(
+        (centerXPx + uxPx * halfWidthPx) / plan.sourceWidthPx,
+        (centerYPx + uyPx * halfWidthPx) / plan.sourceHeightPx,
+      );
+      line(opening.type == OpeningType.door ? 'SS-DOOR' : 'SS-WINDOW', a, b);
     }
 
     buffer.writeln('0');
