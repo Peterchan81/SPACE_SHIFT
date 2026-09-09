@@ -212,6 +212,7 @@ class SpaceSceneV2 {
   const SpaceSceneV2({
     required this.wallMeshes,
     required this.floorMeshes,
+    this.ceilingMeshes = const [],
     required this.openings,
     required this.minBounds,
     required this.maxBounds,
@@ -220,6 +221,14 @@ class SpaceSceneV2 {
 
   final List<SpaceWallMeshV2> wallMeshes;
   final List<SpaceFloorMeshV2> floorMeshes;
+
+  /// WO092 §4/§5 — 방마다 천장 높이에 만드는 평면 하나(바닥과 같은
+  /// polygon, 반대 방향 normal). [SpaceFloorMeshV2]와 같은 모양(identity +
+  /// triangles + polygonMm)이라 별도 타입을 만들지 않고 그대로 재사용한다
+  /// ([SpaceObjectIdentityV2.sourceKind]가 [SpaceElementKindV2.ceiling]으로
+  /// 바닥과 구분된다). 이번 범위 이전 코드는 항상 빈 리스트를 기대하므로
+  /// 기본값 `const []`로 하위 호환을 유지한다.
+  final List<SpaceFloorMeshV2> ceilingMeshes;
   final List<SpaceOpeningV2> openings;
 
   final Vector3 minBounds;
@@ -231,12 +240,14 @@ class SpaceSceneV2 {
 
   int get wallCount => wallMeshes.length;
   int get floorCount => floorMeshes.length;
+  int get ceilingCount => ceilingMeshes.length;
 
   /// 렌더러가 순회할 평면화된 삼각형 목록 — 매 프레임 새로 만들지 않도록
   /// 호출부(렌더러)가 캐시해서 쓰는 것을 권장한다.
   List<SpaceTriangleV2> get triangles => [
     for (final wall in wallMeshes) ...wall.triangles,
     for (final floor in floorMeshes) ...floor.triangles,
+    for (final ceiling in ceilingMeshes) ...ceiling.triangles,
   ];
 
   Vector3 get center => (minBounds + maxBounds) / 2.0;

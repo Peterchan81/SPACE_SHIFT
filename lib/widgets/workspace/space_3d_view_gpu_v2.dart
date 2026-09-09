@@ -6,6 +6,14 @@ import 'package:three_js/three_js.dart' as three;
 import '../../models/space_scene_v2.dart';
 import '../../theme/space_shift_colors.dart';
 
+/// WO092 §6 — 3D 아이소/3D 투시는 같은 실시간 scene을 쓰고 카메라
+/// 배치만 다르다. [isometric]은 기존과 같은 "위에서 내려다보는" 초기
+/// 시점, [perspective]는 방 안 눈높이에서 보는 초기 시점이다 — 둘 다
+/// [OrbitControls]로 자유롭게 회전/확대할 수 있어 사용자가 두 모드를
+/// 완전히 다른 화면으로 느끼지 않는다(같은 재질 변경이 양쪽에 그대로
+/// 반영된다).
+enum Space3DCameraMode { isometric, perspective }
+
 /// SpaceScene V2 GPU 렌더러 — Windows 실기 재조사(3D) 결론에 따른
 /// renderer architecture 교체. CPU coarse-tile z-buffer([space_3d_view_v2.dart],
 /// 삭제하지 않고 보존)는 실기에서 벽/바닥 경계가 심하게 계단화된 큰
@@ -14,32 +22,81 @@ import '../../theme/space_shift_colors.dart';
 /// (ANGLE 기반 네이티브 렌더러, Windows/Android/Web 모두 stable
 /// Flutter SDK에서 동작, MIT 라이선스)로 렌더러 자체를 교체한다.
 ///
-/// [SpaceSceneV2](mesh 데이터, mm 단위 world 좌표)는 그대로 재사용한다 —
-/// 이번 교체는 오직 "그 데이터를 화면에 어떻게 그리는가"만 바꾼다.
+/// [SpaceSceneV2](mesh 데이터, mm 단위 world 좌표)는 그대로 재사용한다.
+///
+/// WO092 §5 — "3D 객체 선택 및 편집"을 위해 벽/바닥/천장을 더 이상
+/// 색상별로 합쳐 그리지 않고 객체 하나당 mesh 하나로 만든다([SpaceObjectIdentityV2]가
+/// 이미 이 순간을 위해 준비돼 있었다 — WO092 이전 코드 주석 참고).
+/// 화면을 탭하면 그 지점으로 ray를 쏴 실제로 부딪힌 mesh의 identity를
+/// [onObjectSelected]로 돌려주고, 선택된 mesh는 emissive 강조로 시각
+/// 구분한다.
 class Space3DViewGpuV2 extends StatefulWidget {
   const Space3DViewGpuV2({
     super.key,
     required this.scene,
     this.isFullscreenRoute = false,
     this.onExitTo2D,
+    this.cameraMode = Space3DCameraMode.isometric,
+    this.selectedObjectId,
+    this.onObjectSelected,
   });
 
   final SpaceSceneV2 scene;
   final bool isFullscreenRoute;
   final VoidCallback? onExitTo2D;
+  final Space3DCameraMode cameraMode;
+
+  /// 현재 선택된 3D 객체의 [SpaceObjectIdentityV2.objectId](예:
+  /// `wall:wall-3`, `floor:room-1`, `ceiling:room-1`) — 화면 밖(우측
+  /// 작업 패널)에서 선택이 바뀌어도(예: 작업 목록에서 다시 선택) 이
+  /// 값을 통해 3D의 강조 표시가 함께 따라온다.
+  final String? selectedObjectId;
+
+  /// 사용자가 벽/바닥/천장을 탭해 선택하면(§5) 그 [SpaceObjectIdentityV2]를
+  /// 돌려준다. 빈 곳을 탭하면 null을 돌려준다(선택 해제).
+  final ValueChanged<SpaceObjectIdentityV2?>? onObjectSelected;
 
   @override
   State<Space3DViewGpuV2> createState() => _Space3DViewGpuV2State();
 }
 
+/// 선택 강조에 쓰는 emissive 색 — 어떤 벽/바닥/천장 기본색과도 뚜렷이
+/// 구분되는 파란 계열 glow(재질 색 자체를 바꾸지 않고 위에 얹는
+/// 방식이라 "지금 무슨 색인지"는 그대로 보이면서 "선택됨"만 추가로
+/// 보인다).
+const int _kSelectionEmissiveHex = 0x2F6FED;
+const double _kSelectionEmissiveIntensity = 0.55;
+
 class _Space3DViewGpuV2State extends State<Space3DViewGpuV2> {
   late three.ThreeJS _threeJs;
   three.OrbitControls? _controls;
+  final Map<String, three.Mesh> _meshByObjectId = {};
+  final Map<String, SpaceObjectIdentityV2> _identityByObjectId = {};
+  String? _appliedHighlightId;
 
   @override
   void initState() {
     super.initState();
     _threeJs = three.ThreeJS(onSetupComplete: () {}, setup: _setup);
+  }
+
+  @override
+  void didUpdateWidget(covariant Space3DViewGpuV2 oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.scene != widget.scene) {
+      _rebuildMeshes(widget.scene);
+      _applyHighlight();
+    } else if (oldWidget.selectedObjectId != widget.selectedObjectId) {
+      _applyHighlight();
+    }
+    // WO092 §6 — "3D 아이소"/"3D 투시" 탭 전환은 이 위젯을 새로
+    // 마운트하지 않고 같은 State에 다른 [cameraMode]만 새로 전달한다
+    // (viewMode만 바뀌고 scene은 그대로라 Flutter가 State를 재사용).
+    // 카메라 시작 위치를 그때마다 다시 계산하지 않으면 탭을 눌러도
+    // 화면이 이전 모드의 카메라 위치 그대로 멈춰 있게 된다.
+    if (oldWidget.cameraMode != widget.cameraMode) {
+      _resetCamera();
+    }
   }
 
   @override
@@ -69,14 +126,15 @@ class _Space3DViewGpuV2State extends State<Space3DViewGpuV2> {
     fillLight.position.setValues(radius * 0.8, radius * 0.6, -radius * 0.6);
     _threeJs.scene.add(fillLight);
 
-    _buildMeshes(scene3d);
+    _rebuildMeshes(scene3d);
+    _applyHighlight();
 
-    _fitCamera();
+    _resetCamera();
 
     _controls = three.OrbitControls(_threeJs.camera, _threeJs.globalKey)
       ..enableDamping = true
       ..dampingFactor = 0.12
-      ..minDistance = radius * 0.3 + 1
+      ..minDistance = radius * 0.05 + 1
       ..maxDistance = radius * 12 + 5000
       ..target.setValues(scene3d.center.x, scene3d.center.y, scene3d.center.z)
       ..update();
@@ -92,28 +150,43 @@ class _Space3DViewGpuV2State extends State<Space3DViewGpuV2> {
     _threeJs.addAnimationEvent((dt) => _controls?.update());
   }
 
-  void _buildMeshes(SpaceSceneV2 scene3d) {
-    // 색상별로 삼각형을 묶어 mesh/material 개수를 최소화한다(WO — 이번
-    // 범위는 재질 시스템이 아니라 벽/바닥 2~3가지 고정 색뿐이라 이
-    // 정도로 충분하다. MASTER 단계(재질/색상 편집)에서 객체별 mesh로
-    // 다시 나눌 수 있도록 [SpaceObjectIdentityV2]는 이미 준비돼 있다).
-    final byColor = <int, List<SpaceTriangleV2>>{};
+  /// WO092 §5 — 기존에는 색상별로 삼각형을 합쳐 mesh 몇 개만 만들었지만
+  /// (재질 편집 UI가 없던 시절엔 그걸로 충분했다), 이제 "이 벽만",
+  /// "이 방 바닥만" 선택/강조/재질 변경이 가능해야 하므로 객체(벽 1개/
+  /// 바닥 1개/천장 1개)당 mesh 1개로 만든다. mesh 개수가 색상 개수 몇
+  /// 개에서 벽/방 개수만큼(보통 수십 개 이내)으로 늘지만 이 앱 규모에서
+  /// 문제되지 않는다.
+  void _rebuildMeshes(SpaceSceneV2 scene3d) {
+    for (final mesh in _meshByObjectId.values) {
+      _threeJs.scene.remove(mesh);
+    }
+    _meshByObjectId.clear();
+    _identityByObjectId.clear();
+    _appliedHighlightId = null;
+
     for (final wall in scene3d.wallMeshes) {
-      final hex = _colorToHex(wall.identity.color ?? const Color(0xFFC9C2B4));
-      byColor.putIfAbsent(hex, () => []).addAll(wall.triangles);
+      _addObjectMesh(wall.identity, wall.triangles, doubleSided: true);
     }
     for (final floor in scene3d.floorMeshes) {
-      final hex = _colorToHex(floor.identity.color ?? const Color(0xFFD9CBB2));
-      byColor.putIfAbsent(hex, () => []).addAll(floor.triangles);
+      _addObjectMesh(floor.identity, floor.triangles, doubleSided: true);
     }
-    for (final entry in byColor.entries) {
-      final mesh = _buildMeshForTriangles(entry.value, entry.key);
-      if (mesh != null) _threeJs.scene.add(mesh);
+    // WO092 §4 — 천장은 방 안쪽(-Y)을 향하는 단면(FrontSide)만 그린다.
+    // 기본 아이소 카메라(위에서 내려다봄)는 이 면의 뒤쪽을 보게 되어
+    // backface culling으로 자연히 안 보인다 — 천장이 실제로 존재하면서도
+    // 기존 "천장 없는 dollhouse" 시야를 그대로 유지하는 핵심 트릭이다.
+    // 카메라가 방 안(천장 아래)으로 들어가면(3D 투시 등) 정상적으로
+    // 앞면이 보인다.
+    for (final ceiling in scene3d.ceilingMeshes) {
+      _addObjectMesh(ceiling.identity, ceiling.triangles, doubleSided: false);
     }
   }
 
-  three.Mesh? _buildMeshForTriangles(List<SpaceTriangleV2> triangles, int colorHex) {
-    if (triangles.isEmpty) return null;
+  void _addObjectMesh(
+    SpaceObjectIdentityV2 identity,
+    List<SpaceTriangleV2> triangles, {
+    required bool doubleSided,
+  }) {
+    if (triangles.isEmpty) return;
     final positions = Float32List(triangles.length * 9);
     var i = 0;
     for (final tri in triangles) {
@@ -139,11 +212,16 @@ class _Space3DViewGpuV2State extends State<Space3DViewGpuV2> {
     // 경계가 보여야 한다).
     geometry.computeVertexNormals();
 
+    final colorHex = _colorToHex(identity.color ?? const Color(0xFFC9C2B4));
     final material = three.MeshLambertMaterial({
       three.MaterialProperty.color: colorHex,
-      three.MaterialProperty.side: three.DoubleSide,
+      three.MaterialProperty.side: doubleSided ? three.DoubleSide : three.FrontSide,
     });
-    return three.Mesh(geometry, material);
+    final mesh = three.Mesh(geometry, material);
+    mesh.userData['objectId'] = identity.objectId;
+    _threeJs.scene.add(mesh);
+    _meshByObjectId[identity.objectId] = mesh;
+    _identityByObjectId[identity.objectId] = identity;
   }
 
   int _colorToHex(Color color) {
@@ -153,19 +231,85 @@ class _Space3DViewGpuV2State extends State<Space3DViewGpuV2> {
     return (r << 16) | (g << 8) | b;
   }
 
-  void _fitCamera() {
+  /// 이전 선택 mesh의 emissive를 지우고, 새 선택 mesh에 emissive
+  /// 강조를 얹는다. [widget.selectedObjectId]가 가리키는 mesh가 이번
+  /// scene에 없으면(예: 다시 분석되어 id가 바뀜) 조용히 아무 강조도
+  /// 하지 않는다.
+  void _applyHighlight() {
+    if (_appliedHighlightId != null) {
+      final previous = _meshByObjectId[_appliedHighlightId];
+      final material = previous?.material;
+      if (material is three.MeshLambertMaterial) {
+        material.emissive = three.Color.fromHex32(0x000000);
+        material.needsUpdate = true;
+      }
+    }
+    _appliedHighlightId = null;
+
+    final selectedId = widget.selectedObjectId;
+    if (selectedId == null) return;
+    final selected = _meshByObjectId[selectedId];
+    final material = selected?.material;
+    if (material is three.MeshLambertMaterial) {
+      material.emissive = three.Color.fromHex32(_kSelectionEmissiveHex);
+      material.emissiveIntensity = _kSelectionEmissiveIntensity;
+      material.needsUpdate = true;
+      _appliedHighlightId = selectedId;
+    }
+  }
+
+  /// WO092 §5 — 화면을 탭한 지점으로 실제 ray를 쏴서 부딪힌 mesh를
+  /// 찾는다. [OrbitControls]는 raw pointer Listener로 회전/확대를
+  /// 처리하므로(gesture arena를 타지 않음) 이 [GestureDetector]의 탭
+  /// 인식과 서로 방해하지 않는다 — 드래그(회전)에는 탭이 발생하지
+  /// 않고, 제자리 탭에는 회전이 사실상 일어나지 않는다.
+  void _handleTapUp(TapUpDetails details) {
+    if (widget.onObjectSelected == null) return;
+    final width = _threeJs.width;
+    final height = _threeJs.height;
+    if (width <= 0 || height <= 0) return;
+    final ndcX = (details.localPosition.dx / width) * 2 - 1;
+    final ndcY = -(details.localPosition.dy / height) * 2 + 1;
+
+    final raycaster = three.Raycaster();
+    raycaster.setFromCamera(three.Vector2(ndcX, ndcY), _threeJs.camera);
+    final pickable = _meshByObjectId.values.toList(growable: false);
+    final hits = raycaster.intersectObjects(pickable, false);
+    if (hits.isEmpty) {
+      widget.onObjectSelected!(null);
+      return;
+    }
+    final hitObjectId = hits.first.object?.userData['objectId'] as String?;
+    final identity = hitObjectId == null ? null : _identityByObjectId[hitObjectId];
+    widget.onObjectSelected!(identity);
+  }
+
+  void _resetCamera() {
     final scene3d = widget.scene;
     final center = scene3d.center;
     final radius = scene3d.boundingRadius <= 0 ? 1000.0 : scene3d.boundingRadius;
-    final distance = radius * 2.6;
-    // 고전적인 isometric에 가까운 기본 시점 — V1/V2 CPU 렌더러와 동일한
-    // 각도(첫 진입 시 동일한 느낌을 주기 위해).
     final camera = _threeJs.camera;
-    camera.position.setValues(
-      center.x + distance * 0.5,
-      center.y + distance * 0.7,
-      center.z + distance * 0.5,
-    );
+    switch (widget.cameraMode) {
+      case Space3DCameraMode.isometric:
+        // 고전적인 isometric에 가까운 기본 시점 — 위에서 내려다보는
+        // dollhouse/cutaway 뷰(WO092 §3 "전체 공간 확인").
+        final distance = radius * 2.6;
+        camera.position.setValues(
+          center.x + distance * 0.5,
+          center.y + distance * 0.7,
+          center.z + distance * 0.5,
+        );
+      case Space3DCameraMode.perspective:
+        // WO092 §6 — 3D 투시: 같은 scene을 사람 눈높이에 가까운 낮은
+        // 위치·좁은 반경에서 보는 초기 시점으로만 바꾼다(카메라
+        // 시작점만 다르고 이후 자유 회전/확대는 동일).
+        final distance = radius * 1.4;
+        camera.position.setValues(
+          center.x + distance * 0.85,
+          center.y + radius * 0.22 + 1600,
+          center.z + distance * 0.85,
+        );
+    }
     camera.lookAt(three.Vector3(center.x, center.y, center.z));
     _controls?.target.setValues(center.x, center.y, center.z);
     _controls?.update();
@@ -179,7 +323,10 @@ class _Space3DViewGpuV2State extends State<Space3DViewGpuV2> {
         transitionDuration: const Duration(milliseconds: 150),
         pageBuilder: (context, animation, secondaryAnimation) => FadeTransition(
           opacity: animation,
-          child: _FullscreenSpace3DPageGpu(scene: widget.scene),
+          child: _FullscreenSpace3DPageGpu(
+            scene: widget.scene,
+            cameraMode: widget.cameraMode,
+          ),
         ),
       ),
     );
@@ -190,7 +337,13 @@ class _Space3DViewGpuV2State extends State<Space3DViewGpuV2> {
     return Stack(
       children: [
         Positioned.fill(child: Container(color: const Color(0xFFEFF2F5))),
-        Positioned.fill(child: _threeJs.build()),
+        Positioned.fill(
+          child: GestureDetector(
+            behavior: HitTestBehavior.translucent,
+            onTapUp: _handleTapUp,
+            child: _threeJs.build(),
+          ),
+        ),
         if (widget.onExitTo2D != null)
           Positioned(
             left: 12,
@@ -217,7 +370,7 @@ class _Space3DViewGpuV2State extends State<Space3DViewGpuV2> {
               _IconLabelButtonGpu(
                 icon: Icons.center_focus_strong_rounded,
                 label: '화면 맞춤',
-                onTap: () => setState(_fitCamera),
+                onTap: () => setState(_resetCamera),
               ),
             ],
           ),
@@ -228,9 +381,10 @@ class _Space3DViewGpuV2State extends State<Space3DViewGpuV2> {
 }
 
 class _FullscreenSpace3DPageGpu extends StatelessWidget {
-  const _FullscreenSpace3DPageGpu({required this.scene});
+  const _FullscreenSpace3DPageGpu({required this.scene, required this.cameraMode});
 
   final SpaceSceneV2 scene;
+  final Space3DCameraMode cameraMode;
 
   @override
   Widget build(BuildContext context) {
@@ -238,7 +392,13 @@ class _FullscreenSpace3DPageGpu extends StatelessWidget {
       backgroundColor: Colors.black,
       body: Stack(
         children: [
-          Positioned.fill(child: Space3DViewGpuV2(scene: scene, isFullscreenRoute: true)),
+          Positioned.fill(
+            child: Space3DViewGpuV2(
+              scene: scene,
+              cameraMode: cameraMode,
+              isFullscreenRoute: true,
+            ),
+          ),
           Positioned(
             left: 12,
             top: 12,

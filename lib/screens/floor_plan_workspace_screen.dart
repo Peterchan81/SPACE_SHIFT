@@ -156,6 +156,33 @@ class _FloorPlanWorkspaceScreenState extends State<FloorPlanWorkspaceScreen> {
   String? _selectedCadObjectId;
   final List<CadFloorPlan> _cadUndoStack = [];
 
+  /// WO092 §5 — 실시간 3D에서 벽/바닥/천장을 탭해 선택했을 때, 선택된
+  /// 대상의 원본 [SpaceObjectIdentityV2.sourceId]는 [_selectedCadObjectId]에
+  /// 그대로 담기지만(2D CAD 선택 getter들을 그대로 재사용하기 위해),
+  /// 방(room) id 하나가 "바닥"과 "천장" 두 선택으로 동시에 존재할 수
+  /// 있어 [_selectedCadObjectId]만으로는 어느 쪽인지 구분할 수 없다 —
+  /// 이 필드가 그 구분을 담당한다. 2D CAD 선택(치수 보정/디버그
+  /// 오버레이)에서 온 선택이면 항상 null(벽만 선택 가능해 모호함이
+  /// 없다).
+  SpaceElementKindV2? _selected3DKind;
+
+  /// [_selectedCadObjectId]/[_selected3DKind]로부터 [Space3DViewGpuV2]가
+  /// 이해하는 형태([SpaceObjectIdentityV2.objectId])를 되짚는다 — 3D
+  /// 렌더러가 강조 표시할 mesh를 찾는 키와 정확히 같은 문자열이어야
+  /// 한다(space_scene_builder_v2.dart의 objectId 생성 규칙과 동일).
+  String? get _selected3DObjectId {
+    final id = _selectedCadObjectId;
+    if (id == null) return null;
+    return switch (_selected3DKind) {
+      SpaceElementKindV2.ceiling => 'ceiling:$id',
+      SpaceElementKindV2.floor => 'floor:$id',
+      SpaceElementKindV2.wall => 'wall:$id',
+      _ => _selectedCadRoom != null
+          ? 'floor:$id'
+          : (_selectedCadWall != null ? 'wall:$id' : null),
+    };
+  }
+
   /// V1 AI-IMAGE FLOW WO — GPT가 새로 그려준 "깨끗한 CAD 스타일 2D
   /// 평면도" 이미지 그 자체(좌표가 아니라 픽셀). 중앙 화면은 CAD
   /// 표시 모드일 때 이 이미지를 그대로 보여준다. null이면 아직 생성
@@ -381,7 +408,21 @@ class _FloorPlanWorkspaceScreenState extends State<FloorPlanWorkspaceScreen> {
   void _onSelectCadObject(String? id) {
     setState(() {
       _selectedCadObjectId = id;
+      _selected3DKind = null;
       if (id != null) _selectedTaskId = null;
+    });
+  }
+
+  /// WO092 §5 — 실시간 3D(아이소/투시)에서 벽/바닥/천장을 탭해 선택(또는
+  /// 빈 곳을 탭해 선택 해제)했을 때 호출된다. [identity.sourceId]는
+  /// 항상 원본 [CadWall.id]/[CadRoom.id]라 기존 [_selectedCadWall]/
+  /// [_selectedCadRoom] getter를 그대로 재사용할 수 있다 —
+  /// [identity.sourceKind]만 별도로 기억해 바닥/천장을 구분한다.
+  void _onSelect3DObject(SpaceObjectIdentityV2? identity) {
+    setState(() {
+      _selectedCadObjectId = identity?.sourceId;
+      _selected3DKind = identity?.sourceKind;
+      if (identity != null) _selectedTaskId = null;
     });
   }
 
@@ -465,8 +506,13 @@ class _FloorPlanWorkspaceScreenState extends State<FloorPlanWorkspaceScreen> {
       markerPosition = Offset(opening.center.x, opening.center.y);
       color = const Color(0xFFD8C3A5);
     } else {
-      name = '공간 작업';
-      category = WorkspaceTaskCategory.floor;
+      // WO092 §5 — 실시간 3D에서 같은 방(room) id가 "바닥"과 "천장" 두
+      // 선택으로 올 수 있다([_selected3DKind]가 그 구분을 담당). 2D
+      // 경로(치수 보정/디버그 오버레이)에서 온 선택은 항상 null이라
+      // 기존과 같이 "공간(바닥) 작업"으로 처리된다.
+      final isCeiling = _selected3DKind == SpaceElementKindV2.ceiling;
+      name = isCeiling ? '천장 작업' : '공간 작업';
+      category = isCeiling ? WorkspaceTaskCategory.ceiling : WorkspaceTaskCategory.floor;
       var sx = 0.0, sy = 0.0;
       for (final p in room!.polygon) {
         sx += p.x;
@@ -476,7 +522,7 @@ class _FloorPlanWorkspaceScreenState extends State<FloorPlanWorkspaceScreen> {
         sx / room.polygon.length,
         sy / room.polygon.length,
       );
-      color = const Color(0xFFE3E7E9);
+      color = isCeiling ? const Color(0xFFF5F3EE) : const Color(0xFFE3E7E9);
     }
 
     final nextId = _tasks.isEmpty
@@ -506,6 +552,7 @@ class _FloorPlanWorkspaceScreenState extends State<FloorPlanWorkspaceScreen> {
     setState(() {
       _selectedTaskId = nextId;
       _selectedCadObjectId = null;
+      _selected3DKind = null;
     });
   }
 
@@ -557,6 +604,7 @@ class _FloorPlanWorkspaceScreenState extends State<FloorPlanWorkspaceScreen> {
       _calibrationPixelLength = pixelLength;
       // 찾은 벽을 화면에도 강조 표시한다(기존 선택 하이라이트 재사용).
       _selectedCadObjectId = wall?.id;
+      _selected3DKind = null;
     });
   }
 
@@ -636,34 +684,56 @@ class _FloorPlanWorkspaceScreenState extends State<FloorPlanWorkspaceScreen> {
     });
   }
 
-  /// GPT FLOORPLAN WO §11 — "작업으로 추가"로 만들어진 [WorkspaceTaskItem]
-  /// 중 사용자가 색을 바꾼(원래 카테고리 기본색과 달라진) 것이 있으면,
-  /// 그 원본 CAD 벽/공간([WorkspaceTaskItem.sourceCadId])에
-  /// [CadWall.materialOverride]/[CadRoom.materialOverride]로 실어 보낸다.
-  /// 3D 빌더([space_scene_builder_v2.dart])는 이 override가 있으면 항상
-  /// roomType 기반 기본 재질보다 우선한다 — "사용자 override가 있으면
-  /// default보다 우선한다"는 원칙을 실제 데이터 경로로 연결한다.
+  /// GPT FLOORPLAN WO §11 / WO092 §5 — "작업으로 추가"로 만들어진
+  /// [WorkspaceTaskItem] 중 [WorkspaceTaskItem.sourceCadId]가 있는 것을
+  /// 그 원본 CAD 벽/공간에 [CadWall.materialOverride]/
+  /// [CadRoom.materialOverride](바닥)/[CadRoom.ceilingMaterialOverride]로
+  /// 실어 보낸다. 벽/문/창은 항상 [CadWall.id]가 sourceCadId라 모호하지
+  /// 않지만, 방(room)은 "바닥"과 "천장" 두 작업이 같은 [CadRoom.id]를
+  /// sourceCadId로 가질 수 있어([_createWorkItemFromCad] 참고)
+  /// [task.category]로 어느 override인지 가른다. 3D 빌더
+  /// ([space_scene_builder_v2.dart])는 이 override가 있으면 항상 기본
+  /// 재질보다 우선한다.
   CadFloorPlan _applyMaterialOverrides(CadFloorPlan plan) {
-    final overrideById = {
-      for (final task in _tasks)
-        if (task.sourceCadId != null) task.sourceCadId!: task.color,
-    };
-    if (overrideById.isEmpty) return plan;
+    final wallOverrideById = <String, Color>{};
+    final floorOverrideById = <String, Color>{};
+    final ceilingOverrideById = <String, Color>{};
+    for (final task in _tasks) {
+      final sourceCadId = task.sourceCadId;
+      if (sourceCadId == null) continue;
+      switch (task.category) {
+        case WorkspaceTaskCategory.wall:
+          wallOverrideById[sourceCadId] = task.color;
+        case WorkspaceTaskCategory.ceiling:
+          ceilingOverrideById[sourceCadId] = task.color;
+        case WorkspaceTaskCategory.floor:
+          floorOverrideById[sourceCadId] = task.color;
+        case WorkspaceTaskCategory.door:
+        case WorkspaceTaskCategory.window:
+        // 문/창은 아직 3D geometry에 반영되지 않는다(WO 19번) — override
+        // 대상이 없다.
+      }
+    }
+    if (wallOverrideById.isEmpty && floorOverrideById.isEmpty && ceilingOverrideById.isEmpty) {
+      return plan;
+    }
     return CadFloorPlan(
       sourceWidthPx: plan.sourceWidthPx,
       sourceHeightPx: plan.sourceHeightPx,
       walls: [
         for (final wall in plan.walls)
-          overrideById.containsKey(wall.id)
-              ? wall.copyWith(materialOverride: overrideById[wall.id])
+          wallOverrideById.containsKey(wall.id)
+              ? wall.copyWith(materialOverride: wallOverrideById[wall.id])
               : wall,
       ],
       openings: plan.openings,
       rooms: [
         for (final room in plan.rooms)
-          overrideById.containsKey(room.id)
-              ? room.withMaterialOverride(overrideById[room.id])
-              : room,
+          room
+              .withMaterialOverride(floorOverrideById[room.id] ?? room.materialOverride)
+              .withCeilingMaterialOverride(
+                ceilingOverrideById[room.id] ?? room.ceilingMaterialOverride,
+              ),
       ],
       warnings: plan.warnings,
       objectCandidates: plan.objectCandidates,
@@ -793,6 +863,7 @@ class _FloorPlanWorkspaceScreenState extends State<FloorPlanWorkspaceScreen> {
     ceilingHeightMm: _ceilingHeightMm,
     generatedFloorPlanImageBytes: _generatedFloorPlanImageBytes,
     isGeneratingFloorPlanImage: _isGeneratingFloorPlanImage,
+    selected3DObjectId: _selected3DObjectId,
   );
 
   CadWorkspaceCallbacks get _cadWorkspaceCallbacks => CadWorkspaceCallbacks(
@@ -808,6 +879,7 @@ class _FloorPlanWorkspaceScreenState extends State<FloorPlanWorkspaceScreen> {
     onCeilingHeightPresetSelected: _onCeilingHeightPresetSelected,
     onGenerate3D: _onGenerate3D,
     onRenameRoom: _onRenameRoom,
+    onSelect3DObject: _onSelect3DObject,
   );
 
   static List<WorkspaceTaskItem> _demoTasks() => [
@@ -897,7 +969,37 @@ class _FloorPlanWorkspaceScreenState extends State<FloorPlanWorkspaceScreen> {
       _undoStack.add(_currentSnapshot);
       _redoStack.clear();
       _tasks = mutator(List.of(_tasks));
+      _refreshSpaceSceneMaterialsIfReady();
     });
+  }
+
+  /// WO092 §5 — "변경 후 3D 화면에 즉시 반영한다." 작업 목록이 바뀔
+  /// 때마다(새 작업 추가/색상·마감재 변경/삭제 등 [_mutate]를 거치는
+  /// 모든 경로) 이미 3D가 한 번이라도 생성됐다면 같은 축척/천장고로
+  /// 조용히 다시 만든다 — 사용자가 "3D 아이소 만들기"를 다시 누를
+  /// 필요가 없다. 3D가 아직 생성 전이면(scene들이 모두 null) 할 일이
+  /// 없다.
+  void _refreshSpaceSceneMaterialsIfReady() {
+    final plan = _cadFloorPlan;
+    final scale = _scale;
+    final ceilingHeightMm = _ceilingHeightMm;
+    if (_spaceSceneV2 == null || plan == null || scale == null || ceilingHeightMm == null) {
+      return;
+    }
+    final planWithMaterials = _applyMaterialOverrides(plan);
+    final sceneV2 = buildSpaceSceneV2(
+      plan: planWithMaterials,
+      scale: scale,
+      ceilingHeightMm: ceilingHeightMm,
+    );
+    if (!sceneV2.isEmpty) _spaceSceneV2 = sceneV2;
+    // V1 scene(삭제하지 않고 보존)도 같은 재질로 동기화해 둔다.
+    final scene = buildSpaceScene(
+      plan: planWithMaterials,
+      scale: scale,
+      ceilingHeightMm: ceilingHeightMm,
+    );
+    _spaceScene = scene.isEmpty ? null : scene;
   }
 
   /// WO089 CORE EDITING — [_mutate]와 정확히 같은 패턴(스냅샷 push →
@@ -1158,6 +1260,7 @@ class _FloorPlanWorkspaceScreenState extends State<FloorPlanWorkspaceScreen> {
             selectedCadWall: _selectedCadWall,
             selectedCadOpening: _selectedCadOpening,
             selectedCadRoom: _selectedCadRoom,
+            selected3DKind: _selected3DKind,
             cadScale: _scale,
             cadSourceWidthPx: _cadFloorPlan?.sourceWidthPx ?? 0,
             cadSourceHeightPx: _cadFloorPlan?.sourceHeightPx ?? 0,

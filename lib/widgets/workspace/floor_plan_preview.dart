@@ -86,30 +86,46 @@ class FloorPlanPreview extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     if (viewMode != WorkspaceViewMode.plan2d) {
-      // WO 8번 — "3D 투시는 실제 3D 아이소 기반이 준비되기 전에는 활성
-      // 완료 상태로 만들지 않는다." 이번 1차 구현은 궤도 카메라 하나뿐
-      // (아이소 전용)이라, 3D 투시 전용 카메라/화면은 아직 없다 — 아이소가
-      // 준비돼도 투시는 계속 준비 상태 안내로 남는다(다음 단계로 보고).
+      // WO092 §3/§6 — 실시간 geometry 기반 3D(Space3DViewGpuV2)가 이제
+      // 3D 아이소/3D 투시 모두의 주 작업화면이다. 둘은 완전히 같은
+      // scene을 쓰고 카메라 배치([Space3DCameraMode])만 다르다 — GPT가
+      // 생성한 정적 아이소 이미지는 더 이상 주 화면을 대체하지 않고,
+      // 아이소 탭에서만 선택적으로 열어보는 "AI 참고 이미지" 버튼으로
+      // 격하한다(§0 "미리보기/참고 기능으로만 보존").
       final isIso = viewMode == WorkspaceViewMode.isometric3d;
+      final isPerspective = viewMode == WorkspaceViewMode.perspective3d;
 
-      // V1 GPT CAD-STYLE 2D → GPT ISO IMAGE FLOW WO §7/§8/§9 — V1 기본
-      // 흐름은 GPT가 그려준 아이소 이미지를 먼저 보여준다. 생성
-      // 중이면 로딩 상태를, 생성된 이미지가 있으면 그 이미지를 우선
-      // 표시하고, 없으면(아직 설정 안 됨/실패) 기존 실시간 geometry
-      // 3D(sceneV2 → scene 순, 둘 다 삭제하지 않고 그대로 보존)로
-      // 조용히 대체한다.
-      if (isIso && isGeneratingIsoImage) {
-        return const _IsoGenerationLoading();
-      }
-      final isoImage = isIso ? generatedIsoImageBytes : null;
-      if (isoImage != null) {
-        return _GeneratedIsoView(imageBytes: isoImage, onExitTo2D: onExitTo2D);
-      }
-      final sceneV2 = isIso ? spaceSceneV2 : null;
+      final sceneV2 = spaceSceneV2;
       if (sceneV2 != null) {
-        return Space3DViewGpuV2(scene: sceneV2, onExitTo2D: onExitTo2D);
+        return Stack(
+          children: [
+            Positioned.fill(
+              child: Space3DViewGpuV2(
+                scene: sceneV2,
+                cameraMode: isPerspective
+                    ? Space3DCameraMode.perspective
+                    : Space3DCameraMode.isometric,
+                onExitTo2D: onExitTo2D,
+                selectedObjectId: cad.selected3DObjectId,
+                onObjectSelected: cadCallbacks.onSelect3DObject,
+              ),
+            ),
+            if (isIso && (isGeneratingIsoImage || generatedIsoImageBytes != null))
+              Positioned(
+                right: 12,
+                bottom: 12,
+                child: _AiReferenceImageButton(
+                  isGenerating: isGeneratingIsoImage,
+                  imageBytes: generatedIsoImageBytes,
+                ),
+              ),
+          ],
+        );
       }
-      final scene = isIso ? spaceScene : null;
+      // 실시간 geometry가 아직 없으면(V1 [Space3DView] 폴백, 둘 다
+      // 삭제하지 않고 그대로 보존) V1 CPU 렌더러로, 그마저 없으면 준비
+      // 상태 안내로 대체한다.
+      final scene = spaceScene;
       if (scene != null) {
         return Space3DView(scene: scene, onExitTo2D: onExitTo2D);
       }
@@ -117,8 +133,6 @@ class FloorPlanPreview extends StatelessWidget {
         cad: cad,
         callbacks: cadCallbacks,
         failureMessage: spaceGenerationFailureMessage,
-        isPerspectiveNotYetSupported:
-            viewMode == WorkspaceViewMode.perspective3d,
       );
     }
 
@@ -601,9 +615,12 @@ class _CompletedSummary extends StatelessWidget {
   }
 }
 
-/// V1 GPT CAD-STYLE 2D → GPT ISO IMAGE FLOW WO §9 — "3D 아이소 생성
-/// 중" 상태. 사용자에게는 이 단순한 문구만 보여주고, GPT/OpenAI/
-/// geometry 관련 개발자 정보는 노출하지 않는다.
+/// WO092 §0/§3 — GPT 정적 아이소 이미지가 더 이상 주 3D 화면이 아니게
+/// 되면서 이 두 위젯(_IsoGenerationLoading/_GeneratedIsoView)은 전체
+/// 화면 대체 용도로는 쓰이지 않는다. 삭제하지 않고 보존한다 — 로직은
+/// 여전히 유효하고([_AiReferenceImageButton] 아래가 실제로 이 이미지를
+/// 보여주는 자리를 대신한다), 향후 "AI 참고 이미지" 전체화면 보기 등에
+/// 재사용할 수 있다.
 class _IsoGenerationLoading extends StatelessWidget {
   const _IsoGenerationLoading();
 
@@ -684,6 +701,81 @@ class _GeneratedIsoView extends StatelessWidget {
   }
 }
 
+/// WO092 §0/§3 — GPT가 그려준 정적 아이소 이미지를 "미리보기/참고
+/// 기능"으로만 보존하는 작은 버튼. 실시간 3D 위에 겹쳐 떠 있고, 탭하면
+/// 이미지를 전체 화면 dialog로 보여준다 — 실시간 3D 화면을 절대
+/// 가리거나 대체하지 않는다.
+class _AiReferenceImageButton extends StatelessWidget {
+  const _AiReferenceImageButton({required this.isGenerating, this.imageBytes});
+
+  final bool isGenerating;
+  final Uint8List? imageBytes;
+
+  @override
+  Widget build(BuildContext context) {
+    final bytes = imageBytes;
+    return Material(
+      color: Colors.black.withValues(alpha: 0.6),
+      borderRadius: BorderRadius.circular(10),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(10),
+        onTap: bytes == null ? null : () => _showFullscreen(context, bytes),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              if (isGenerating)
+                const SizedBox(
+                  width: 14,
+                  height: 14,
+                  child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                )
+              else
+                const Icon(Icons.image_rounded, size: 16, color: Colors.white),
+              const SizedBox(width: 8),
+              Text(
+                isGenerating ? 'AI 참고 이미지 생성 중...' : 'AI 참고 이미지 보기',
+                style: const TextStyle(fontSize: 12.5, color: Colors.white),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  void _showFullscreen(BuildContext context, Uint8List bytes) {
+    showDialog<void>(
+      context: context,
+      barrierColor: Colors.black87,
+      builder: (context) => Dialog(
+        insetPadding: const EdgeInsets.all(24),
+        backgroundColor: Colors.transparent,
+        child: Stack(
+          children: [
+            Positioned.fill(
+              child: Image.memory(bytes, fit: BoxFit.contain),
+            ),
+            Positioned(
+              right: 4,
+              top: 4,
+              child: Material(
+                color: Colors.black.withValues(alpha: 0.6),
+                shape: const CircleBorder(),
+                child: IconButton(
+                  icon: const Icon(Icons.close_rounded, color: Colors.white),
+                  onPressed: () => Navigator.of(context).maybePop(),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
 /// 3D View(아이소/투시)에서 보여주는 정직한 준비 상태 안내 — 실제
 /// [Space3DView]가 만들어지기 전까지는 절대 가짜 3D를 보여주지 않는다
 /// (WO 9/12번).
@@ -692,7 +784,6 @@ class _Cad3DReadinessPlaceholder extends StatelessWidget {
     required this.cad,
     required this.callbacks,
     this.failureMessage,
-    this.isPerspectiveNotYetSupported = false,
   });
 
   final CadWorkspaceState cad;
@@ -702,10 +793,6 @@ class _Cad3DReadinessPlaceholder extends StatelessWidget {
   /// geometry를 만들지 못했을 때의 이유(WO 9번 — 실패하면 2D를 유지하고
   /// 이유를 알기 쉽게 보여준다).
   final String? failureMessage;
-
-  /// 3D 투시는 이번 1차 구현 범위 밖(WO 8/14번) — 아이소가 준비돼도
-  /// 계속 이 상태로 남는다.
-  final bool isPerspectiveNotYetSupported;
 
   @override
   Widget build(BuildContext context) {
@@ -736,11 +823,7 @@ class _Cad3DReadinessPlaceholder extends StatelessWidget {
               ),
               const SizedBox(height: 14),
               Text(
-                isPerspectiveNotYetSupported
-                    ? '3D 투시는 다음 단계에서 지원할 예정입니다'
-                    : (ready
-                          ? '3D 아이소 생성 준비가 완료되었습니다'
-                          : '3D 공간이 아직 생성되지 않았습니다'),
+                ready ? '3D 아이소 생성 준비가 완료되었습니다' : '3D 공간이 아직 생성되지 않았습니다',
                 textAlign: TextAlign.center,
                 style: const TextStyle(
                   fontSize: 14,
@@ -749,17 +832,7 @@ class _Cad3DReadinessPlaceholder extends StatelessWidget {
                 ),
               ),
               const SizedBox(height: 8),
-              if (isPerspectiveNotYetSupported)
-                const Text(
-                  '지금은 상단 "3D 아이소"에서 실제 3D 공간을 만들고 확인할 수 있습니다.',
-                  textAlign: TextAlign.center,
-                  style: TextStyle(
-                    fontSize: 12,
-                    color: SpaceShiftColors.textSecondary,
-                    height: 1.4,
-                  ),
-                )
-              else if (failureMessage != null)
+              if (failureMessage != null)
                 Text(
                   failureMessage!,
                   textAlign: TextAlign.center,
@@ -793,19 +866,17 @@ class _Cad3DReadinessPlaceholder extends StatelessWidget {
                     height: 1.4,
                   ),
                 ),
-              if (!isPerspectiveNotYetSupported) ...[
-                const SizedBox(height: 16),
-                ElevatedButton.icon(
-                  onPressed: ready ? callbacks.onGenerate3D : null,
-                  icon: const Icon(Icons.play_arrow_rounded, size: 18),
-                  label: const Text('3D 아이소 만들기'),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: SpaceShiftColors.textPrimary,
-                    foregroundColor: Colors.white,
-                    disabledBackgroundColor: SpaceShiftColors.border,
-                  ),
+              const SizedBox(height: 16),
+              ElevatedButton.icon(
+                onPressed: ready ? callbacks.onGenerate3D : null,
+                icon: const Icon(Icons.play_arrow_rounded, size: 18),
+                label: const Text('3D 아이소 만들기'),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: SpaceShiftColors.textPrimary,
+                  foregroundColor: Colors.white,
+                  disabledBackgroundColor: SpaceShiftColors.border,
                 ),
-              ],
+              ),
             ],
           ),
         ),

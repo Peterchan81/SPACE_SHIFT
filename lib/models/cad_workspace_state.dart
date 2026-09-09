@@ -2,6 +2,7 @@ import 'package:flutter/foundation.dart';
 
 import 'cad_floor_plan.dart';
 import 'floor_plan_geometry.dart';
+import 'space_scene_v2.dart' show SpaceObjectIdentityV2;
 
 /// 중앙 캔버스가 평면도를 어떤 형태로 보여줄지 — CAD 변환 결과를
 /// 기본으로 우선 표시하고(WO 6번), 원본 이미지 또는 둘 다(비교)로
@@ -35,6 +36,7 @@ class CadWorkspaceState {
     this.ceilingHeightMm,
     this.generatedFloorPlanImageBytes,
     this.isGeneratingFloorPlanImage = false,
+    this.selected3DObjectId,
   });
 
   final CadFloorPlan? floorPlan;
@@ -52,6 +54,15 @@ class CadWorkspaceState {
   /// true인 동안 "AI 평면도 생성 중" 상태를 보여준다.
   final bool isGeneratingFloorPlanImage;
   final String? selectedObjectId;
+
+  /// WO092 §5 — 실시간 3D(아이소/투시)에서 사용자가 탭해 선택한 벽/바닥/
+  /// 천장의 [SpaceObjectIdentityV2.objectId](예: `wall:wall-3`,
+  /// `floor:room-1`, `ceiling:room-1`). 2D CAD geometry 선택([selectedObjectId],
+  /// 원본 [CadWall.id]/[CadRoom.id]를 그대로 씀)과는 다른 값 공간이라
+  /// 완전히 별개의 필드로 둔다 — 같은 방(room) id가 "바닥"과 "천장" 두
+  /// 선택으로 동시에 존재할 수 있어 원본 id 하나로는 구분할 수 없기
+  /// 때문이다.
+  final String? selected3DObjectId;
   final FloorPlanDisplayMode displayMode;
   final bool debugOverlay;
 
@@ -112,9 +123,16 @@ class CadWorkspaceCallbacks {
     required this.onCeilingHeightPresetSelected,
     required this.onGenerate3D,
     required this.onRenameRoom,
+    required this.onSelect3DObject,
   });
 
   final ValueChanged<String?> onSelectObject;
+
+  /// WO092 §5 — 실시간 3D에서 벽/바닥/천장을 탭해 선택(또는 빈 곳을
+  /// 탭해 선택 해제)했을 때 호출된다. [onSelectObject](2D CAD 선택)와
+  /// 값 공간이 달라(위 [CadWorkspaceState.selected3DObjectId] 참고)
+  /// 별도 콜백으로 분리한다.
+  final ValueChanged<SpaceObjectIdentityV2?> onSelect3DObject;
   final void Function(String wallId, bool isStart, Point2 newPosition)
   onWallEndpointChanged;
   final ValueChanged<FloorPlanDisplayMode> onDisplayModeChanged;

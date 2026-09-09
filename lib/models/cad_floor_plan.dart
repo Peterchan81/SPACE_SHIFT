@@ -177,6 +177,7 @@ class CadRoom {
     this.reviewReasons = const [],
     this.roomType = SSRoomType.other,
     this.materialOverride,
+    this.ceilingMaterialOverride,
   });
 
   final String id;
@@ -197,6 +198,13 @@ class CadRoom {
   /// 빌더가 [roomType] 기반 기본값(우드/타일)을 쓰고, 값이 있으면 항상
   /// 우선한다(§11).
   final Color? materialOverride;
+
+  /// WO092 §4/§5 — 이 공간의 천장 색. [materialOverride](바닥)와 완전히
+  /// 분리된 별도 슬롯이다 — 같은 [CadRoom]이 3D에서 "바닥"과 "천장" 두
+  /// 개의 독립적으로 선택/편집 가능한 객체가 되므로, 하나의 필드를
+  /// 공유하면 바닥 색을 바꿀 때 천장 색이 덮어써지는 사고가 난다.
+  /// null이면 3D 빌더가 기본 천장색(백색)을 쓴다.
+  final Color? ceilingMaterialOverride;
 
   /// WO084/085 — true면 이 공간이 실제 독립 건축 공간인지 자동으로
   /// 확정하지 못했다는 뜻이다([SSSpace.reviewNeeded] 승계) — 예: GPT
@@ -234,11 +242,12 @@ class CadRoom {
       reviewReasons: reviewReasons,
       roomType: roomType,
       materialOverride: materialOverride,
+      ceilingMaterialOverride: ceilingMaterialOverride,
     );
   }
 
-  /// GPT FLOORPLAN WO §11 — [materialOverride]만 바꾼 새 [CadRoom]을
-  /// 만든다(사용자가 "작업/재질/마감재"에서 색을 고른 경우).
+  /// GPT FLOORPLAN WO §11 — [materialOverride](바닥)만 바꾼 새 [CadRoom]을
+  /// 만든다(사용자가 "작업/재질/마감재"에서 바닥 색을 고른 경우).
   CadRoom withMaterialOverride(Color? materialOverride) {
     return CadRoom(
       id: id,
@@ -252,6 +261,26 @@ class CadRoom {
       reviewReasons: reviewReasons,
       roomType: roomType,
       materialOverride: materialOverride,
+      ceilingMaterialOverride: ceilingMaterialOverride,
+    );
+  }
+
+  /// WO092 §5 — [ceilingMaterialOverride]만 바꾼 새 [CadRoom]을 만든다
+  /// (사용자가 3D에서 천장을 선택해 색을 고른 경우).
+  CadRoom withCeilingMaterialOverride(Color? ceilingMaterialOverride) {
+    return CadRoom(
+      id: id,
+      polygon: polygon,
+      areaNormalized: areaNormalized,
+      confidence: confidence,
+      closed: closed,
+      source: source,
+      name: name,
+      reviewNeeded: reviewNeeded,
+      reviewReasons: reviewReasons,
+      roomType: roomType,
+      materialOverride: materialOverride,
+      ceilingMaterialOverride: ceilingMaterialOverride,
     );
   }
 }

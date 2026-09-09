@@ -14,31 +14,99 @@
 const OPENAI_IMAGE_EDIT_ENDPOINT = "https://api.openai.com/v1/images/edits";
 const OPENAI_IMAGE_MODEL = "gpt-image-1";
 
-// V1 GPT CAD-STYLE 2D → GPT ISO IMAGE FLOW WO §5 — 정확한 계약 문구를
-// 그대로 반영한다(순서도 그대로 유지 — 모델이 우선순위로 읽는다는
-// 전제).
+// WO092 §1 — 실기 Tab 결과가 "지나치게 단순화됨"으로 불합격 판정을
+// 받아, 구조 보존을 훨씬 더 구체적이고 강하게 요구하도록 강화한다.
+// 순서를 그대로 유지한다(모델이 앞쪽 문장을 우선순위로 읽는다는 전제는
+// WO091부터 유지해 온 가정).
 const CAD_STYLE_PROMPT =
   "Redraw the attached original floor plan as a clean CAD-style black-" +
   "and-white 2D architectural floor plan, viewed from directly above " +
   "(top-down plan view), on a plain white background. " +
-  "Preserve the overall spatial layout and outer shape of the original " +
-  "floor plan as closely as possible. " +
+  "This must be a faithful trace of the original, not a redesigned or " +
+  "simplified version — preserve the EXACT overall spatial layout and " +
+  "outer outline of the original floor plan, including every small " +
+  "notch, jog, protrusion, or offset in the exterior outline and every " +
+  "interior wall. Do not straighten, merge, simplify, or omit any wall " +
+  "segment, room, or outline detail, even small ones. " +
+  "Preserve the exact number of rooms and their exact positions and " +
+  "shapes — do not merge two rooms into one, do not split one room into " +
+  "two, and do not change any room's size or proportions. " +
+  "Preserve every structural element visible in the original at its " +
+  "exact original position and shape, including (when present): " +
+  "staircases (draw the stair-tread hatching/lines), elevator shafts, " +
+  "bathrooms, walk-in closets/dressing rooms, balconies, utility rooms, " +
+  "and entryways — do not remove, relabel, resize, or relocate any of " +
+  "them. " +
   "Do not arbitrarily change the position of the original walls, rooms, " +
-  "doors, or windows. " +
-  "Do not create any new room that is not present in the original. " +
+  "doors, or windows. Do not create any new room, wall, door, or window " +
+  "that is not present in the original. " +
   "Remove color, floor textures, decorations, watermarks, furniture, " +
   "appliances, handwriting, and dimension text from the original — " +
   "redraw the space with plain white/light-gray floor fill and clean " +
   "black wall lines instead, like a tidy professional architectural " +
   "drawing. Clearly distinguish exterior walls (thicker/darker) from " +
-  "interior walls (thinner). Show every door as an opening with a door " +
-  "leaf and a swing arc (standard architectural door symbol). Show every " +
-  "window as an architectural window symbol (e.g. a double line) at its " +
-  "wall opening. Do not invent or print any dimension/measurement text " +
-  "unless it was clearly legible in the original — if the original has " +
-  "no reliable dimensions, do not add any. Keep the wall/room/opening " +
-  "structure visually unambiguous, since this drawing will be used as " +
-  "the basis for generating a matching 3D isometric view next.";
+  "interior walls (thinner), matching which walls are exterior/interior " +
+  "in the original. Show every door as an opening with a door leaf and " +
+  "a swing arc (standard architectural door symbol), at the same wall " +
+  "position as in the original. Show every window as an architectural " +
+  "window symbol (e.g. a double line) at its original wall opening. " +
+  "Do not invent or print any dimension/measurement text unless it was " +
+  "clearly legible in the original — if the original has no reliable " +
+  "dimensions, do not add any. Keep the wall/room/opening structure " +
+  "visually unambiguous, since this drawing will be used as the basis " +
+  "for generating a matching 3D isometric view next, and the room " +
+  "count/layout must match the original exactly.";
+
+/// WO092 §1 — 원본이 정사각형이 아닌데 항상 1024x1024로 강제하면
+/// GPT가 캔버스에 맞추려고 레이아웃을 임의로 단순화/왜곡하는 것으로
+/// 보인다(실기 Tab 결과 불합격의 유력한 원인). 원본 픽셀 비율에 맞는
+/// 출력 크기를 골라 그런 왜곡 압력을 줄인다. gpt-image-1가 지원하는
+/// 크기는 정사각형/가로형/세로형 세 가지뿐이라 그중 가장 가까운 것을
+/// 고른다(비율 자체를 정확히 재현하지는 못하지만 정사각형 강제보다는
+/// 훨씬 낫다).
+function pickOutputSize(width: number, height: number): string {
+  if (width <= 0 || height <= 0) return "1024x1024";
+  const ratio = width / height;
+  if (ratio > 1.15) return "1536x1024";
+  if (ratio < 1 / 1.15) return "1024x1536";
+  return "1024x1024";
+}
+
+/** PNG/JPEG 바이트에서 (width, height)를 읽는다 — 실패하면 null. */
+function sniffImageDimensions(
+  bytes: Uint8Array,
+  mimeType: string,
+): { width: number; height: number } | null {
+  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  if (mimeType === "image/png" && bytes.length >= 24) {
+    const isPng =
+      bytes[0] === 0x89 && bytes[1] === 0x50 && bytes[2] === 0x4e && bytes[3] === 0x47;
+    if (isPng) {
+      return { width: view.getUint32(16), height: view.getUint32(20) };
+    }
+  }
+  if (mimeType === "image/jpeg" || mimeType === "image/jpg") {
+    // SOF(0xFFC0~0xFFCF, 마커 0xC4/0xC8/0xCC 제외) 세그먼트를 찾아
+    // height/width(빅엔디언, 각 2바이트)를 읽는다.
+    let offset = 2;
+    while (offset + 9 < bytes.length) {
+      if (bytes[offset] !== 0xff) break;
+      const marker = bytes[offset + 1];
+      if (marker === 0xd8 || marker === 0x01 || (marker >= 0xd0 && marker <= 0xd9)) {
+        offset += 2;
+        continue;
+      }
+      const segmentLength = view.getUint16(offset + 2);
+      const isSof =
+        marker >= 0xc0 && marker <= 0xcf && marker !== 0xc4 && marker !== 0xc8 && marker !== 0xcc;
+      if (isSof) {
+        return { width: view.getUint16(offset + 7), height: view.getUint16(offset + 5) };
+      }
+      offset += 2 + segmentLength;
+    }
+  }
+  return null;
+}
 
 const CORS_HEADERS: Record<string, string> = {
   "Access-Control-Allow-Origin": "*",
@@ -110,11 +178,15 @@ Deno.serve(async (req: Request) => {
 
   try {
     const ext = decoded.mimeType === "image/png" ? "png" : "jpg";
+    const dimensions = sniffImageDimensions(decoded.bytes, decoded.mimeType);
+    const size = dimensions
+      ? pickOutputSize(dimensions.width, dimensions.height)
+      : "1024x1024";
     const form = new FormData();
     form.append("model", OPENAI_IMAGE_MODEL);
     form.append("prompt", CAD_STYLE_PROMPT);
     form.append("image", new Blob([decoded.bytes], { type: decoded.mimeType }), `floorplan.${ext}`);
-    form.append("size", "1024x1024");
+    form.append("size", size);
     form.append("n", "1");
 
     const controller = new AbortController();

@@ -4,6 +4,7 @@ import '../../models/cad_floor_plan.dart';
 import '../../models/cad_workspace_state.dart';
 import '../../models/floor_plan_file.dart';
 import '../../models/floor_plan_geometry.dart';
+import '../../models/space_scene_v2.dart' show SpaceElementKindV2;
 import '../../models/workspace_task_item.dart';
 import '../../theme/space_shift_colors.dart';
 import 'cad_structure_tab.dart';
@@ -11,6 +12,7 @@ import 'display_tab.dart';
 import 'floor_plan_preview.dart';
 import 'furniture_tab.dart';
 import 'info_tab.dart';
+import 'selected_3d_object_tab.dart';
 import 'selection_edit_tools.dart';
 import 'work_tab.dart';
 
@@ -78,6 +80,7 @@ class UserWorkspacePanel extends StatefulWidget {
     this.selectedCadWall,
     this.selectedCadOpening,
     this.selectedCadRoom,
+    this.selected3DKind,
     this.cadScale,
     this.cadSourceWidthPx = 0,
     this.cadSourceHeightPx = 0,
@@ -112,6 +115,13 @@ class UserWorkspacePanel extends StatefulWidget {
   final CadWall? selectedCadWall;
   final CadOpening? selectedCadOpening;
   final CadRoom? selectedCadRoom;
+
+  /// WO092 §5/§7 — 위 선택이 실시간 3D 탭에서 온 것이면(2D CAD
+  /// 디버그/치수 보정 선택이면 항상 null) 그 종류(벽/바닥/천장)를
+  /// 담는다. null이 아니면 [_buildSelectionContent]가 [CadStructureTab]
+  /// (2D 도면 보정용, geometry ID/신뢰도 같은 debug 정보를 보여준다)
+  /// 대신 사용자용 [Selected3DObjectTab]을 보여준다.
+  final SpaceElementKindV2? selected3DKind;
   final FloorPlanScale? cadScale;
   final int cadSourceWidthPx;
   final int cadSourceHeightPx;
@@ -282,6 +292,13 @@ class _UserWorkspacePanelState extends State<UserWorkspacePanel> {
         widget.selectedCadOpening ??
         widget.selectedCadRoom;
     if (task == null && cadSelected != null) {
+      final kind = widget.selected3DKind;
+      if (kind != null) {
+        return Selected3DObjectTab(
+          kind: kind,
+          onCreateWorkItem: widget.onCreateWorkItemFromCad ?? () {},
+        );
+      }
       return CadStructureTab(
         wall: widget.selectedCadWall,
         opening: widget.selectedCadOpening,

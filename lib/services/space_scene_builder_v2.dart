@@ -30,6 +30,12 @@ const Color _bathroomWallColorV2 = Color(0xFFD8E2E4); // bathroom wall: tile.
 const Color _woodFloorColorV2 = Color(0xFFD9CBB2); // 일반 공간 바닥: wood flooring.
 const Color _bathroomFloorColorV2 = Color(0xFFD3DEE1); // bathroom floor: tile.
 
+// WO092 §4 — 천장 기본색(백색 페인트). 방 종류와 무관하게 항상 이
+// 하나의 기본값에서 시작한다(§4 "천장은 구조상 존재하도록 한다"가
+// "천장 재질을 방 종류로 자동 분기한다"를 요구하지는 않는다 — 벽/바닥과
+// 달리 천장은 욕실이라고 타일로 바뀌어야 한다는 요구가 없었다).
+const Color _ceilingColorV2 = Color(0xFFF5F3EE);
+
 /// [wall]의 실제 렌더 색 — 사용자 override가 있으면 항상 우선한다. 없으면
 /// 외벽은 고정색, 내벽은 "이 벽이 욕실과 맞닿아 있는가"([_wallTouchesBathroom])
 /// 로 white/tile을 가른다.
@@ -46,6 +52,10 @@ Color _floorColor(CadRoom room) {
   return room.materialOverride ??
       (room.roomType == SSRoomType.bathroom ? _bathroomFloorColorV2 : _woodFloorColorV2);
 }
+
+/// [room]의 실제 렌더 천장색 — 사용자 override가 있으면 항상 우선한다.
+/// 없으면 항상 [_ceilingColorV2](§4).
+Color _ceilingColor(CadRoom room) => room.ceilingMaterialOverride ?? _ceilingColorV2;
 
 /// [wall]의 중심점에서 벽에 수직인 양쪽으로 살짝 들어간 두 점 중 하나라도
 /// 욕실 [CadRoom] 폴리곤 안에 있으면 true. 벽 자체는 어느 방에 속하는지
@@ -217,6 +227,7 @@ SpaceSceneV2 buildSpaceSceneV2({
   final areaSummary = computeRoomAreasV2(plan: plan, scale: scale);
   final areaById = {for (final r in areaSummary.rooms) r.id: r};
   final floorMeshes = <SpaceFloorMeshV2>[];
+  final ceilingMeshes = <SpaceFloorMeshV2>[];
   var floorTriangulationFailures = 0;
   for (final room in plan.rooms) {
     final area = areaById[room.id];
@@ -260,6 +271,46 @@ SpaceSceneV2 buildSpaceSceneV2({
         polygonMm: pts,
       ),
     );
+
+    // ---- 천장(WO092 §4/§5 — 바닥과 같은 polygon을 천장고 높이로 올리고
+    // normal을 반대(-Y)로 뒤집는다). 벽 상단 면(top face, 항상 벽 색)과는
+    // 별개로, 방 폴리곤 전체를 덮는 진짜 천장 평면이다. normal이 -Y(방
+    // 안쪽을 향함)라 [Space3DViewGpuV2]가 FrontSide 재질로 그리면 위에서
+    // 내려다보는 기본 아이소 카메라에는 backface로 컬링되어 보이지
+    // 않는다(기존 "천장 없는 dollhouse" 시야를 그대로 유지) — 카메라가
+    // 천장고 아래로 내려가 위를 올려다보면(3D 투시 등) 정상적으로
+    // 보인다.
+    final ceilingHeightPoint = ceilingHeightMm;
+    final ceilingPts = [for (final p in pts) Vector3(p.x, ceilingHeightPoint, p.z)];
+    final ceilingColor = _ceilingColor(room);
+    final ceilingTriangles = <SpaceTriangleV2>[];
+    for (final tri in earTriangles) {
+      final a = ceilingPts[tri[0]];
+      var b = ceilingPts[tri[1]];
+      var c = ceilingPts[tri[2]];
+      if ((b - a).cross(c - a).y > 0) {
+        final tmp = b;
+        b = c;
+        c = tmp;
+      }
+      final t = makeTriangle(a, b, c, ceilingColor, 'ceiling:${room.id}');
+      if (t != null) ceilingTriangles.add(t);
+    }
+    if (ceilingTriangles.isNotEmpty) {
+      ceilingMeshes.add(
+        SpaceFloorMeshV2(
+          identity: SpaceObjectIdentityV2(
+            objectId: 'ceiling:${room.id}',
+            sourceKind: SpaceElementKindV2.ceiling,
+            sourceId: room.id,
+            roomId: room.id,
+            color: ceilingColor,
+          ),
+          triangles: ceilingTriangles,
+          polygonMm: ceilingPts,
+        ),
+      );
+    }
   }
 
   // ---- opening identity만(WO 19번 — geometry에는 아직 반영하지 않음) ----
@@ -314,6 +365,7 @@ SpaceSceneV2 buildSpaceSceneV2({
   return SpaceSceneV2(
     wallMeshes: wallMeshes,
     floorMeshes: floorMeshes,
+    ceilingMeshes: ceilingMeshes,
     openings: openings,
     minBounds: Vector3(minX, minY, minZ),
     maxBounds: Vector3(maxX, maxY, maxZ),
