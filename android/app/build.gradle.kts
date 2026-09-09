@@ -15,10 +15,13 @@ android {
     }
 
     defaultConfig {
-        // SS CAD TEST — Floorplan CAD 이식 검증용 독립 테스트 앱. 기존 SPACE
+        // SS CAD TEST(공식) — Floorplan CAD 검증 전용 독립 앱. 기존 SPACE
         // SHIFT 본체(com.example.ason_space)와 별도 applicationId를 써서
         // 같은 Galaxy Tab에 동시 설치되고, 서로의 설치본을 덮어쓰지 않는다.
-        applicationId = "com.example.ason_space.sscadtest"
+        // com.example.ason_space.sscadtest는 초기 조사 중 만든 구버전
+        // 디버그 앱 id였고(현재 기기에서 이미 제거됨), 이 id와는 별개다 —
+        // 동일한 것으로 취급하지 않는다.
+        applicationId = "com.ason.sscadtest"
         // You can update the following values to match your application needs.
         // For more information, see: https://flutter.dev/to/review-gradle-config.
         minSdk = flutter.minSdkVersion
