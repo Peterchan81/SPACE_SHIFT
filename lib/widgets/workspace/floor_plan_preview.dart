@@ -39,6 +39,9 @@ class FloorPlanPreview extends StatelessWidget {
     this.generatedIsoImageBytes,
     this.isGeneratingIsoImage = false,
     this.onExitTo2D,
+    this.space3DViewKey,
+    this.isFullscreen3D = false,
+    this.onToggleFullscreen3D,
   });
 
   final WorkspaceViewMode viewMode;
@@ -69,6 +72,26 @@ class FloorPlanPreview extends StatelessWidget {
   final SpaceSceneV2? spaceSceneV2;
   final String? spaceGenerationFailureMessage;
 
+  /// WO094 — 전체화면 진입/복귀에도 같은 [Space3DViewGpuV2] State(=같은
+  /// three_js GPU 인스턴스)가 유지되도록, 이 화면(임베디드 슬롯)과
+  /// [FloorPlanWorkspaceScreen]의 전체화면 오버레이가 정확히 같은
+  /// [GlobalKey]를 쓴다. [isFullscreen3D]가 true인 동안에는 이 슬롯이
+  /// 그 키로 위젯을 만들지 않는다(같은 프레임에 같은 GlobalKey가 두
+  /// 곳에 있으면 Flutter가 에러를 낸다) — 대신 전체화면 오버레이 쪽이
+  /// 그 키로 만든다.
+  final GlobalKey? space3DViewKey;
+
+  /// true면 3D 아이소/투시가 지금 전체화면으로 표시되고 있다는 뜻 —
+  /// 이 임베디드 슬롯은 실제 위젯 대신 안내만 보여준다.
+  final bool isFullscreen3D;
+
+  /// "전체 화면"/"닫기" 버튼이 눌렸을 때 상위(레이아웃)에게 전체화면
+  /// 전환을 요청한다. [Space3DViewGpuV2]는 더 이상 스스로 Navigator를
+  /// 열지 않는다 — 같은 위젯 인스턴스를 다른 레이아웃 위치로 옮기기만
+  /// 해야 GPU 렌더러가 다시 만들어지지 않는다(WO094 전체화면 무한 로딩
+  /// 원인 수정 참고).
+  final VoidCallback? onToggleFullscreen3D;
+
   /// V1 GPT CAD-STYLE 2D → GPT ISO IMAGE FLOW WO §7/§8 — GPT가 Clean 2D
   /// 결과를 기반으로 새로 그려준 3D 아이소메트릭 이미지. 값이 있으면
   /// [spaceSceneV2](실시간 geometry, 삭제하지 않고 그대로 보존)보다
@@ -97,15 +120,32 @@ class FloorPlanPreview extends StatelessWidget {
 
       final sceneV2 = spaceSceneV2;
       if (sceneV2 != null) {
+        // WO094 — 전체화면으로 표시되는 동안에는 이 임베디드 슬롯이
+        // 실제 3D 위젯을 만들지 않는다(같은 GlobalKey 중복 방지) — 대신
+        // 조용한 자리표시자만 보여준다. 실제 3D는
+        // [FloorPlanWorkspaceScreen]의 전체화면 오버레이가 같은 키로
+        // 그리고 있다.
+        if (isFullscreen3D) {
+          return Container(
+            color: const Color(0xFFEFF2F5),
+            alignment: Alignment.center,
+            child: const Text(
+              '전체 화면에서 표시 중입니다',
+              style: TextStyle(fontSize: 13, color: SpaceShiftColors.textSecondary),
+            ),
+          );
+        }
         return Stack(
           children: [
             Positioned.fill(
               child: Space3DViewGpuV2(
+                key: space3DViewKey,
                 scene: sceneV2,
                 cameraMode: isPerspective
                     ? Space3DCameraMode.perspective
                     : Space3DCameraMode.isometric,
                 onExitTo2D: onExitTo2D,
+                onToggleFullscreen: onToggleFullscreen3D,
                 selectedObjectId: cad.selected3DObjectId,
                 onObjectSelected: cadCallbacks.onSelect3DObject,
               ),

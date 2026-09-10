@@ -20,6 +20,7 @@ import '../services/space_scene_builder_v2.dart';
 import '../theme/space_shift_colors.dart';
 import '../widgets/workspace/ceiling_height_sheet.dart';
 import '../widgets/workspace/settings_entry_button.dart';
+import '../widgets/workspace/space_3d_view_gpu_v2.dart' show Space3DCameraMode, Space3DViewGpuV2;
 import '../widgets/workspace/start_method_panel.dart';
 import '../widgets/workspace/user_workspace_panel.dart';
 import '../widgets/workspace/workspace_canvas.dart';
@@ -221,6 +222,22 @@ class _FloorPlanWorkspaceScreenState extends State<FloorPlanWorkspaceScreen> {
   /// 안전하게 대체한다(§8).
   Uint8List? _generatedIsoImageBytes;
   bool _isGeneratingIsoImage = false;
+
+  /// WO094 — "전체 화면" 버튼이 예전처럼 [Navigator.push]로 [Space3DViewGpuV2]의
+  /// 새 인스턴스(=새 three_js GPU 렌더러)를 만들면, 원래 화면에 남아있던
+  /// 인스턴스와 동시에 GPU 리소스를 두 번 초기화하게 되어 새 인스턴스가
+  /// 끝내 준비되지 못하고 무한 로딩으로 보이는 것이 실기에서 확인된
+  /// 원인이었다. 이제 전체화면은 이 State가 들고 있는 [_space3DViewKey]
+  /// (하나의 [GlobalKey])로 같은 위젯을 "임베디드 슬롯" 또는 "전체화면
+  /// 오버레이" 중 한 곳에만 그리는 순수 레이아웃 전환이라, three_js
+  /// 인스턴스가 두 번 만들어지지 않고 scene/camera/선택/재질 상태가
+  /// 그대로 유지된다.
+  bool _isFullscreen3D = false;
+  final GlobalKey _space3DViewKey = GlobalKey();
+
+  void _onToggleFullscreen3D() {
+    setState(() => _isFullscreen3D = !_isFullscreen3D);
+  }
 
   final List<_WorkspaceSnapshot> _undoStack = [];
   final List<_WorkspaceSnapshot> _redoStack = [];
@@ -1158,35 +1175,67 @@ class _FloorPlanWorkspaceScreenState extends State<FloorPlanWorkspaceScreen> {
     // Android system back(제스처/버튼)에서도 지원한다. 3D 상태일 때는
     // 화면을 나가지 않고 2D로만 되돌린다 — 이미 분석/생성된 데이터는
     // 그대로 유지된다(canPop=false로 상위 pop 자체를 막고, 여기서
-    // "단계만" 이동한다).
+    // "단계만" 이동한다). WO094 — 전체화면 중에는 먼저 전체화면만
+    // 닫는다(한 번에 작업실까지 나가버리면 "닫기 버튼과 동작이 다르다"
+    // 는 혼란을 준다).
     return PopScope(
-      canPop: _viewMode == WorkspaceViewMode.plan2d,
+      canPop: !_isFullscreen3D && _viewMode == WorkspaceViewMode.plan2d,
       onPopInvokedWithResult: (didPop, result) {
         if (didPop) return;
-        if (_viewMode != WorkspaceViewMode.plan2d) {
+        if (_isFullscreen3D) {
+          setState(() => _isFullscreen3D = false);
+        } else if (_viewMode != WorkspaceViewMode.plan2d) {
           setState(() => _viewMode = WorkspaceViewMode.plan2d);
         }
       },
-      child: Scaffold(
-        backgroundColor: SpaceShiftColors.background,
-        appBar: AppBar(
-          title: const Text('평면도 업로드 작업실'),
-          backgroundColor: SpaceShiftColors.background,
-          foregroundColor: SpaceShiftColors.textPrimary,
-          elevation: 0,
-          surfaceTintColor: Colors.transparent,
-        ),
-        body: SafeArea(
-          child: Padding(
-            padding: const EdgeInsets.all(16),
-            child: LayoutBuilder(
-              builder: (context, constraints) {
-                final isWide = constraints.maxWidth >= 800;
-                return isWide ? _buildWideBody(task) : _buildNarrowBody(task);
-              },
+      child: Stack(
+        children: [
+          Scaffold(
+            backgroundColor: SpaceShiftColors.background,
+            appBar: AppBar(
+              title: const Text('평면도 업로드 작업실'),
+              backgroundColor: SpaceShiftColors.background,
+              foregroundColor: SpaceShiftColors.textPrimary,
+              elevation: 0,
+              surfaceTintColor: Colors.transparent,
+            ),
+            body: SafeArea(
+              child: Padding(
+                padding: const EdgeInsets.all(16),
+                child: LayoutBuilder(
+                  builder: (context, constraints) {
+                    final isWide = constraints.maxWidth >= 800;
+                    return isWide ? _buildWideBody(task) : _buildNarrowBody(task);
+                  },
+                ),
+              ),
             ),
           ),
-        ),
+          // WO094 — 전체화면 3D. 같은 [_space3DViewKey]를 쓰는 단 하나의
+          // [Space3DViewGpuV2] 인스턴스가 여기(전체화면) 또는
+          // [FloorPlanPreview] 안(임베디드)에만 존재한다 — 절대 둘 다
+          // 동시에 만들지 않는다(_isFullscreen3D가 그 스위치다). 이
+          // 방식이라 GPU 렌더러가 다시 초기화되지 않고, scene/camera/
+          // 선택/재질이 전체화면 진입·복귀 전후로 완전히 그대로
+          // 유지된다.
+          if (_isFullscreen3D && _spaceSceneV2 != null)
+            Positioned.fill(
+              child: Material(
+                color: Colors.black,
+                child: Space3DViewGpuV2(
+                  key: _space3DViewKey,
+                  scene: _spaceSceneV2!,
+                  cameraMode: _viewMode == WorkspaceViewMode.perspective3d
+                      ? Space3DCameraMode.perspective
+                      : Space3DCameraMode.isometric,
+                  isFullscreen: true,
+                  onToggleFullscreen: _onToggleFullscreen3D,
+                  selectedObjectId: _selected3DObjectId,
+                  onObjectSelected: _onSelect3DObject,
+                ),
+              ),
+            ),
+        ],
       ),
     );
   }
@@ -1317,6 +1366,9 @@ class _FloorPlanWorkspaceScreenState extends State<FloorPlanWorkspaceScreen> {
               isGeneratingIsoImage: _isGeneratingIsoImage,
               onExitTo2D: () =>
                   setState(() => _viewMode = WorkspaceViewMode.plan2d),
+              space3DViewKey: _space3DViewKey,
+              isFullscreen3D: _isFullscreen3D,
+              onToggleFullscreen3D: _onToggleFullscreen3D,
               tool: _tool,
               drawings: _drawings,
               selectedDrawingId: _selectedDrawingId,
@@ -1430,6 +1482,9 @@ class _FloorPlanWorkspaceScreenState extends State<FloorPlanWorkspaceScreen> {
             isGeneratingIsoImage: _isGeneratingIsoImage,
             onExitTo2D: () =>
                 setState(() => _viewMode = WorkspaceViewMode.plan2d),
+            space3DViewKey: _space3DViewKey,
+            isFullscreen3D: _isFullscreen3D,
+            onToggleFullscreen3D: _onToggleFullscreen3D,
             tool: _tool,
             drawings: _drawings,
             selectedDrawingId: _selectedDrawingId,

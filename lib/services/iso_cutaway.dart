@@ -31,11 +31,38 @@ typedef WallSegmentXZ = ({
   double topY,
 });
 
-/// 카메라 위치([cameraX], [cameraY], [cameraZ])에서 각 방 바닥 중심
-/// (Y=0, [roomCentroidsXZ])으로의 3D 시선을 가로막는 벽의
-/// [WallSegmentXZ.objectId] 집합을 돌려준다. 회전/확대로 카메라가 바뀔
-/// 때마다 다시 호출해 "지금 실제로 가로막는 벽"만 정확히 가려낸다 —
-/// 고정된 벽 몇 개를 미리 정해 숨기는 방식이 아니다.
+/// WO094 — 방 폴리곤 하나로부터 cutaway 판정에 쓸 목표 지점들을
+/// 만든다. WO093은 방마다 중심점 하나만 목표로 삼았는데, 그러면
+/// 중심까지의 시선은 뚫려 있어도 L자 모서리나 길쭉한 방의 끝처럼 중심에서
+/// 먼 구석은 여전히 벽에 가려질 수 있었다("단순히 카메라와 벽 사이의
+/// ray를 계산해 벽 몇 개를 invisible 처리하는 것만으로 이 요구사항을
+/// 완료했다고 판단하지 말 것" — WO094 §1). 이 함수는 중심점 + 각
+/// 꼭짓점을 중심 쪽으로 15% 당긴 점을 모두 목표로 돌려줘서, "이 방에서
+/// 봐야 할 지점 중 어느 하나라도 가리면" 그 벽을 숨기도록 판정을 훨씬
+/// 촘촘하게 만든다(꼭짓점을 그대로 쓰지 않고 안쪽으로 당기는 이유는,
+/// 꼭짓점 자체가 종종 벽 중심선 위/바로 옆에 있어 방 안이 아니라 벽
+/// 위를 목표로 삼는 경계 케이스를 피하기 위해서다).
+List<(double, double)> computeRoomCutawayTargets(List<(double, double)> polygonXZ) {
+  if (polygonXZ.isEmpty) return const [];
+  var cx = 0.0, cz = 0.0;
+  for (final p in polygonXZ) {
+    cx += p.$1;
+    cz += p.$2;
+  }
+  cx /= polygonXZ.length;
+  cz /= polygonXZ.length;
+  return [
+    (cx, cz),
+    for (final p in polygonXZ) (p.$1 + (cx - p.$1) * 0.15, p.$2 + (cz - p.$2) * 0.15),
+  ];
+}
+
+/// 카메라 위치([cameraX], [cameraY], [cameraZ])에서 각 방의 목표
+/// 지점([roomCentroidsXZ] — 방마다 하나 이상, [computeRoomCutawayTargets]
+/// 참고)으로의 3D 시선을 가로막는 벽의 [WallSegmentXZ.objectId] 집합을
+/// 돌려준다. 회전/확대로 카메라가 바뀔 때마다 다시 호출해 "지금 실제로
+/// 가로막는 벽"만 정확히 가려낸다 — 고정된 벽 몇 개를 미리 정해
+/// 숨기는 방식이 아니다.
 Set<String> computeIsoCutawayHiddenWallIds({
   required double cameraX,
   required double cameraY,

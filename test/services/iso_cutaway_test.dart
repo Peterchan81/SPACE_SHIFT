@@ -154,4 +154,60 @@ void main() {
     );
     expect(hidden, isEmpty);
   });
+
+  group('WO094 — computeRoomCutawayTargets(방 중심 하나만으로는 부족하다)', () {
+    // 4000x3000 직사각형 방 — 중심 (2000,1500). WO093은 이 중심 하나만
+    // cutaway 목표로 썼다. 아래 벽은 "중심까지의 시선"은 전혀 가로막지
+    // 않지만 "방의 먼 구석(모서리 안쪽 샘플)까지의 시선"은 실제로
+        // 가로막도록 손으로 계산해 배치했다 — 중심만 보면 이 벽을 숨길
+    // 이유가 없어 보이지만, 사용자가 화면에서 실제로 보게 되는 건 방
+    // 전체이지 중심 한 점이 아니다.
+    const roomPolygon = [(0.0, 0.0), (4000.0, 0.0), (4000.0, 3000.0), (0.0, 3000.0)];
+    const roomCentroid = (2000.0, 1500.0);
+    const blockingWall = (
+      objectId: 'wall-corner-blocker',
+      sx: 1000.0,
+      sz: 2000.0,
+      ex: 1000.0,
+      ez: 3000.0,
+      topY: _ceilingHeight,
+    );
+    // 카메라는 방 서쪽 바깥, 중심과 같은 높이(z=1500)에 있다 — 중심까지는
+    // z=1500 수평선이라 x=1000 구간(z:2000~3000)의 벽과 절대 만나지
+    // 않는다.
+    const cameraX = -2000.0, cameraY = 1500.0, cameraZ = 1500.0;
+
+    test('꼭짓점을 안쪽으로 당긴 샘플이 실제로 만들어진다(중심 1개 + 꼭짓점 4개 = 5개)', () {
+      final targets = computeRoomCutawayTargets(roomPolygon);
+      expect(targets, hasLength(5));
+      expect(targets, contains(roomCentroid));
+      // (4000,3000) 꼭짓점을 중심 쪽으로 15% 당긴 샘플.
+      expect(targets, contains((3700.0, 2775.0)));
+    });
+
+    test('중심 좌표 하나만 목표로 쓰면 이 벽은 가로막는 것으로 판정되지 않는다 '
+        '(WO093의 한계 재현)', () {
+      final hidden = computeIsoCutawayHiddenWallIds(
+        cameraX: cameraX,
+        cameraY: cameraY,
+        cameraZ: cameraZ,
+        wallSegments: [blockingWall],
+        roomCentroidsXZ: [roomCentroid],
+      );
+      expect(hidden, isEmpty);
+    });
+
+    test('computeRoomCutawayTargets가 만든 여러 목표를 쓰면 방 구석을 가로막는 '
+        '이 벽이 정확히 숨겨진다(WO094 개선 확인)', () {
+      final targets = computeRoomCutawayTargets(roomPolygon);
+      final hidden = computeIsoCutawayHiddenWallIds(
+        cameraX: cameraX,
+        cameraY: cameraY,
+        cameraZ: cameraZ,
+        wallSegments: [blockingWall],
+        roomCentroidsXZ: targets,
+      );
+      expect(hidden, {'wall-corner-blocker'});
+    });
+  });
 }

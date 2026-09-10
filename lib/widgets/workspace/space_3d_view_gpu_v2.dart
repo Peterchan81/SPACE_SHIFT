@@ -1,3 +1,4 @@
+import 'dart:math' as math;
 import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
@@ -10,9 +11,8 @@ import '../../theme/space_shift_colors.dart';
 /// WO092 §6 — 3D 아이소/3D 투시는 같은 실시간 scene을 쓰고 카메라
 /// 배치만 다르다. [isometric]은 기존과 같은 "위에서 내려다보는" 초기
 /// 시점, [perspective]는 방 안 눈높이에서 보는 초기 시점이다 — 둘 다
-/// [OrbitControls]로 자유롭게 회전/확대할 수 있어 사용자가 두 모드를
-/// 완전히 다른 화면으로 느끼지 않는다(같은 재질 변경이 양쪽에 그대로
-/// 반영된다).
+/// 자유롭게 회전/확대할 수 있어 사용자가 두 모드를 완전히 다른 화면으로
+/// 느끼지 않는다(같은 재질 변경이 양쪽에 그대로 반영된다).
 enum Space3DCameraMode { isometric, perspective }
 
 /// SpaceScene V2 GPU 렌더러 — Windows 실기 재조사(3D) 결론에 따른
@@ -34,26 +34,49 @@ enum Space3DCameraMode { isometric, perspective }
 ///
 /// WO093 — "3D 아이소 Cutaway/Dollhouse 표현 수정": [Space3DCameraMode.isometric]
 /// 에서는 일반 3D처럼 벽을 전부 세워두지 않는다. 매 프레임 카메라
-/// 위치를 기준으로 "카메라 → 각 방 중심" 시선을 가로막는 벽을
-/// [_applyIsoCutaway]가 찾아 숨겨서, 확대/회전 중에도 지금 보고 있는
-/// 방의 내부가 항상 보이게 한다(실기 확인된 문제: 확대하면 앞쪽 벽에
-/// 가려 작은 방 내부가 안 보임 — 카메라 문제가 아니라 렌더링 방식
-/// 문제였다). [Space3DCameraMode.perspective]는 이 cutaway를 전혀 타지
-/// 않고 기존처럼 모든 벽을 그대로 보여준다.
+/// 위치를 기준으로 "카메라 → 각 방의 여러 샘플 지점" 시선을 가로막는
+/// 벽을 [_applyIsoCutaway]가 찾아 숨겨서, 확대/회전 중에도 지금 보고
+/// 있는 방의 내부가 항상 보이게 한다.
+///
+/// WO094 — 실기에서 확인된 문제 두 가지를 구조적으로 다시 손봤다:
+/// 1) 방 중심 하나만 목표로 판정하면 방구석은 여전히 가려질 수 있어
+///    ([_applyIsoCutaway] 참고) 방 폴리곤의 여러 점(중심+모서리 안쪽)을
+///    모두 목표로 삼도록 [_rebuildMeshes]를 바꿨다.
+/// 2) `three_js_controls`의 [OrbitControls](raw pointer 기반, Android
+///    실기에서 실제로 360도 회전이 되는지 코드만으로 확신할 수 없었다)
+///    대신 Flutter 자체 [GestureDetector.onScale*]로 직접 구면좌표
+///    카메라를 돌린다 — Flutter의 검증된 제스처 인식만 쓰고, 회전/확대
+///    각도에 인위적 제한을 두지 않는다(§5 "회전 방향 제한 때문에 특정
+///    면을 볼 수 없는 문제 금지").
+/// 3) '전체 화면'이 [Navigator.push]로 이 위젯의 새 인스턴스(=새
+///    three_js/GPU 텍스처)를 만들던 것을 제거했다 — 같은 앱 안에 GPU
+///    렌더러 인스턴스가 두 개 동시에 존재하면서 새 인스턴스가 초기화를
+///    끝내지 못해 무한 로딩으로 보이는 것이 유력한 원인이었다. 이제
+///    '전체 화면'은 [onToggleFullscreen] 콜백으로 상위 위젯에게 레이아웃
+///    전환만 요청하고, 이 State/three_js 인스턴스 자체는 절대 다시
+///    만들어지지 않는다(호출부가 같은 [GlobalKey]로 위젯을 다른 위치에
+///    다시 꽂아 넣는 방식 — Flutter가 Element/State를 그대로 옮겨
+///    scene/camera/선택/재질이 전부 유지된다).
 class Space3DViewGpuV2 extends StatefulWidget {
   const Space3DViewGpuV2({
     super.key,
     required this.scene,
-    this.isFullscreenRoute = false,
+    this.isFullscreen = false,
     this.onExitTo2D,
+    this.onToggleFullscreen,
     this.cameraMode = Space3DCameraMode.isometric,
     this.selectedObjectId,
     this.onObjectSelected,
   });
 
   final SpaceSceneV2 scene;
-  final bool isFullscreenRoute;
+
+  /// true면 지금 이 위젯이 전체 화면 레이아웃으로 표시되고 있다는 뜻 —
+  /// "전체 화면" 대신 "닫기" 버튼을 보여준다. 실제 전체화면 진입/종료는
+  /// [onToggleFullscreen]을 통해 상위 위젯(레이아웃)에게 위임한다.
+  final bool isFullscreen;
   final VoidCallback? onExitTo2D;
+  final VoidCallback? onToggleFullscreen;
   final Space3DCameraMode cameraMode;
 
   /// 현재 선택된 3D 객체의 [SpaceObjectIdentityV2.objectId](예:
@@ -79,7 +102,6 @@ const double _kSelectionEmissiveIntensity = 0.55;
 
 class _Space3DViewGpuV2State extends State<Space3DViewGpuV2> {
   late three.ThreeJS _threeJs;
-  three.OrbitControls? _controls;
   final Map<String, three.Mesh> _meshByObjectId = {};
   final Map<String, SpaceObjectIdentityV2> _identityByObjectId = {};
   String? _appliedHighlightId;
@@ -91,11 +113,25 @@ class _Space3DViewGpuV2State extends State<Space3DViewGpuV2> {
   /// 안정적으로 판단된다.
   final List<WallSegmentXZ> _wallSegmentsXZ = [];
 
-  /// WO093 — "카메라 → 이 지점이 막혀 있으면 그 사이 벽을 숨긴다"의
-  /// 목적지 목록. 방(바닥) 하나당 하나씩, 실제로 바닥이 만들어진 방만
-  /// 대상으로 한다(삼각분할 실패 등으로 제외된 방은 애초에 안 보이는
-  /// 대상이라 판정에서도 제외).
-  final List<(double, double)> _roomCentroidsXZ = [];
+  /// WO094 — "카메라 → 이 지점이 막혀 있으면 그 사이 벽을 숨긴다"의
+  /// 목적지 목록. WO093은 방마다 중심점 하나만 썼는데, 그러면 방
+  /// 구석(특히 L자·좁고 긴 방)은 중심까지의 시선이 뚫려 있어도 여전히
+  /// 가려질 수 있었다 — 방마다 중심 + 폴리곤의 각 모서리를 안쪽으로
+  /// 살짝 당긴 점까지 모두 목표로 넣어, "이 방에서 카메라가 실제로 볼
+  /// 수 있어야 하는 지점 중 하나라도 가리면" 그 벽을 숨긴다.
+  final List<(double, double)> _roomSampleTargetsXZ = [];
+
+  // WO094 — three_js_controls의 OrbitControls(raw pointer 기반이라
+  // Android 실기에서 실제로 동작하는지 코드만으로 확신할 수 없었다)
+  // 대신, 검증된 Flutter GestureDetector.onScale*로 직접 구면좌표
+  // 카메라를 돌린다. target은 항상 scene 중심에 고정한다(pan은 이번
+  // 범위에서 필요하지 않다 — §5 "필요한 경우 pan"일 뿐 필수는 아니다).
+  double _orbitTargetX = 0, _orbitTargetY = 0, _orbitTargetZ = 0;
+  double _orbitDistance = 1000;
+  double _orbitAzimuth = 0;
+  double _orbitPolar = math.pi / 4;
+  double _minOrbitDistance = 1, _maxOrbitDistance = 100000;
+  double _lastGestureScale = 1.0;
 
   @override
   void initState() {
@@ -135,6 +171,8 @@ class _Space3DViewGpuV2State extends State<Space3DViewGpuV2> {
     final scene3d = widget.scene;
     final radius = scene3d.boundingRadius <= 0 ? 1000.0 : scene3d.boundingRadius;
     final farPlane = radius * 40 + 10000;
+    _minOrbitDistance = radius * 0.05 + 1;
+    _maxOrbitDistance = radius * 12 + 5000;
 
     _threeJs.camera = three.PerspectiveCamera(
       45,
@@ -144,27 +182,32 @@ class _Space3DViewGpuV2State extends State<Space3DViewGpuV2> {
     );
     _threeJs.scene = three.Scene();
 
-    _threeJs.scene.add(three.AmbientLight(0xffffff, 0.55));
-    final dirLight = three.DirectionalLight(0xffffff, 0.75);
-    dirLight.position.setValues(-radius * 0.6, radius * 1.4, radius * 0.5);
-    _threeJs.scene.add(dirLight);
-    final fillLight = three.DirectionalLight(0xffffff, 0.25);
-    fillLight.position.setValues(radius * 0.8, radius * 0.6, -radius * 0.6);
-    _threeJs.scene.add(fillLight);
+    // WO094 §4.E — "검정 배경 + 회색 벽체 골격" 인상을 줄인다. 기존에는
+    // ambient 0.55 + 방향광 2개뿐이라, 광원을 등진 면은 원래 재질色과
+    // 무관하게 어둡게 죽어 전체적으로 칙칙한 회색으로 보였다. 건축
+    // 인테리어 뷰어(Zillow/Matterport dollhouse 등)처럼 그림자 대비를
+        // 낮추고 고르게 밝힌다 — ambient를 크게 올리고 사방에서 오는 fill
+    // light 3개를 더해, 벽의 실제 재질 색(흰색 벽/우드 바닥/타일)이
+    // 어느 각도에서 봐도 그 색 그대로 보이게 한다.
+    _threeJs.scene.add(three.AmbientLight(0xffffff, 0.85));
+    final keyLight = three.DirectionalLight(0xffffff, 0.55);
+    keyLight.position.setValues(-radius * 0.6, radius * 1.4, radius * 0.5);
+    _threeJs.scene.add(keyLight);
+    final fillLight1 = three.DirectionalLight(0xffffff, 0.35);
+    fillLight1.position.setValues(radius * 0.8, radius * 0.6, -radius * 0.6);
+    _threeJs.scene.add(fillLight1);
+    final fillLight2 = three.DirectionalLight(0xffffff, 0.3);
+    fillLight2.position.setValues(radius * 0.6, radius * 0.9, radius * 0.9);
+    _threeJs.scene.add(fillLight2);
+    final fillLight3 = three.DirectionalLight(0xffffff, 0.25);
+    fillLight3.position.setValues(-radius * 0.7, radius * 0.5, -radius * 0.4);
+    _threeJs.scene.add(fillLight3);
 
     _rebuildMeshes(scene3d);
     _applyHighlight();
 
     _resetCamera();
     _applyIsoCutaway();
-
-    _controls = three.OrbitControls(_threeJs.camera, _threeJs.globalKey)
-      ..enableDamping = true
-      ..dampingFactor = 0.12
-      ..minDistance = radius * 0.05 + 1
-      ..maxDistance = radius * 12 + 5000
-      ..target.setValues(scene3d.center.x, scene3d.center.y, scene3d.center.z)
-      ..update();
 
     _threeJs.windowResizeUpdate = (Size newSize) {
       final camera = _threeJs.camera;
@@ -175,11 +218,9 @@ class _Space3DViewGpuV2State extends State<Space3DViewGpuV2> {
     };
 
     _threeJs.addAnimationEvent((dt) {
-      _controls?.update();
-      // WO093 §5 — 회전/확대(damping 관성 포함)로 카메라 위치가 매
-      // 프레임 바뀔 수 있어, cutaway 판정도 매 프레임 다시 계산한다.
-      // 벽/방 개수가 이 앱 규모(수십 개 이내)라 매 프레임 재계산해도
-      // 비용이 미미하다.
+      // WO093 §5 — 회전/확대로 카메라 위치가 매 프레임 바뀔 수 있어,
+      // cutaway 판정도 매 프레임 다시 계산한다. 벽/방 개수가 이 앱
+      // 규모(수십 개 이내)라 매 프레임 재계산해도 비용이 미미하다.
       _applyIsoCutaway();
     });
   }
@@ -198,7 +239,7 @@ class _Space3DViewGpuV2State extends State<Space3DViewGpuV2> {
     _identityByObjectId.clear();
     _appliedHighlightId = null;
     _wallSegmentsXZ.clear();
-    _roomCentroidsXZ.clear();
+    _roomSampleTargetsXZ.clear();
 
     for (final wall in scene3d.wallMeshes) {
       _addObjectMesh(wall.identity, wall.triangles, doubleSided: true);
@@ -213,14 +254,9 @@ class _Space3DViewGpuV2State extends State<Space3DViewGpuV2> {
     }
     for (final floor in scene3d.floorMeshes) {
       _addObjectMesh(floor.identity, floor.triangles, doubleSided: true);
-      if (floor.polygonMm.isNotEmpty) {
-        var cx = 0.0, cz = 0.0;
-        for (final p in floor.polygonMm) {
-          cx += p.x;
-          cz += p.z;
-        }
-        _roomCentroidsXZ.add((cx / floor.polygonMm.length, cz / floor.polygonMm.length));
-      }
+      _roomSampleTargetsXZ.addAll(
+        computeRoomCutawayTargets(floor.polygonMm.map((p) => (p.x, p.z)).toList()),
+      );
     }
     // WO092 §4 — 천장은 방 안쪽(-Y)을 향하는 단면(FrontSide)만 그린다.
     // 기본 아이소 카메라(위에서 내려다봄)는 이 면의 뒤쪽을 보게 되어
@@ -310,16 +346,13 @@ class _Space3DViewGpuV2State extends State<Space3DViewGpuV2> {
     }
   }
 
-  /// WO093 — "3D 아이소 Cutaway/Dollhouse 표현 수정": 아이소 모드에서
-  /// 카메라와 각 방(바닥 중심) 사이를 가로막는 벽을 모두 찾아 숨긴다.
-  /// 매 프레임 카메라 위치 기준으로 다시 계산해서, 회전/확대해도(§5)
-  /// "지금 실제로 가로막는 벽"만 정확히 숨겨진다 — 고정된 "바깥쪽 벽
-  /// 2개"를 미리 정해 숨기는 방식이 아니라, 모든 방을 대상으로 매번
-  /// 판정하기 때문에 특정 작은 방을 확대해도(§2 "확대해도 방 내부가
-  /// 계속 보여야 함") 그 방을 가리는 벽(외벽이든 내벽이든)이 그때그때
-  /// 숨겨진다. 3D 투시 모드([Space3DCameraMode.perspective])는 기존
-  /// 방식을 그대로 유지해야 하므로(§1) 이 함수를 타지 않고 항상 모든
-  /// 벽을 보여준다.
+  /// WO093/WO094 — "3D 아이소 Cutaway/Dollhouse 표현 수정": 아이소
+  /// 모드에서 카메라와 각 방의 여러 샘플 지점([_roomSampleTargetsXZ])
+  /// 사이를 가로막는 벽을 모두 찾아 숨긴다. 매 프레임 카메라 위치
+  /// 기준으로 다시 계산해서, 회전/확대해도 "지금 실제로 가로막는 벽"만
+  /// 정확히 숨겨진다. 3D 투시 모드([Space3DCameraMode.perspective])는
+  /// 기존 방식을 그대로 유지해야 하므로(§1) 이 함수를 타지 않고 항상
+  /// 모든 벽을 보여준다.
   ///
   /// 실제 판정 로직은 [computeIsoCutawayHiddenWallIds](iso_cutaway.dart)에
   /// 있다 — 카메라 높이까지 반영한 3D 시선 판정이라(단순 XZ 평면
@@ -338,7 +371,7 @@ class _Space3DViewGpuV2State extends State<Space3DViewGpuV2> {
       cameraY: _threeJs.camera.position.y,
       cameraZ: _threeJs.camera.position.z,
       wallSegments: _wallSegmentsXZ,
-      roomCentroidsXZ: _roomCentroidsXZ,
+      roomCentroidsXZ: _roomSampleTargetsXZ,
     );
     for (final segment in _wallSegmentsXZ) {
       _meshByObjectId[segment.objectId]?.visible = !hidden.contains(segment.objectId);
@@ -346,10 +379,7 @@ class _Space3DViewGpuV2State extends State<Space3DViewGpuV2> {
   }
 
   /// WO092 §5 — 화면을 탭한 지점으로 실제 ray를 쏴서 부딪힌 mesh를
-  /// 찾는다. [OrbitControls]는 raw pointer Listener로 회전/확대를
-  /// 처리하므로(gesture arena를 타지 않음) 이 [GestureDetector]의 탭
-  /// 인식과 서로 방해하지 않는다 — 드래그(회전)에는 탭이 발생하지
-  /// 않고, 제자리 탭에는 회전이 사실상 일어나지 않는다.
+  /// 찾는다.
   void _handleTapUp(TapUpDetails details) {
     if (widget.onObjectSelected == null) return;
     final width = _threeJs.width;
@@ -377,52 +407,81 @@ class _Space3DViewGpuV2State extends State<Space3DViewGpuV2> {
     widget.onObjectSelected!(identity);
   }
 
+  /// WO094 — [OrbitControls] 없이 직접 구면좌표(target 기준 거리/방위각
+  /// azimuth/고도각 polar)로 카메라를 둔다. polar는 0(정수직 위)~π
+  /// (정수직 아래) 전 구간을 허용하고 azimuth는 완전히 무제한이라(§5
+  /// "회전 방향 제한 때문에 특정 면을 볼 수 없는 문제 금지"), 사용자가
+  /// 못 보는 각도가 인위적으로 생기지 않는다.
+  void _updateCameraFromOrbit() {
+    final camera = _threeJs.camera;
+    final sinPhi = math.sin(_orbitPolar);
+    final cosPhi = math.cos(_orbitPolar);
+    camera.position.setValues(
+      _orbitTargetX + _orbitDistance * sinPhi * math.cos(_orbitAzimuth),
+      _orbitTargetY + _orbitDistance * cosPhi,
+      _orbitTargetZ + _orbitDistance * sinPhi * math.sin(_orbitAzimuth),
+    );
+    camera.lookAt(three.Vector3(_orbitTargetX, _orbitTargetY, _orbitTargetZ));
+  }
+
+  /// [dx]/[dy]/[dz]로 표현된 기존 카메라 시작 오프셋을 구면좌표
+  /// (거리/방위각/고도각)로 되짚는다 — 시각적으로 기존과 똑같은 초기
+  /// 시점을 유지하면서, 이후 회전/확대는 구면좌표 상태만 바꾸면 되게
+  /// 한다.
+  void _setOrbitFromOffset(double dx, double dy, double dz) {
+    final r = math.sqrt(dx * dx + dy * dy + dz * dz);
+    _orbitDistance = r <= 0 ? 1 : r;
+    _orbitPolar = r <= 0 ? math.pi / 4 : math.acos((dy / r).clamp(-1.0, 1.0));
+    _orbitAzimuth = math.atan2(dz, dx);
+  }
+
+  /// WO094 §5 — 한 손가락 drag(회전) + pinch(확대/축소)를 한 번에
+  /// 처리한다. Flutter의 [GestureDetector.onScale*]는 손가락 1개일
+  /// 때도 발생하고(이때 scale은 계속 1.0, focalPoint만 움직인다) 손가락
+  /// 2개일 때도 발생해서(scale이 실제로 변한다) 별도 손가락 수 분기
+  /// 없이 자연스럽게 "1개=회전, pinch=확대"가 된다.
+  void _handleScaleStart(ScaleStartDetails details) {
+    _lastGestureScale = 1.0;
+  }
+
+  void _handleScaleUpdate(ScaleUpdateDetails details) {
+    const rotateSensitivity = 0.012;
+    _orbitAzimuth -= details.focalPointDelta.dx * rotateSensitivity;
+    _orbitPolar = (_orbitPolar - details.focalPointDelta.dy * rotateSensitivity).clamp(
+      0.001,
+      math.pi - 0.001,
+    );
+
+    final scaleDelta = details.scale / (_lastGestureScale == 0 ? 1 : _lastGestureScale);
+    _lastGestureScale = details.scale;
+    if (scaleDelta.isFinite && scaleDelta > 0 && scaleDelta != 1.0) {
+      _orbitDistance = (_orbitDistance / scaleDelta).clamp(_minOrbitDistance, _maxOrbitDistance);
+    }
+
+    _updateCameraFromOrbit();
+  }
+
   void _resetCamera() {
     final scene3d = widget.scene;
     final center = scene3d.center;
     final radius = scene3d.boundingRadius <= 0 ? 1000.0 : scene3d.boundingRadius;
-    final camera = _threeJs.camera;
+    _orbitTargetX = center.x;
+    _orbitTargetY = center.y;
+    _orbitTargetZ = center.z;
     switch (widget.cameraMode) {
       case Space3DCameraMode.isometric:
         // 고전적인 isometric에 가까운 기본 시점 — 위에서 내려다보는
         // dollhouse/cutaway 뷰(WO092 §3 "전체 공간 확인").
         final distance = radius * 2.6;
-        camera.position.setValues(
-          center.x + distance * 0.5,
-          center.y + distance * 0.7,
-          center.z + distance * 0.5,
-        );
+        _setOrbitFromOffset(distance * 0.5, distance * 0.7, distance * 0.5);
       case Space3DCameraMode.perspective:
         // WO092 §6 — 3D 투시: 같은 scene을 사람 눈높이에 가까운 낮은
         // 위치·좁은 반경에서 보는 초기 시점으로만 바꾼다(카메라
         // 시작점만 다르고 이후 자유 회전/확대는 동일).
         final distance = radius * 1.4;
-        camera.position.setValues(
-          center.x + distance * 0.85,
-          center.y + radius * 0.22 + 1600,
-          center.z + distance * 0.85,
-        );
+        _setOrbitFromOffset(distance * 0.85, radius * 0.22 + 1600, distance * 0.85);
     }
-    camera.lookAt(three.Vector3(center.x, center.y, center.z));
-    _controls?.target.setValues(center.x, center.y, center.z);
-    _controls?.update();
-  }
-
-  Future<void> _enterFullscreen() async {
-    await Navigator.of(context).push(
-      PageRouteBuilder<void>(
-        opaque: true,
-        barrierColor: Colors.black,
-        transitionDuration: const Duration(milliseconds: 150),
-        pageBuilder: (context, animation, secondaryAnimation) => FadeTransition(
-          opacity: animation,
-          child: _FullscreenSpace3DPageGpu(
-            scene: widget.scene,
-            cameraMode: widget.cameraMode,
-          ),
-        ),
-      ),
-    );
+    _updateCameraFromOrbit();
   }
 
   @override
@@ -434,6 +493,8 @@ class _Space3DViewGpuV2State extends State<Space3DViewGpuV2> {
           child: GestureDetector(
             behavior: HitTestBehavior.translucent,
             onTapUp: _handleTapUp,
+            onScaleStart: _handleScaleStart,
+            onScaleUpdate: _handleScaleUpdate,
             child: _threeJs.build(),
           ),
         ),
@@ -452,14 +513,13 @@ class _Space3DViewGpuV2State extends State<Space3DViewGpuV2> {
           top: 12,
           child: Row(
             children: [
-              if (!widget.isFullscreenRoute) ...[
+              if (widget.onToggleFullscreen != null)
                 _IconLabelButtonGpu(
-                  icon: Icons.fullscreen_rounded,
-                  label: '전체 화면',
-                  onTap: _enterFullscreen,
+                  icon: widget.isFullscreen ? Icons.close_rounded : Icons.fullscreen_rounded,
+                  label: widget.isFullscreen ? '닫기' : '전체 화면',
+                  onTap: widget.onToggleFullscreen!,
                 ),
-                const SizedBox(width: 8),
-              ],
+              const SizedBox(width: 8),
               _IconLabelButtonGpu(
                 icon: Icons.center_focus_strong_rounded,
                 label: '화면 맞춤',
@@ -469,40 +529,6 @@ class _Space3DViewGpuV2State extends State<Space3DViewGpuV2> {
           ),
         ),
       ],
-    );
-  }
-}
-
-class _FullscreenSpace3DPageGpu extends StatelessWidget {
-  const _FullscreenSpace3DPageGpu({required this.scene, required this.cameraMode});
-
-  final SpaceSceneV2 scene;
-  final Space3DCameraMode cameraMode;
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: Colors.black,
-      body: Stack(
-        children: [
-          Positioned.fill(
-            child: Space3DViewGpuV2(
-              scene: scene,
-              cameraMode: cameraMode,
-              isFullscreenRoute: true,
-            ),
-          ),
-          Positioned(
-            left: 12,
-            top: 12,
-            child: _IconLabelButtonGpu(
-              icon: Icons.close_rounded,
-              label: '닫기',
-              onTap: () => Navigator.of(context).maybePop(),
-            ),
-          ),
-        ],
-      ),
     );
   }
 }

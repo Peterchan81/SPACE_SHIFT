@@ -47,6 +47,9 @@ class WorkspaceCanvas extends StatelessWidget {
     this.generatedIsoImageBytes,
     this.isGeneratingIsoImage = false,
     this.onExitTo2D,
+    this.space3DViewKey,
+    this.isFullscreen3D = false,
+    this.onToggleFullscreen3D,
     this.tool = WorkspaceSelectionTool.select,
     this.drawings = const [],
     this.selectedDrawingId,
@@ -84,6 +87,13 @@ class WorkspaceCanvas extends StatelessWidget {
   final Uint8List? generatedIsoImageBytes;
   final bool isGeneratingIsoImage;
   final VoidCallback? onExitTo2D;
+
+  /// WO094 — 전체화면 3D 전환에도 같은 [Space3DViewGpuV2] State가
+  /// 유지되도록 상위(FloorPlanWorkspaceScreen)와 공유하는 키/상태.
+  /// [FloorPlanPreview]로 그대로 전달한다.
+  final GlobalKey? space3DViewKey;
+  final bool isFullscreen3D;
+  final VoidCallback? onToggleFullscreen3D;
 
   // WO089 CORE EDITING — 사용자 도형(직선/곡선/원형/자유영역) 편집 상태.
   // 2D 평면도 모드에서만 활성화한다(§ 범위 — 3D는 이번 WO 대상 아님).
@@ -147,6 +157,9 @@ class WorkspaceCanvas extends StatelessWidget {
                 generatedIsoImageBytes: generatedIsoImageBytes,
                 isGeneratingIsoImage: isGeneratingIsoImage,
                 onExitTo2D: onExitTo2D,
+                space3DViewKey: space3DViewKey,
+                isFullscreen3D: isFullscreen3D,
+                onToggleFullscreen3D: onToggleFullscreen3D,
               ),
               for (final task in tasks)
                 if (task.visible)
