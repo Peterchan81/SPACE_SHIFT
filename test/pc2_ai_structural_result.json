@@ -1,0 +1,378 @@
+{
+  "floorDomain": {
+    "id": "floor-domain",
+    "type": "floorDomain",
+    "confidence": "medium",
+    "source": "vision",
+    "geometryHint": {
+      "kind": "polygon",
+      "points": [
+        {
+          "x": 0.05,
+          "y": 0.05
+        },
+        {
+          "x": 0.95,
+          "y": 0.05
+        },
+        {
+          "x": 0.95,
+          "y": 0.95
+        },
+        {
+          "x": 0.05,
+          "y": 0.95
+        }
+      ]
+    },
+    "notes": []
+  },
+  "spaces": [
+    {
+      "id": "space1",
+      "type": "space",
+      "confidence": "high",
+      "source": "vision",
+      "geometryHint": {
+        "kind": "boundingBox",
+        "minX": 0.04,
+        "minY": 0.04,
+        "maxX": 0.34,
+        "maxY": 0.25
+      },
+      "notes": [],
+      "label": "\u00001",
+      "semanticType": "kitchen",
+      "adjacentSpaceIds": [],
+      "containedObjectIds": []
+    },
+    {
+      "id": "space2",
+      "type": "space",
+      "confidence": "high",
+      "source": "vision",
+      "geometryHint": {
+        "kind": "boundingBox",
+        "minX": 0.05,
+        "minY": 0.25,
+        "maxX": 0.41,
+        "maxY": 0.55
+      },
+      "notes": [],
+      "label": "\u00001",
+      "semanticType": "living",
+      "adjacentSpaceIds": [],
+      "containedObjectIds": []
+    },
+    {
+      "id": "space3",
+      "type": "space",
+      "confidence": "high",
+      "source": "vision",
+      "geometryHint": {
+        "kind": "boundingBox",
+        "minX": 0.34,
+        "minY": 0.04,
+        "maxX": 0.47,
+        "maxY": 0.18
+      },
+      "notes": [],
+      "label": "\u00001",
+      "semanticType": "bathroom",
+      "adjacentSpaceIds": [],
+      "containedObjectIds": []
+    },
+    {
+      "id": "space4",
+      "type": "space",
+      "confidence": "high",
+      "source": "vision",
+      "geometryHint": {
+        "kind": "boundingBox",
+        "minX": 0.51,
+        "minY": 0.25,
+        "maxX": 0.76,
+        "maxY": 0.45
+      },
+      "notes": [],
+      "label": "\u00001",
+      "semanticType": "bedroom",
+      "adjacentSpaceIds": [],
+      "containedObjectIds": []
+    },
+    {
+      "id": "space5",
+      "type": "space",
+      "confidence": "high",
+      "source": "vision",
+      "geometryHint": {
+        "kind": "boundingBox",
+        "minX": 0.67,
+        "minY": 0.55,
+        "maxX": 0.92,
+        "maxY": 0.82
+      },
+      "notes": [],
+      "label": "\u00001",
+      "semanticType": "bedroom",
+      "adjacentSpaceIds": [],
+      "containedObjectIds": []
+    },
+    {
+      "id": "space6",
+      "type": "space",
+      "confidence": "high",
+      "source": "vision",
+      "geometryHint": {
+        "kind": "boundingBox",
+        "minX": 0.44,
+        "minY": 0.04,
+        "maxX": 0.64,
+        "maxY": 0.21
+      },
+      "notes": [],
+      "label": "\u00001",
+      "semanticType": "balcony",
+      "adjacentSpaceIds": [],
+      "containedObjectIds": []
+    },
+    {
+      "id": "space7",
+      "type": "space",
+      "confidence": "high",
+      "source": "vision",
+      "geometryHint": {
+        "kind": "boundingBox",
+        "minX": 0.64,
+        "minY": 0.25,
+        "maxX": 0.92,
+        "maxY": 0.44
+      },
+      "notes": [],
+      "label": "\u00001",
+      "semanticType": "corridor",
+      "adjacentSpaceIds": [],
+      "containedObjectIds": []
+    },
+    {
+      "id": "space8",
+      "type": "space",
+      "confidence": "high",
+      "source": "vision",
+      "geometryHint": {
+        "kind": "boundingBox",
+        "minX": 0.76,
+        "minY": 0.65,
+        "maxX": 0.95,
+        "maxY": 0.82
+      },
+      "notes": [],
+      "label": "\u00001",
+      "semanticType": "bathroom",
+      "adjacentSpaceIds": [],
+      "containedObjectIds": []
+    },
+    {
+      "id": "space9",
+      "type": "space",
+      "confidence": "unknown",
+      "source": "vision",
+      "geometryHint": {
+        "kind": "boundingBox",
+        "minX": 0.08,
+        "minY": 0.55,
+        "maxX": 0.34,
+        "maxY": 0.75
+      },
+      "notes": [],
+      "label": "\u00001",
+      "semanticType": "unknown",
+      "adjacentSpaceIds": [],
+      "containedObjectIds": []
+    },
+    {
+      "id": "space10",
+      "type": "space",
+      "confidence": "high",
+      "source": "vision",
+      "geometryHint": {
+        "kind": "boundingBox",
+        "minX": 0.76,
+        "minY": 0.82,
+        "maxX": 0.95,
+        "maxY": 0.95
+      },
+      "notes": [],
+      "label": "\u00001",
+      "semanticType": "entrance",
+      "adjacentSpaceIds": [],
+      "containedObjectIds": []
+    }
+  ],
+  "boundaries": [
+    {
+      "id": "boundary1",
+      "type": "boundary",
+      "confidence": "high",
+      "source": "vision",
+      "geometryHint": {
+        "kind": "segment",
+        "start": {
+          "x": 0.05,
+          "y": 0.04
+        },
+        "end": {
+          "x": 0.95,
+          "y": 0.04
+        }
+      },
+      "notes": [],
+      "boundaryType": "exteriorWall",
+      "adjacentSpaceIds": []
+    },
+    {
+      "id": "boundary2",
+      "type": "boundary",
+      "confidence": "high",
+      "source": "vision",
+      "geometryHint": {
+        "kind": "segment",
+        "start": {
+          "x": 0.95,
+          "y": 0.04
+        },
+        "end": {
+          "x": 0.95,
+          "y": 0.95
+        }
+      },
+      "notes": [],
+      "boundaryType": "exteriorWall",
+      "adjacentSpaceIds": []
+    },
+    {
+      "id": "boundary3",
+      "type": "boundary",
+      "confidence": "high",
+      "source": "vision",
+      "geometryHint": {
+        "kind": "segment",
+        "start": {
+          "x": 0.95,
+          "y": 0.95
+        },
+        "end": {
+          "x": 0.05,
+          "y": 0.95
+        }
+      },
+      "notes": [],
+      "boundaryType": "exteriorWall",
+      "adjacentSpaceIds": []
+    },
+    {
+      "id": "boundary4",
+      "type": "boundary",
+      "confidence": "high",
+      "source": "vision",
+      "geometryHint": {
+        "kind": "segment",
+        "start": {
+          "x": 0.05,
+          "y": 0.95
+        },
+        "end": {
+          "x": 0.05,
+          "y": 0.04
+        }
+      },
+      "notes": [],
+      "boundaryType": "exteriorWall",
+      "adjacentSpaceIds": []
+    },
+    {
+      "id": "boundary5",
+      "type": "boundary",
+      "confidence": "medium",
+      "source": "vision",
+      "geometryHint": {
+        "kind": "segment",
+        "start": {
+          "x": 0.34,
+          "y": 0.18
+        },
+        "end": {
+          "x": 0.67,
+          "y": 0.18
+        }
+      },
+      "notes": [],
+      "boundaryType": "interiorWall",
+      "adjacentSpaceIds": []
+    },
+    {
+      "id": "boundary6",
+      "type": "boundary",
+      "confidence": "medium",
+      "source": "vision",
+      "geometryHint": {
+        "kind": "segment",
+        "start": {
+          "x": 0.64,
+          "y": 0.44
+        },
+        "end": {
+          "x": 0.64,
+          "y": 0.82
+        }
+      },
+      "notes": [],
+      "boundaryType": "interiorWall",
+      "adjacentSpaceIds": []
+    }
+  ],
+  "openings": [
+    {
+      "id": "opening1",
+      "type": "opening",
+      "confidence": "high",
+      "source": "vision",
+      "geometryHint": {
+        "kind": "point",
+        "point": {
+          "x": 0.4,
+          "y": 0.18
+        }
+      },
+      "notes": [],
+      "openingType": "door",
+      "attachedBoundaryId": "boundary5",
+      "connectedSpaceIds": []
+    },
+    {
+      "id": "opening2",
+      "type": "opening",
+      "confidence": "high",
+      "source": "vision",
+      "geometryHint": {
+        "kind": "point",
+        "point": {
+          "x": 0.76,
+          "y": 0.42
+        }
+      },
+      "notes": [],
+      "openingType": "door",
+      "attachedBoundaryId": "boundary6",
+      "connectedSpaceIds": []
+    }
+  ],
+  "objects": [],
+  "structuralElements": [],
+  "dimensions": [],
+  "scaleConfirmed": false,
+  "notes": [
+    "Labels and precise labels not fully visible or readable.",
+    "Some areas are assumed based on layout typicality."
+  ]
+}

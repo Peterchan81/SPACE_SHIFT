@@ -62,7 +62,11 @@ class _ViewTab extends StatelessWidget {
         borderRadius: BorderRadius.circular(9),
         child: AnimatedContainer(
           duration: const Duration(milliseconds: 150),
-          padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 9),
+          // WO099 UI COMPACT MODE — "상단 mode selector는 유지하되
+          // compact하게": 가로 padding을 줄여 좁은 창에서도 3개 탭이
+          // 한 줄에 넘치지 않게 한다(실기에서 관측된 RenderFlex overflow
+          // 재발 방지).
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
           decoration: BoxDecoration(
             borderRadius: BorderRadius.circular(9),
             gradient: selected ? SpaceShiftColors.spectrum : null,
@@ -71,7 +75,7 @@ class _ViewTab extends StatelessWidget {
           child: Text(
             label,
             style: TextStyle(
-              fontSize: 14,
+              fontSize: 13,
               fontWeight: FontWeight.bold,
               color: selected ? Colors.white : SpaceShiftColors.textSecondary,
             ),

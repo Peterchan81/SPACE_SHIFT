@@ -23,7 +23,6 @@ import 'package:ason_space/widgets/gradient_cta_button.dart';
 import 'package:ason_space/widgets/region_selector.dart';
 import 'package:ason_space/widgets/work_area_panel.dart';
 import 'package:ason_space/widgets/workspace/selected_item_header.dart';
-import 'package:ason_space/widgets/workspace/start_method_panel.dart';
 import 'package:ason_space/widgets/workspace/user_workspace_panel.dart';
 import 'package:ason_space/widgets/workspace/workspace_canvas.dart';
 import 'package:ason_space/widgets/workspace/workspace_task_list.dart';
@@ -174,13 +173,22 @@ void main() {
       );
       await tester.pump();
 
-      expect(find.byType(StartMethodPanel), findsOneWidget);
+      // WO099 UI COMPACT MODE — 좌/우 큰 카드형 패널이 세로 아이콘
+      // 레일로 바뀌어, 기본 상태에서는 [StartMethodPanel]/
+      // [WorkspaceTaskList]/[UserWorkspacePanel]의 실제 내용이 항상
+      // 렌더링돼 있지 않다(아이콘 + tooltip만 보인다, 클릭해야 펼쳐짐).
+      expect(find.byTooltip('평면도 업로드'), findsOneWidget);
+      expect(find.byTooltip('직접 그리기'), findsOneWidget);
+      expect(find.byTooltip('사진으로 변환'), findsOneWidget);
+      expect(find.byTooltip('설정'), findsOneWidget);
       expect(find.byType(WorkspaceViewSwitcher), findsOneWidget);
       expect(find.byType(WorkspaceCanvas), findsOneWidget);
-      expect(find.byType(WorkspaceTaskList), findsOneWidget);
-      expect(find.byType(UserWorkspacePanel), findsOneWidget);
 
-      // 기본 선택(1번 항목)이 우측 "작업" 탭의 선택된 항목 헤더에 반영된다.
+      // 우측 "작업도구" 패널을 펼쳐 기본 선택(1번 항목)이 선택된 항목
+      // 헤더에 반영되는지 먼저 확인한다.
+      await tester.tap(find.byTooltip('작업도구'));
+      await tester.pumpAndSettle();
+      expect(find.byType(UserWorkspacePanel), findsOneWidget);
       expect(
         find.descendant(
           of: find.byType(SelectedItemHeader),
@@ -189,10 +197,31 @@ void main() {
         findsOneWidget,
       );
 
+      // 다시 눌러 접은 뒤(우측·좌측 패널을 동시에 펼치지 않는다 — 두
+      // flyout이 겹치는 구간에서 탭이 의도한 위젯에 닿지 않는 실기
+      // 레이아웃 문제를 피한다) 좌측 "작업 목록"을 펼친다.
+      await tester.tap(find.byTooltip('작업도구'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byTooltip('작업 목록'));
+      await tester.pumpAndSettle();
+      expect(find.byType(WorkspaceTaskList), findsOneWidget);
+
       // 작업 목록에서 3번째 항목("안방 벽")을 선택하면 우측 패널도 함께 바뀐다
       // (marker/작업 목록/작업 탭이 같은 id를 공유하는 양방향 동기화 검증).
-      await tester.tap(find.text('안방 벽'));
-      await tester.pump();
+      // [WorkspaceTaskList]는 높이가 제한된 [ListView] 안에 항목을
+      // 그려서, 스크롤하지 않으면 3번째 항목이 실제 화면에서는 부분적
+      // 으로만 보이거나 안 보일 수 있다 — ensureVisible로 먼저 스크롤한다.
+      final targetItem = find.text('안방 벽');
+      await tester.ensureVisible(targetItem);
+      await tester.pumpAndSettle();
+      await tester.tap(targetItem);
+      await tester.pumpAndSettle();
+
+      // 좌측을 접고 우측 "작업도구"를 다시 펼쳐 선택 동기화를 확인한다.
+      await tester.tap(find.byTooltip('작업 목록'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byTooltip('작업도구'));
+      await tester.pumpAndSettle();
 
       expect(
         find.descendant(
@@ -203,9 +232,11 @@ void main() {
       );
       expect(tester.takeException(), isNull);
 
-      // 우측 패널의 가구/디스플레이/정보 탭 전환도 렌더링 오류 없이 동작한다.
-      for (final label in ['가구', '디스플레이', '정보', '작업']) {
-        await tester.tap(find.text(label).last);
+      // 우측 패널의 가구/디스플레이/정보/작업도구 탭 전환도 렌더링 오류
+      // 없이 동작한다(이제 tooltip이 달린 아이콘이다 — 상시 노출 텍스트
+      // 아님).
+      for (final label in ['가구', '디스플레이', '정보', '작업도구']) {
+        await tester.tap(find.byTooltip(label));
         await tester.pump();
         expect(tester.takeException(), isNull);
       }

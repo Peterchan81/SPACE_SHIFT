@@ -1,6 +1,7 @@
 import 'dart:math' as math;
 import 'dart:typed_data';
 
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:three_js/three_js.dart' as three;
 
@@ -127,24 +128,60 @@ class _Space3DViewGpuV2State extends State<Space3DViewGpuV2> {
   final Map<String, SpaceObjectIdentityV2> _identityByObjectId = {};
   String? _appliedHighlightId;
 
-  /// WO095-B — 아이소 모드에서 카메라 쪽 근처를 잘라내는 단일 GPU
-  /// 절단면. 매 프레임 [_applyIsoWallDisplay]가 이 인스턴스를 그 자리에서
-  /// 갱신([three.Plane.setFromNormalAndCoplanarPoint])하고, [_threeJs.renderer]에
-  /// 적용한다 — 새 [three.Plane]/[List]를 매 프레임 새로 만들지 않는다.
+  /// WO095-B가 쓰던 절단면 — WO099부터 [_applyIsoWallDisplay]가 더 이상
+  /// 갱신하지 않는다(§ 그 메서드 문서 참고, 항상 원점 평면인 채로
+  /// 남는다). [_performTapSelection]의 관련 분기는 `renderer.
+  /// clippingPlanes`가 항상 비어 있으므로 실행되지 않는 죽은 코드다 —
+  /// 향후 절단면 기능을 다시 켤 때 필드/분기를 되살리기 쉽도록 지금
+  /// 지우지 않고 남겨 둔다.
   final three.Plane _sectionCutPlane = three.Plane();
-  late final List<three.Plane> _sectionCutPlanes = [_sectionCutPlane];
 
   // WO094 — three_js_controls의 OrbitControls(raw pointer 기반이라
   // Android 실기에서 실제로 동작하는지 코드만으로 확신할 수 없었다)
-  // 대신, 검증된 Flutter GestureDetector.onScale*로 직접 구면좌표
-  // 카메라를 돌린다. target은 항상 scene 중심에 고정한다(pan은 이번
-  // 범위에서 필요하지 않다 — §5 "필요한 경우 pan"일 뿐 필수는 아니다).
+  // 대신, 직접 구면좌표 카메라를 돌린다. target은 기본은 scene 중심이지만
+  // WO098부터 우/중클릭 drag로 pan도 가능하다(§5).
+  //
+  // WO098 §8 root-cause — 예전엔 이 값을 [GestureDetector.onScale*]로
+  // 갱신했지만, three_js 패키지 자체가 렌더 트리 내부(three_js_core/
+  // others/peripherals.dart의 [Peripherals] 위젯, `_threeJs.build()`가
+  // 내부적으로 감싸는 위젯)에 **자기 자신의 GestureDetector+Listener**를
+  // 이미 심어 둔다(OrbitControls 등 JS 스타일 addEventListener API를
+  // 흉내내려는 목적 — 이 앱은 OrbitControls를 안 쓰지만 Peripherals
+  // 자체는 항상 존재한다). 그 결과 같은 pointer 스트림에 대해 서로 다른
+  // GestureDetector 두 개(우리 것 + three_js 내부 것)가 각자
+  // ScaleGestureRecognizer를 만들어 같은 gesture arena에서 경쟁하게
+  // 되고, 이것이 실측된 "360° 회전이 되다 안 되다 함/거의 안 됨" 증상의
+  // root cause였다. 또한 [GestureDetector.onScale*]는애초에 마우스 휠
+  // (PointerScrollEvent)을 받을 수 없고 마우스 버튼(좌/우/중)을 구분하지도
+  // 못해 §4(휠 zoom)/§5(우/중클릭 pan) 자체가 구조적으로 구현 불가능했다.
+  //
+  // 수정: [Listener](gesture arena에 참여하지 않고 raw [PointerEvent]를
+  // 그대로 받는다 — three_js 내부 GestureDetector와 경쟁할 대상 자체가
+  // 없다)로 바꿔 이 문제를 근본적으로 없앤다. 부수적으로 마우스 버튼 구분
+  // (event.buttons)과 [PointerScrollEvent](휠)를 직접 다룰 수 있게 되어
+  // §4/§5가 자연스럽게 구현된다.
   double _orbitTargetX = 0, _orbitTargetY = 0, _orbitTargetZ = 0;
   double _orbitDistance = 1000;
   double _orbitAzimuth = 0;
   double _orbitPolar = math.pi / 4;
   double _minOrbitDistance = 1, _maxOrbitDistance = 100000;
-  double _lastGestureScale = 1.0;
+
+  /// pointer id -> 이 위젯 기준 마지막 local position(드래그 delta 계산용).
+  final Map<int, Offset> _activePointers = {};
+
+  /// 회전/pan을 구동하는 대표 pointer(가장 먼저 눌린 것). 두 번째 이상
+  /// pointer는 회전/pan에 관여하지 않는다(단순 보조 접촉으로 무시).
+  int? _primaryPointerId;
+
+  /// true면 대표 pointer가 pan(우/중클릭)을, false면 회전(좌클릭/터치)을
+  /// 구동한다 — pointer down 시점의 버튼 상태로 한 번만 결정한다.
+  bool _primaryIsPan = false;
+
+  /// 대표 pointer가 눌린 지점 — 이동량이 [kTouchSlop] 미만인 채로
+  /// 떼어지면 회전/pan이 아니라 객체 선택 tap으로 취급한다(§ 기존
+  /// onTapUp 동작 보존).
+  Offset? _tapDownPosition;
+  bool _possibleTap = false;
 
   @override
   void initState() {
@@ -272,13 +309,14 @@ class _Space3DViewGpuV2State extends State<Space3DViewGpuV2> {
     _appliedHighlightId = null;
 
     for (final wall in scene3d.wallMeshes) {
-      // WO095-B — 벽은 항상 원래 전체 높이 mesh 하나만 만든다. 아이소
-      // 모드에서 "카메라 쪽 근처"만 GPU 절단면으로 잘라내므로(§클래스
-      // 문서) 더 이상 낮은 높이 대체 mesh가 필요 없다. `clipping: true`만
-      // 켜 두면 이 mesh는 [_applyIsoWallDisplay]가 매 프레임 갱신하는
-      // 절단면의 영향을 받는다(바닥/천장은 `clipping`을 켜지 않아 항상
-      // 전체가 보인다).
-      _addObjectMesh(wall.identity, wall.triangles, doubleSided: true, clipping: true);
+      // WO099 §4 — 벽은 항상 원래 전체 높이 실제 solid geometry로 만든다
+      // (WO095-B처럼 별도 낮은 높이 mesh를 만들지 않는다). 대신 재질을
+      // [three.BackSide]로 그려 "카메라를 향한 면"만 자동으로 렌더링에서
+      // 빠지게 한다 — 벽이 몇 개든, 카메라가 어디에 있든 항상 지금
+      // 카메라를 막는 면만 사라지고 그 뒤(방 내부를 감싸는 반대쪽 벽의
+      // 안쪽 면)가 보인다. 벽 ID/threshold 판정도, GPU clip-plane도
+      // 전혀 없다(§1 반복 금지 대상이 아님 — 아예 다른 방법).
+      _addObjectMesh(wall.identity, wall.triangles, doubleSided: false, useBackSide: true);
     }
     for (final floor in scene3d.floorMeshes) {
       _addObjectMesh(floor.identity, floor.triangles, doubleSided: true);
@@ -292,16 +330,32 @@ class _Space3DViewGpuV2State extends State<Space3DViewGpuV2> {
     for (final ceiling in scene3d.ceilingMeshes) {
       _addObjectMesh(ceiling.identity, ceiling.triangles, doubleSided: false);
     }
+    // WO099 §8 — Phase A 최소 가구(sofa/table/bed). 벽과 달리 카메라를
+    // 막을 만큼 크지 않으므로 일반 DoubleSide로 그린다.
+    for (final furniture in scene3d.furnitureMeshes) {
+      _addObjectMesh(furniture.identity, furniture.triangles, doubleSided: true);
+    }
+    // WO102 §5 — window frame/glass. 둘 다 벽처럼 카메라를 크게 막지
+    // 않으므로 일반 DoubleSide로 그린다(§4/§9 — 벽과 달리 새 rendering
+    // 트릭이 필요 없다).
+    for (final window in scene3d.windowMeshes) {
+      _addObjectMesh(window.frameIdentity, window.frameTriangles, doubleSided: true);
+      _addObjectMesh(window.glassIdentity, window.glassTriangles, doubleSided: true);
+    }
   }
 
-  /// WO095-B — [clipping]이 true인 mesh(벽)만 [_applyIsoWallDisplay]가
-  /// 매 프레임 갱신하는 [_sectionCutPlane]의 영향을 받는다. 바닥/천장은
-  /// 기본값 false로 둬서 절단면과 무관하게 항상 전체가 보인다.
+  /// [useBackSide]가 true(벽)면 [doubleSided]와 무관하게 항상
+  /// [three.BackSide]로 그린다 — §4/[_rebuildMeshes] 문서 참고. [clipping]은
+  /// WO095-B가 쓰던 GPU 절단면 연결 자리인데, WO099부터
+  /// [_applyIsoWallDisplay]가 절단면을 항상 비워서 지금은 사실상
+  /// 아무 효과가 없다(향후 명시적 단면 도구를 다시 붙일 때를 위해
+  /// 매개변수 자체는 남겨 둔다).
   void _addObjectMesh(
     SpaceObjectIdentityV2 identity,
     List<SpaceTriangleV2> triangles, {
     required bool doubleSided,
     bool clipping = false,
+    bool useBackSide = false,
   }) {
     if (triangles.isEmpty) return;
     final positions = Float32List(triangles.length * 9);
@@ -330,9 +384,12 @@ class _Space3DViewGpuV2State extends State<Space3DViewGpuV2> {
     geometry.computeVertexNormals();
 
     final colorHex = _colorToHex(identity.color ?? const Color(0xFFC9C2B4));
+    final side = useBackSide
+        ? three.BackSide
+        : (doubleSided ? three.DoubleSide : three.FrontSide);
     final material = three.MeshLambertMaterial({
       three.MaterialProperty.color: colorHex,
-      three.MaterialProperty.side: doubleSided ? three.DoubleSide : three.FrontSide,
+      three.MaterialProperty.side: side,
       three.MaterialProperty.clipping: clipping,
     });
     final mesh = three.Mesh(geometry, material);
@@ -376,75 +433,37 @@ class _Space3DViewGpuV2State extends State<Space3DViewGpuV2> {
     }
   }
 
-  /// WO095-B — "3D 아이소 Architectural Dollhouse 표현 재설계"(§클래스
-  /// 문서): 벽 단위 판정 없이, 건물 전체 bounding box + 카메라 방향으로
-  /// 계산한 단일 GPU 절단면을 [_threeJs.renderer]에 적용한다. 3D 투시
-  /// 모드는 `clippingPlanes`를 비워 이 로직의 영향을 전혀 받지 않는다.
+  /// WO099 §1/§4/§17 — WO095-B의 camera-facing GPU 절단면(건물 전체를
+  /// 카메라 쪽에서 잘라내는 방식)은 "전체 공간 구조가 한눈에 읽혀야
+  /// 한다"(§0 우선순위 1)와 정면으로 충돌한다 — 잘려나간 근처 방은
+  /// 아예 안 보이기 때문이다. cut fraction 숫자를 다시 조정하는 대신
+  /// (§1 "반복 금지"), 벽이 카메라를 막지 않게 하는 방법 자체를
+  /// [_addObjectMesh]의 벽 재질을 [three.BackSide]로 바꾸는 것으로
+  /// 교체했다(§4 조사 결론 — 카메라를 향한 면만 자동으로 컬링되어,
+  /// 회전해도 항상 "지금 카메라를 막는 벽"만 사라지고 나머지는 그대로
+  /// 남는다. 벽 ID/threshold 판정이 전혀 없다).
+  ///
+  /// 이 메서드와 [iso_cutaway.dart]는 삭제하지 않는다 — 향후 "사용자가
+  /// 직접 트리거하는 단면 보기" 같은 명시적 도구로 재사용할 수 있는
+  /// 자리로 남겨 둔다(§12 "같은 Scene을 유지"). 지금은 항상 절단면을
+  /// 비워 아이소/투시 모두 영향을 받지 않는다.
   void _applyIsoWallDisplay() {
     final renderer = _threeJs.renderer;
     if (renderer == null) return;
-    if (widget.cameraMode != Space3DCameraMode.isometric) {
-      renderer.clippingPlanes = const [];
-      return;
-    }
-
-    final camera = _threeJs.camera;
-    final scene3d = widget.scene;
-    final center = scene3d.center;
-    final dx = center.x - camera.position.x;
-    final dz = center.z - camera.position.z;
-    final dirLen = math.sqrt(dx * dx + dz * dz);
-    if (dirLen < 1e-6) {
-      renderer.clippingPlanes = const [];
-      return;
-    }
-    final dirX = dx / dirLen;
-    final dirZ = dz / dirLen;
-
-    final radius = scene3d.boundingRadius <= 0 ? 1000.0 : scene3d.boundingRadius;
-    // _resetCamera()의 아이소 기본 진입 거리(radius*2.6)와 같은 기준 —
-    // "기본 조망"일 때 baseFraction 그대로, 확대할수록 절단 비율이
-    // 줄어든다.
-    final referenceDistance = radius * 2.6;
-    final cutFraction = computeIsoSectionCutFraction(
-      orbitDistance: _orbitDistance,
-      referenceDistance: referenceDistance,
-    );
-
-    final minB = scene3d.minBounds;
-    final maxB = scene3d.maxBounds;
-    final cut = computeIsoSectionCut(
-      cameraX: camera.position.x,
-      cameraZ: camera.position.z,
-      dirX: dirX,
-      dirZ: dirZ,
-      boundingCornersXZ: [
-        (minB.x, minB.z),
-        (minB.x, maxB.z),
-        (maxB.x, minB.z),
-        (maxB.x, maxB.z),
-      ],
-      cutFraction: cutFraction,
-    );
-
-    final planePointX = camera.position.x + dirX * cut.cutDepth;
-    final planePointZ = camera.position.z + dirZ * cut.cutDepth;
-    _sectionCutPlane.setFromNormalAndCoplanarPoint(
-      three.Vector3(dirX, 0, dirZ),
-      three.Vector3(planePointX, center.y, planePointZ),
-    );
-    renderer.clippingPlanes = _sectionCutPlanes;
+    renderer.clippingPlanes = const [];
   }
 
   /// WO092 §5 — 화면을 탭한 지점으로 실제 ray를 쏴서 부딪힌 mesh를
-  /// 찾는다.
-  void _handleTapUp(TapUpDetails details) {
+  /// 찾는다. WO098 — [TapUpDetails] 대신 순수 [Offset]을 받는다(호출부가
+  /// 이제 [GestureDetector.onTapUp]이 아니라 [Listener]의 pointer-up
+  /// tap 판정이기 때문 — 아래 [_handlePointerUp] 참고).
+  void _performTapSelection(Offset localPosition) {
     if (widget.onObjectSelected == null) return;
     final width = _threeJs.width;
     final height = _threeJs.height;
     if (width <= 0 || height <= 0) return;
-    final ndcX = (details.localPosition.dx / width) * 2 - 1;
-    final ndcY = -(details.localPosition.dy / height) * 2 + 1;
+    final ndcX = (localPosition.dx / width) * 2 - 1;
+    final ndcY = -(localPosition.dy / height) * 2 + 1;
 
     final raycaster = three.Raycaster();
     raycaster.setFromCamera(three.Vector2(ndcX, ndcY), _threeJs.camera);
@@ -503,30 +522,127 @@ class _Space3DViewGpuV2State extends State<Space3DViewGpuV2> {
     _orbitAzimuth = math.atan2(dz, dx);
   }
 
-  /// WO094 §5 — 한 손가락 drag(회전) + pinch(확대/축소)를 한 번에
-  /// 처리한다. Flutter의 [GestureDetector.onScale*]는 손가락 1개일
-  /// 때도 발생하고(이때 scale은 계속 1.0, focalPoint만 움직인다) 손가락
-  /// 2개일 때도 발생해서(scale이 실제로 변한다) 별도 손가락 수 분기
-  /// 없이 자연스럽게 "1개=회전, pinch=확대"가 된다.
-  void _handleScaleStart(ScaleStartDetails details) {
-    _lastGestureScale = 1.0;
+  /// WO098 §6 — 드래그 전/후 camera position/azimuth/polar 값을 로그로
+  /// 남긴다(실기 검증용 — 회전이 실제로 카메라 상태를 바꾸는지 코드
+  /// 레벨에서도 확인 가능하게 한다).
+  void _logOrbitDebug(String label) {
+    final camera = _threeJs.camera;
+    debugPrint(
+      '[WO098 orbit] $label pos=(${camera.position.x.toStringAsFixed(1)}, '
+      '${camera.position.y.toStringAsFixed(1)}, ${camera.position.z.toStringAsFixed(1)}) '
+      'azimuth=${(_orbitAzimuth * 180 / math.pi).toStringAsFixed(1)}deg '
+      'polar=${(_orbitPolar * 180 / math.pi).toStringAsFixed(1)}deg '
+      'distance=${_orbitDistance.toStringAsFixed(1)}',
+    );
   }
 
-  void _handleScaleUpdate(ScaleUpdateDetails details) {
-    const rotateSensitivity = 0.012;
-    _orbitAzimuth -= details.focalPointDelta.dx * rotateSensitivity;
-    _orbitPolar = (_orbitPolar - details.focalPointDelta.dy * rotateSensitivity).clamp(
-      0.001,
-      math.pi - 0.001,
-    );
+  /// §3/§5 — 좌클릭/터치 drag는 회전, 우클릭/중클릭 drag는 pan. 버튼
+  /// 구분은 pointer down 시점의 [PointerEvent.buttons] 비트마스크로 한다
+  /// (1=좌, 2=우, 4=중 — 터치/스타일러스는 항상 0이라 자연히 회전으로
+  /// 처리된다).
+  void _handlePointerDown(PointerDownEvent event) {
+    _activePointers[event.pointer] = event.localPosition;
+    if (_activePointers.length == 1) {
+      _primaryPointerId = event.pointer;
+      _primaryIsPan = (event.buttons & 0x02) != 0 || (event.buttons & 0x04) != 0;
+      _tapDownPosition = event.localPosition;
+      _possibleTap = true;
+      _logOrbitDebug('drag start(buttons=${event.buttons})');
+    } else {
+      // 두 번째 이상 pointer(예: 두 손가락) — 더 이상 단순 tap이 아니다.
+      _possibleTap = false;
+    }
+  }
 
-    final scaleDelta = details.scale / (_lastGestureScale == 0 ? 1 : _lastGestureScale);
-    _lastGestureScale = details.scale;
-    if (scaleDelta.isFinite && scaleDelta > 0 && scaleDelta != 1.0) {
-      _orbitDistance = (_orbitDistance / scaleDelta).clamp(_minOrbitDistance, _maxOrbitDistance);
+  void _handlePointerMove(PointerMoveEvent event) {
+    final last = _activePointers[event.pointer];
+    _activePointers[event.pointer] = event.localPosition;
+    if (last == null) return;
+
+    if (_tapDownPosition != null && (event.localPosition - _tapDownPosition!).distance > kTouchSlop) {
+      _possibleTap = false;
     }
 
+    if (event.pointer != _primaryPointerId) return;
+    final delta = event.localPosition - last;
+    if (_primaryIsPan) {
+      _applyPan(delta);
+    } else {
+      _applyRotate(delta);
+    }
+  }
+
+  void _applyRotate(Offset delta) {
+    const rotateSensitivity = 0.012;
+    _orbitAzimuth -= delta.dx * rotateSensitivity;
+    _orbitPolar = (_orbitPolar - delta.dy * rotateSensitivity).clamp(0.001, math.pi - 0.001);
     _updateCameraFromOrbit();
+  }
+
+  /// §5 — 우/중클릭 drag pan. target을 화면 기준 좌/우(카메라의 실제
+  /// right 벡터)·상/하(카메라의 실제 up 벡터)로 옮긴다 — 화면에 보이는
+  /// 방향과 무관하게 항상 "드래그한 방향으로 장면이 따라온다"가
+  /// 성립하도록 카메라 자세에서 매번 다시 계산한다(고정된 world축이
+  /// 아님 — 그러면 위/아래를 보고 있을 때 pan 방향이 어긋난다).
+  void _applyPan(Offset delta) {
+    final camera = _threeJs.camera;
+    final forward = three.Vector3(
+      _orbitTargetX - camera.position.x,
+      _orbitTargetY - camera.position.y,
+      _orbitTargetZ - camera.position.z,
+    );
+    final forwardLen = forward.length;
+    if (forwardLen < 1e-6) return;
+    forward.scale(1 / forwardLen);
+
+    final right = forward.clone().cross(three.Vector3(0, 1, 0));
+    final rightLen = right.length;
+    if (rightLen < 1e-6) return;
+    right.scale(1 / rightLen);
+
+    final camUp = right.clone().cross(forward);
+
+    const panSensitivity = 0.0016;
+    final panScale = _orbitDistance * panSensitivity;
+    final dxWorld = -right.x * delta.dx * panScale + camUp.x * delta.dy * panScale;
+    final dyWorld = -right.y * delta.dx * panScale + camUp.y * delta.dy * panScale;
+    final dzWorld = -right.z * delta.dx * panScale + camUp.z * delta.dy * panScale;
+    _orbitTargetX += dxWorld;
+    _orbitTargetY += dyWorld;
+    _orbitTargetZ += dzWorld;
+    _updateCameraFromOrbit();
+  }
+
+  /// §4 — 마우스 휠 zoom. [GestureDetector]는 [PointerScrollEvent]를 아예
+  /// 받지 못해(§ 필드 문서) 이전에는 구현 자체가 불가능했다 — [Listener.
+  /// onPointerSignal]로만 받을 수 있다.
+  void _handlePointerSignal(PointerSignalEvent event) {
+    if (event is! PointerScrollEvent) return;
+    final zoomFactor = math.exp(event.scrollDelta.dy * 0.0015);
+    _orbitDistance = (_orbitDistance * zoomFactor).clamp(_minOrbitDistance, _maxOrbitDistance);
+    _updateCameraFromOrbit();
+  }
+
+  void _handlePointerUp(PointerEvent event) {
+    _activePointers.remove(event.pointer);
+    if (event.pointer == _primaryPointerId) {
+      _logOrbitDebug('drag end');
+      if (_possibleTap) {
+        _performTapSelection(event.localPosition);
+      }
+      _possibleTap = false;
+      _tapDownPosition = null;
+      _primaryPointerId = _activePointers.isEmpty ? null : _activePointers.keys.first;
+    }
+  }
+
+  void _handlePointerCancel(PointerCancelEvent event) {
+    _activePointers.remove(event.pointer);
+    if (event.pointer == _primaryPointerId) {
+      _possibleTap = false;
+      _tapDownPosition = null;
+      _primaryPointerId = _activePointers.isEmpty ? null : _activePointers.keys.first;
+    }
   }
 
   void _resetCamera() {
@@ -538,10 +654,17 @@ class _Space3DViewGpuV2State extends State<Space3DViewGpuV2> {
     _orbitTargetZ = center.z;
     switch (widget.cameraMode) {
       case Space3DCameraMode.isometric:
-        // 고전적인 isometric에 가까운 기본 시점 — 위에서 내려다보는
-        // dollhouse/cutaway 뷰(WO092 §3 "전체 공간 확인").
+        // WO099 §3 — Architectural Dollhouse 기본 시점. 기존 45°
+        // 고전적 isometric 각도는 벽 높이가 근처 방 내부를 가려 "회색
+        // CAD extrusion"처럼 보이는 원인 중 하나였다(§4 벽 재질의
+        // [three.BackSide] 전환과 함께, 시점 자체도 참고 이미지처럼 더
+        // 위에서 내려다보는 각도(수평선 기준 약 61°)로 바꾼다 — 전체
+        // 평면이 한 화면에 들어오고 바닥이 가장 중요한 시각 요소가
+        // 되도록. 회전을 시작하면(§ _handleScaleUpdate류) 이 각도에
+        // 고정되지 않고 자유 회전하며, [화면 맞춤]을 누르면 이 기본값
+        // 으로 복귀한다(_resetCamera 자체가 그 복귀 동작이다).
         final distance = radius * 2.6;
-        _setOrbitFromOffset(distance * 0.5, distance * 0.7, distance * 0.5);
+        _setOrbitFromOffset(distance * 0.34, distance * 0.88, distance * 0.34);
       case Space3DCameraMode.perspective:
         // WO092 §6 — 3D 투시: 같은 scene을 사람 눈높이에 가까운 낮은
         // 위치·좁은 반경에서 보는 초기 시점으로만 바꾼다(카메라
@@ -558,11 +681,13 @@ class _Space3DViewGpuV2State extends State<Space3DViewGpuV2> {
       children: [
         Positioned.fill(child: Container(color: const Color(0xFFEFF2F5))),
         Positioned.fill(
-          child: GestureDetector(
+          child: Listener(
             behavior: HitTestBehavior.translucent,
-            onTapUp: _handleTapUp,
-            onScaleStart: _handleScaleStart,
-            onScaleUpdate: _handleScaleUpdate,
+            onPointerDown: _handlePointerDown,
+            onPointerMove: _handlePointerMove,
+            onPointerUp: _handlePointerUp,
+            onPointerCancel: _handlePointerCancel,
+            onPointerSignal: _handlePointerSignal,
             child: _threeJs.build(),
           ),
         ),

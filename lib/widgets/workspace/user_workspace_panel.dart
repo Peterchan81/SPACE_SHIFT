@@ -15,12 +15,13 @@ import 'info_tab.dart';
 import 'selected_3d_object_tab.dart';
 import 'selection_edit_tools.dart';
 import 'work_tab.dart';
+import 'workspace_icon_rail.dart';
 
 enum _PanelTab { work, furniture, display, info }
 
 extension on _PanelTab {
   String get label => switch (this) {
-    _PanelTab.work => '작업',
+    _PanelTab.work => '작업도구',
     _PanelTab.furniture => '가구',
     _PanelTab.display => '디스플레이',
     _PanelTab.info => '정보',
@@ -152,11 +153,60 @@ class UserWorkspacePanel extends StatefulWidget {
   State<UserWorkspacePanel> createState() => _UserWorkspacePanelState();
 }
 
+/// WO099 UI COMPACT MODE — 우측 "사용자 작업 환경" 패널을 채우던 320px
+/// 고정 폭 콘텐츠. [_UserWorkspacePanelState]가 [WorkspaceIconRail]과
+/// 함께 조립한다(펼쳐졌을 때만 렌더).
+const double _kFlyoutWidth = 300;
+
 class _UserWorkspacePanelState extends State<UserWorkspacePanel> {
   _PanelTab _tab = _PanelTab.work;
 
+  /// WO099 — "기본 상태에서는 아이콘만 표시". 처음엔 항상 접혀 있고,
+  /// 아이콘을 누르면 그 탭 내용이 아이콘 왼쪽으로 펼쳐진다. 같은 아이콘을
+  /// 다시 누르면 접힌다(토글) — 다른 아이콘을 누르면 탭만 바뀌고 계속
+  /// 펼쳐진 채로 남는다(패널을 열고 닫는 것과 탭을 고르는 것은 별개
+  /// 동작이다).
+  bool _expanded = false;
+
+  void _handleTabTap(_PanelTab tab) {
+    setState(() {
+      if (_expanded && _tab == tab) {
+        _expanded = false;
+      } else {
+        _tab = tab;
+        _expanded = true;
+      }
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
+    return SizedBox(
+      width: _expanded ? _kFlyoutWidth + 8 + kWorkspaceRailWidth : kWorkspaceRailWidth,
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          if (_expanded) ...[
+            SizedBox(width: _kFlyoutWidth, child: _buildFlyout()),
+            const SizedBox(width: 8),
+          ],
+          WorkspaceIconRail(
+            items: [
+              for (final tab in _PanelTab.values)
+                WorkspaceRailItem(
+                  icon: tab.icon,
+                  tooltip: tab.label,
+                  selected: _expanded && _tab == tab,
+                  onTap: () => _handleTabTap(tab),
+                ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildFlyout() {
     return Container(
       decoration: BoxDecoration(
         color: SpaceShiftColors.background,
@@ -172,7 +222,7 @@ class _UserWorkspacePanelState extends State<UserWorkspacePanel> {
               children: [
                 Expanded(
                   child: Text(
-                    '사용자 작업 환경',
+                    _tab.label,
                     style: const TextStyle(
                       fontSize: 14,
                       fontWeight: FontWeight.bold,
@@ -192,24 +242,16 @@ class _UserWorkspacePanelState extends State<UserWorkspacePanel> {
                   visualDensity: VisualDensity.compact,
                   icon: const Icon(Icons.redo_rounded, size: 20),
                 ),
+                IconButton(
+                  onPressed: () => setState(() => _expanded = false),
+                  tooltip: '패널 닫기',
+                  visualDensity: VisualDensity.compact,
+                  icon: const Icon(Icons.chevron_right_rounded, size: 20),
+                ),
               ],
             ),
           ),
-          Padding(
-            padding: const EdgeInsets.all(12),
-            child: Row(
-              children: [
-                for (final tab in _PanelTab.values)
-                  Expanded(
-                    child: _PanelTabButton(
-                      tab: tab,
-                      selected: tab == _tab,
-                      onTap: () => setState(() => _tab = tab),
-                    ),
-                  ),
-              ],
-            ),
-          ),
+          const SizedBox(height: 12),
           const Divider(height: 1, color: SpaceShiftColors.border),
           Expanded(child: _buildTabContent()),
         ],
@@ -291,7 +333,17 @@ class _UserWorkspacePanelState extends State<UserWorkspacePanel> {
         widget.selectedCadWall ??
         widget.selectedCadOpening ??
         widget.selectedCadRoom;
-    if (task == null && cadSelected != null) {
+    // WO099 §8/§9 — 가구는 원본 CadWall/CadOpening/CadRoom이 없다(3D
+    // scene에서만 만들어진 새 객체라 [cadSelected]가 항상 null이다).
+    // WO102 §5/§9 — window frame/glass도 같은 이유로 원본이 없다(병합된
+    // wall-cut 구간마다 새로 만든 합성 id라 원본 CadOpening.id와 다를 수
+    // 있다). 그래도 선택 시 종류가 유지돼야 하므로(§9) cadSelected 유무와
+    // 무관하게 furniture/opening 선택은 항상 [Selected3DObjectTab]로
+    // 보여준다.
+    final hasNoCadCounterpart =
+        widget.selected3DKind == SpaceElementKindV2.furniture ||
+        widget.selected3DKind == SpaceElementKindV2.opening;
+    if (task == null && (cadSelected != null || hasNoCadCounterpart)) {
       final kind = widget.selected3DKind;
       if (kind != null) {
         return Selected3DObjectTab(
@@ -388,61 +440,6 @@ class _StageNotice extends StatelessWidget {
             ),
           ),
         ],
-      ),
-    );
-  }
-}
-
-class _PanelTabButton extends StatelessWidget {
-  const _PanelTabButton({
-    required this.tab,
-    required this.selected,
-    required this.onTap,
-  });
-
-  final _PanelTab tab;
-  final bool selected;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    return Material(
-      color: Colors.transparent,
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(10),
-        child: AnimatedContainer(
-          duration: const Duration(milliseconds: 150),
-          padding: const EdgeInsets.symmetric(vertical: 10),
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(10),
-            gradient: selected ? SpaceShiftColors.spectrum : null,
-            border: selected
-                ? null
-                : Border.all(color: SpaceShiftColors.border),
-          ),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Icon(
-                tab.icon,
-                size: 18,
-                color: selected ? Colors.white : SpaceShiftColors.textSecondary,
-              ),
-              const SizedBox(height: 3),
-              Text(
-                tab.label,
-                style: TextStyle(
-                  fontSize: 11,
-                  fontWeight: FontWeight.w600,
-                  color: selected
-                      ? Colors.white
-                      : SpaceShiftColors.textSecondary,
-                ),
-              ),
-            ],
-          ),
-        ),
       ),
     );
   }

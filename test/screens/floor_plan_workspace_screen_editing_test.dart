@@ -22,8 +22,15 @@ void main() {
   List<dynamic> currentDrawings(WidgetTester tester) =>
       tester.widget<WorkspaceDrawingLayer>(find.byType(WorkspaceDrawingLayer)).drawings;
 
+  /// WO099 UI COMPACT MODE — 도구 팔레트는 이제 우측 "작업도구" 아이콘을
+  /// 눌러야 펼쳐지는 flyout 안에 있고, 각 도구도 상시 텍스트가 아니라
+  /// tooltip으로만 이름을 보여준다. 이 파일의 각 테스트는 이 helper를
+  /// 정확히 한 번만 부르므로(패널이 항상 접힌 상태에서 시작), 매번
+  /// "작업도구"를 펼치는 탭을 무조건 한 번 수행한다.
   Future<void> selectTool(WidgetTester tester, WorkspaceSelectionTool tool) async {
-    await tester.tap(find.text(tool.label).first);
+    await tester.tap(find.byTooltip('작업도구'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byTooltip(tool.label).first);
     await tester.pumpAndSettle();
   }
 
@@ -66,7 +73,7 @@ void main() {
 
     // blank workspace이므로 "① 평면도 업로드" 시작 카드가 그대로 보여야
     // 한다 — 도형 편집 전후로 이 상태가 절대 바뀌면 안 된다.
-    expect(find.text('평면도 업로드'), findsWidgets);
+    expect(find.byTooltip('평면도 업로드'), findsWidgets);
 
     await selectTool(tester, WorkspaceSelectionTool.line);
     await drawLine(tester);
@@ -78,7 +85,7 @@ void main() {
     // 도형 생성/삭제를 거쳤지만 평면도 업로드 관련 UI는 그대로다 —
     // drawing 편집이 base floor plan/분석 상태를 전혀 건드리지 않았다는
     // 증거다.
-    expect(find.text('평면도 업로드'), findsWidgets);
+    expect(find.byTooltip('평면도 업로드'), findsWidgets);
     expect(currentDrawings(tester), isEmpty);
   });
 }

@@ -24,6 +24,14 @@ class Selected3DObjectTab extends StatelessWidget {
   String get _label => switch (kind) {
     SpaceElementKindV2.ceiling => '천장',
     SpaceElementKindV2.wall => '벽',
+    // WO099 §8/§9 — 가구가 새 선택 가능 종류로 추가됐다. 잘못 "바닥"으로
+    // 표시되던 걸 바로잡는다(§9 "object type이 유지되어야 한다").
+    SpaceElementKindV2.furniture => '가구',
+    // WO102 §5/§9 — window frame/glass mesh가 이제 실제로 선택 가능한
+    // object다(이전엔 [SpaceOpeningV2]가 렌더링되지 않아 이 kind가
+    // 선택으로 온 적이 없었다 — 그래서 지금까지는 "바닥"으로 잘못
+    // 떨어져도 드러나지 않았다).
+    SpaceElementKindV2.opening => '창문',
     _ => '바닥',
   };
 

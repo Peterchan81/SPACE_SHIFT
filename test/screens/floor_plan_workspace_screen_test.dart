@@ -273,20 +273,35 @@ void main() {
       ),
     );
     await tester.pump();
+
+    // WO099 UI COMPACT MODE — 좌/우 패널이 기본은 아이콘만 보이는 레일로
+    // 바뀌었다("평면도 업로드"/"작업도구" 내용은 더 이상 항상 보이지
+    // 않는다). 이 아래 대부분의 테스트는 그 안쪽 내용(파일 선택 버튼/
+    // AI 평면도 생성/치수 보정 등) 자체를 검증하는 것이 목적이므로,
+    // 공용 helper에서 두 패널을 미리 펼쳐 실제 동작 검증에 집중한다.
+    // 레일 아이콘/tooltip/펼침·접힘 토글 자체는 별도 테스트에서 확인한다.
+    await tester.tap(find.byTooltip('평면도 업로드'));
+    await tester.pump();
+    await tester.tap(find.byTooltip('작업도구'));
+    await tester.pump();
   }
 
   testWidgets('좌측 시작 방식 선택 3가지가 모두 보인다', (tester) async {
     await pumpScreen(tester);
 
+    // WO099 UI COMPACT MODE — 기본은 아이콘만 보이는 세로 레일이고
+    // 제목은 hover 시 tooltip으로만 뜬다(상시 노출 텍스트가 아니다).
+    // "평면도 업로드"만 pumpScreen이 미리 펼쳐 둬서 카드 자체의 상시
+    // 텍스트로도 보이지만, 다른 둘은 tooltip 존재로 확인한다.
     expect(find.text('평면도 업로드'), findsOneWidget);
-    expect(find.text('직접 그리기'), findsOneWidget);
-    expect(find.text('사진으로 변환'), findsOneWidget);
+    expect(find.byTooltip('직접 그리기'), findsOneWidget);
+    expect(find.byTooltip('사진으로 변환'), findsOneWidget);
   });
 
   testWidgets('"직접 그리기"를 탭하면 준비중 안내만 보여주고 이 화면에 남는다', (tester) async {
     await pumpScreen(tester);
 
-    await tester.tap(find.text('직접 그리기'));
+    await tester.tap(find.byTooltip('직접 그리기'));
     await tester.pump();
 
     expect(find.textContaining('준비 중입니다'), findsOneWidget);
@@ -299,7 +314,7 @@ void main() {
   ) async {
     await pumpScreen(tester);
 
-    await tester.tap(find.text('사진으로 변환'));
+    await tester.tap(find.byTooltip('사진으로 변환'));
     await tester.pumpAndSettle();
 
     expect(find.byType(PhotoSelectScreen), findsOneWidget);
@@ -314,9 +329,15 @@ void main() {
   testWidgets('실사용 진입 시 작업 목록/선택 항목이 비어 있다(demo 데이터가 섞이지 않는다)', (tester) async {
     await pumpScreen(tester);
 
-    expect(find.text('아직 등록된 작업이 없습니다.'), findsOneWidget);
     expect(find.text('선택된 항목이 없습니다.\n평면도에서 작업할 영역을 선택해주세요.'), findsOneWidget);
     expect(find.text('거실 벽 (TV 벽체)'), findsNothing);
+
+    // WO099 UI COMPACT MODE — "작업 목록"은 이제 좌측 레일의 별도
+    // 패널이다(평면도 업로드 패널과 같은 자리를 공유하므로 전환해야
+    // 보인다).
+    await tester.tap(find.byTooltip('작업 목록'));
+    await tester.pump();
+    expect(find.text('아직 등록된 작업이 없습니다.'), findsOneWidget);
   });
 
   testWidgets('평면도 업로드 action(파일 선택 버튼)이 노출된다', (tester) async {
@@ -404,7 +425,7 @@ void main() {
   testWidgets('좌측 하단 "설정" 버튼이 노출된다', (tester) async {
     await pumpScreen(tester);
 
-    expect(find.text('설정'), findsOneWidget);
+    expect(find.byTooltip('설정'), findsOneWidget);
   });
 
   testWidgets('"설정"을 탭하면 SettingsScreen으로 진입하고, 뒤로가기로 이 화면으로 돌아온다', (
@@ -412,7 +433,7 @@ void main() {
   ) async {
     await pumpScreen(tester);
 
-    await tester.tap(find.text('설정'));
+    await tester.tap(find.byTooltip('설정'));
     await tester.pumpAndSettle();
 
     expect(find.byType(SettingsScreen), findsOneWidget);
@@ -436,7 +457,7 @@ void main() {
     await tester.pump();
     expect(find.text('3D 공간이 아직 생성되지 않았습니다'), findsOneWidget);
 
-    await tester.tap(find.text('설정'));
+    await tester.tap(find.byTooltip('설정'));
     await tester.pumpAndSettle();
     await tester.pageBack();
     await tester.pumpAndSettle();
@@ -445,6 +466,13 @@ void main() {
     // 파일과 선택했던 View(3D 아이소)가 초기화되지 않는다.
     expect(find.text('3D 공간이 아직 생성되지 않았습니다'), findsOneWidget);
     await tester.tap(find.text('2D 평면도'));
+    await tester.pump();
+
+    // WO099 UI COMPACT MODE — "설정" 탭은 다른 좌측 패널처럼 열려 있던
+    // 패널을 닫는다(§ _handleLeftRailTap). 파일 상태 자체(_floorPlanFile)는
+    // 화면 전환과 무관하게 유지되지만, 그걸 보여주는 "평면도 업로드"
+    // 패널은 설정을 다녀오며 접혔으므로 다시 펼쳐야 확인할 수 있다.
+    await tester.tap(find.byTooltip('평면도 업로드'));
     await tester.pump();
     expect(find.textContaining('floor_plan_1.png'), findsWidgets);
   });
@@ -557,6 +585,9 @@ void main() {
     // GPT FLOORPLAN WO §7 — "공간 1" 등 공간별 크기 목록은 V1
     // production UI에서 제거됐다(우측 "평면도 준비 완료" 카드에는 더
     // 이상 표시되지 않는다) — 존재하지 않는 것이 이제 올바른 상태다.
+    // WO099 UI COMPACT MODE — "작업 목록"은 좌측 레일의 별도 패널이다.
+    await tester.tap(find.byTooltip('작업 목록'));
+    await tester.pump();
     expect(find.text('아직 등록된 작업이 없습니다.'), findsOneWidget);
     expect(find.text('외벽'), findsNothing);
     expect(find.text('공간 1', skipOffstage: false), findsNothing);
@@ -629,6 +660,9 @@ void main() {
     expect(find.textContaining('평면도 구조를 충분히 인식하지 못했습니다'), findsOneWidget);
     expect(find.byType(FloorPlanAnalysisOverlay), findsNothing);
     expect(find.textContaining('floor_plan.png'), findsWidgets);
+    // WO099 UI COMPACT MODE — "작업 목록"은 좌측 레일의 별도 패널이다.
+    await tester.tap(find.byTooltip('작업 목록'));
+    await tester.pump();
     expect(find.text('아직 등록된 작업이 없습니다.'), findsOneWidget);
     expect(tester.takeException(), isNull);
   });

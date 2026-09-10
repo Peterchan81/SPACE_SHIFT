@@ -250,7 +250,9 @@ void main() {
 
     expect(find.byType(FloorPlanWorkspaceScreen), findsOneWidget);
     expect(find.text('평면도 업로드 작업실'), findsOneWidget);
-    expect(find.text('시작 방식 선택'), findsOneWidget);
+    // WO099 UI COMPACT MODE — 좌측 "시작 방식 선택"은 이제 세로 아이콘
+    // 레일(기본 상태는 아이콘만, hover 시 tooltip)이다.
+    expect(find.byTooltip('평면도 업로드'), findsOneWidget);
     // 기존 "공간 사진 등록" 화면이 로그인 직후 자동으로 나타나지 않는다.
     expect(find.text('공간 사진 등록'), findsNothing);
   });

@@ -19,11 +19,11 @@ import '../services/space_scene_builder.dart';
 import '../services/space_scene_builder_v2.dart';
 import '../theme/space_shift_colors.dart';
 import '../widgets/workspace/ceiling_height_sheet.dart';
-import '../widgets/workspace/settings_entry_button.dart';
+import '../widgets/workspace/floor_plan_upload_card.dart';
 import '../widgets/workspace/space_3d_view_gpu_v2.dart' show Space3DCameraMode, Space3DViewGpuV2;
-import '../widgets/workspace/start_method_panel.dart';
 import '../widgets/workspace/user_workspace_panel.dart';
 import '../widgets/workspace/workspace_canvas.dart';
+import '../widgets/workspace/workspace_icon_rail.dart';
 import '../widgets/workspace/workspace_task_list.dart';
 import '../widgets/workspace/workspace_view_switcher.dart';
 import 'photo_select_screen.dart';
@@ -121,10 +121,20 @@ FloorPlanImageGenerationService _createProductionFloorPlanImageService() =>
 FloorPlanIsoImageGenerationService _createProductionFloorPlanIsoService() =>
     createFloorPlanIsoImageService();
 
+/// WO099 UI COMPACT MODE — 좌측 세로 아이콘 레일의 5개 항목. 이 중
+/// [upload]/[taskList]만 오른쪽으로 펼쳐지는 패널을 갖는다(§ 좌측 —
+/// "선택 시 필요한 패널만 오른쪽으로 펼쳐지게 한다") — 나머지(직접
+/// 그리기/사진으로 변환/설정)는 기존과 동일하게 즉시 동작(SnackBar
+/// 안내 또는 화면 전환)만 하고 패널을 펼치지 않는다.
+enum _LeftRailItem { upload, drawManually, photoConvert, taskList, settings }
+
 class _FloorPlanWorkspaceScreenState extends State<FloorPlanWorkspaceScreen> {
-  WorkspaceStartMethod _startMethod = WorkspaceStartMethod.floorPlanUpload;
   WorkspaceViewMode _viewMode = WorkspaceViewMode.plan2d;
   WorkspaceSelectionTool _tool = WorkspaceSelectionTool.select;
+
+  /// null이면 좌측은 아이콘만 보이는 접힌 상태다(WO099 "기본 상태에서는
+  /// 아이콘만 표시").
+  _LeftRailItem? _leftExpandedItem;
 
   late List<WorkspaceTaskItem> _tasks;
   int? _selectedTaskId;
@@ -1133,15 +1143,37 @@ class _FloorPlanWorkspaceScreenState extends State<FloorPlanWorkspaceScreen> {
     );
   }
 
+  /// WO099 UI COMPACT MODE — 좌측 아이콘 레일 탭 처리. [_LeftRailItem.upload]/
+  /// [_LeftRailItem.taskList]만 패널을 펼치고(같은 아이콘을 다시 누르면
+  /// 접는 토글), 나머지는 기존 [_onStartMethodSelected]/[_openPhotoConvert]/
+  /// [_openSettings] 동작을 그대로 수행하면서 열려 있던 패널을 닫는다.
+  void _handleLeftRailTap(_LeftRailItem item) {
+    switch (item) {
+      case _LeftRailItem.upload:
+      case _LeftRailItem.taskList:
+        setState(() {
+          _leftExpandedItem = _leftExpandedItem == item ? null : item;
+        });
+      case _LeftRailItem.drawManually:
+        _onStartMethodSelected(WorkspaceStartMethod.drawManually);
+        setState(() => _leftExpandedItem = null);
+      case _LeftRailItem.photoConvert:
+        setState(() => _leftExpandedItem = null);
+        _openPhotoConvert();
+      case _LeftRailItem.settings:
+        setState(() => _leftExpandedItem = null);
+        _openSettings();
+    }
+  }
+
+  /// "직접 그리기"는 아직 실제 화면이 없어 준비중 안내만 보여준다(WO
+  /// 099 이전부터 유지되던 동작 — 좌측 레일 도입으로 호출 경로만
+  /// [_handleLeftRailTap]으로 바뀌었다).
   void _onStartMethodSelected(WorkspaceStartMethod method) {
-    if (method == WorkspaceStartMethod.floorPlanUpload) {
-      setState(() => _startMethod = method);
-    } else if (method == WorkspaceStartMethod.drawManually) {
+    if (method == WorkspaceStartMethod.drawManually) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('"${method.title}"은(는) 준비 중입니다. 곧 지원할 예정입니다.')),
       );
-    } else {
-      _openPhotoConvert();
     }
   }
 
@@ -1202,12 +1234,13 @@ class _FloorPlanWorkspaceScreenState extends State<FloorPlanWorkspaceScreen> {
             body: SafeArea(
               child: Padding(
                 padding: const EdgeInsets.all(16),
-                child: LayoutBuilder(
-                  builder: (context, constraints) {
-                    final isWide = constraints.maxWidth >= 800;
-                    return isWide ? _buildWideBody(task) : _buildNarrowBody(task);
-                  },
-                ),
+                // WO099 UI COMPACT MODE — 좌/우가 이제 얇은 아이콘
+                // 레일(펼쳐질 때만 패널이 옆에 붙는다)이라, 폭에 따라
+                // 완전히 다른 레이아웃을 따로 유지할 필요가 없어졌다
+                // (예전 wide/narrow 분기는 240/320px 고정폭 큰 카드
+                // 패널을 감당하기 위한 것이었다). 하나의 body로
+                // 통일해 중앙 canvas를 항상 최대로 확보한다.
+                child: _buildBody(task),
               ),
             ),
           ),
@@ -1240,213 +1273,191 @@ class _FloorPlanWorkspaceScreenState extends State<FloorPlanWorkspaceScreen> {
     );
   }
 
-  Widget _buildWideBody(WorkspaceTaskItem? task) {
-    return Row(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        SizedBox(
-          width: 240,
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              Expanded(
-                child: SingleChildScrollView(
-                  child: StartMethodPanel(
-                    selected: _startMethod,
-                    onSelected: _onStartMethodSelected,
-                    floorPlanFile: _floorPlanFile,
-                    onPickFloorPlanFile: _pickFloorPlan,
-                  ),
-                ),
+  /// WO099 UI COMPACT MODE — 좌측 아이콘 레일 + (펼쳐졌을 때만) 그 옆
+  /// 패널. 폭은 이 위젯 스스로 결정한다(접힘=[kWorkspaceRailWidth]만,
+  /// 펼침=레일+패널) — 그래서 부모 [Row]는 그냥 자식으로 놓기만 하면
+  /// 되고, 중앙 [Expanded] 캔버스가 나머지 폭을 전부 가져간다.
+  Widget _buildLeftRailArea() {
+    final expanded = _leftExpandedItem;
+    return SizedBox(
+      width: expanded != null ? kWorkspaceRailWidth + 8 + 300 : kWorkspaceRailWidth,
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          WorkspaceIconRail(
+            items: [
+              WorkspaceRailItem(
+                icon: WorkspaceStartMethod.floorPlanUpload.icon,
+                tooltip: WorkspaceStartMethod.floorPlanUpload.title,
+                selected: expanded == _LeftRailItem.upload,
+                onTap: () => _handleLeftRailTap(_LeftRailItem.upload),
               ),
-              const SizedBox(height: 12),
-              SettingsEntryButton(onTap: _openSettings),
+              WorkspaceRailItem(
+                icon: WorkspaceStartMethod.drawManually.icon,
+                tooltip: WorkspaceStartMethod.drawManually.title,
+                onTap: () => _handleLeftRailTap(_LeftRailItem.drawManually),
+              ),
+              WorkspaceRailItem(
+                icon: WorkspaceStartMethod.photoConvert.icon,
+                tooltip: WorkspaceStartMethod.photoConvert.title,
+                onTap: () => _handleLeftRailTap(_LeftRailItem.photoConvert),
+              ),
+              WorkspaceRailItem(
+                icon: Icons.list_alt_rounded,
+                tooltip: '작업 목록',
+                selected: expanded == _LeftRailItem.taskList,
+                onTap: () => _handleLeftRailTap(_LeftRailItem.taskList),
+              ),
+              WorkspaceRailItem(
+                icon: Icons.settings_outlined,
+                tooltip: '설정',
+                onTap: () => _handleLeftRailTap(_LeftRailItem.settings),
+              ),
             ],
           ),
-        ),
-        const SizedBox(width: 16),
-        Expanded(child: _buildCenterColumn(task)),
-        const SizedBox(width: 16),
-        SizedBox(
-          width: 320,
-          child: UserWorkspacePanel(
-            task: task,
-            projectName: widget.projectName,
-            taskCount: _tasks.length,
-            visibleTaskCount: _tasks.where((t) => t.visible).length,
-            viewMode: _viewMode,
-            hasFloorPlanFile: _floorPlanFile != null,
-            analysisPhase: _analysisPhase,
-            analysisStep: _analysisStep,
-            analysisFailureMessage: _analysisFailureMessage,
-            onReanalyze: _onReanalyzeRequested,
-            cad: _cadWorkspaceState,
-            cadCallbacks: _cadWorkspaceCallbacks,
-            selectedTool: _tool,
-            onToolSelected: _onToolSelected,
-            onToggleVisible: () =>
-                _updateSelected((t) => t.copyWith(visible: !t.visible)),
-            onToggleLocked: () =>
-                _updateSelected((t) => t.copyWith(locked: !t.locked)),
-            onRename: () => _showRenameDialog(task),
-            onDuplicate: _duplicateSelected,
-            onDelete: _deleteSelected,
-            onHeightChanged: (value) =>
-                _updateSelected((t) => t.copyWith(heightMm: value)),
-            onWidthChanged: (value) =>
-                _updateSelected((t) => t.copyWith(widthMm: value)),
-            onThicknessChanged: (value) =>
-                _updateSelected((t) => t.copyWith(thicknessMm: value)),
-            onFinishSelected: (value) =>
-                _updateSelected((t) => t.copyWith(finishLabel: value)),
-            onColorChanged: (value) =>
-                _updateSelected((t) => t.copyWith(color: value)),
-            canUndo: _undoStack.isNotEmpty,
-            canRedo: _redoStack.isNotEmpty,
-            onUndo: _undo,
-            onRedo: _redo,
-            analysisDebugStats: _analysisResult?.debugStats,
-            selectedCadWall: _selectedCadWall,
-            selectedCadOpening: _selectedCadOpening,
-            selectedCadRoom: _selectedCadRoom,
-            selected3DKind: _selected3DKind,
-            cadScale: _scale,
-            cadSourceWidthPx: _cadFloorPlan?.sourceWidthPx ?? 0,
-            cadSourceHeightPx: _cadFloorPlan?.sourceHeightPx ?? 0,
-            canUndoCad: _cadUndoStack.isNotEmpty,
-            onUndoCad: _undoCad,
-            onDeleteCad: _deleteSelectedCadObject,
-            onCreateWorkItemFromCad: _createWorkItemFromCad,
-          ),
-        ),
-      ],
+          if (expanded != null) ...[
+            const SizedBox(width: 8),
+            SizedBox(width: 300, child: _buildLeftFlyout(expanded)),
+          ],
+        ],
+      ),
     );
   }
 
-  Widget _buildNarrowBody(WorkspaceTaskItem? task) {
-    return SingleChildScrollView(
+  Widget _buildLeftFlyout(_LeftRailItem item) {
+    // WO099 — [FloorPlanUploadCard]/[WorkspaceTaskList] 둘 다 이미 자기
+    // 제목("평면도 업로드"/"작업 목록")을 스스로 그린다 — 이 바깥 flyout
+    // 이 또 title Text를 얹으면 같은 글자가 화면에 두 번 보인다. 그래서
+    // 여기서는 "패널 닫기" 버튼만 두고 내용의 제목은 각 위젯에게 맡긴다.
+    final Widget child;
+    switch (item) {
+      case _LeftRailItem.upload:
+        child = SingleChildScrollView(
+          child: FloorPlanUploadCard(
+            selected: true,
+            file: _floorPlanFile,
+            onSelectCard: () {},
+            onPickFile: _pickFloorPlan,
+          ),
+        );
+      case _LeftRailItem.taskList:
+        child = WorkspaceTaskList(
+          tasks: _tasks,
+          selectedId: _selectedTaskId,
+          onSelect: (id) => setState(() {
+            _selectedTaskId = id;
+            _selectedCadObjectId = null;
+          }),
+          onToggleVisible: (id) => _mutate(
+            (tasks) => [
+              for (final t in tasks)
+                if (t.id == id) t.copyWith(visible: !t.visible) else t,
+            ],
+          ),
+        );
+      case _LeftRailItem.drawManually:
+      case _LeftRailItem.photoConvert:
+      case _LeftRailItem.settings:
+        // 이 셋은 _handleLeftRailTap에서 _leftExpandedItem을 항상 null로
+        // 되돌리므로 이 분기에 실제로 도달하지 않는다.
+        child = const SizedBox.shrink();
+    }
+    return Container(
+      decoration: BoxDecoration(
+        color: SpaceShiftColors.background,
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: SpaceShiftColors.border),
+      ),
+      clipBehavior: Clip.antiAlias,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          StartMethodPanel(
-            selected: _startMethod,
-            onSelected: _onStartMethodSelected,
-            floorPlanFile: _floorPlanFile,
-            onPickFloorPlanFile: _pickFloorPlan,
-          ),
-          const SizedBox(height: 12),
-          SettingsEntryButton(onTap: _openSettings),
-          const SizedBox(height: 16),
-          Center(
-            child: WorkspaceViewSwitcher(
-              selected: _viewMode,
-              onSelected: (mode) => setState(() => _viewMode = mode),
+          Align(
+            alignment: Alignment.topRight,
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(0, 6, 6, 0),
+              child: IconButton(
+                onPressed: () => setState(() => _leftExpandedItem = null),
+                tooltip: '패널 닫기',
+                visualDensity: VisualDensity.compact,
+                icon: const Icon(Icons.chevron_left_rounded, size: 20),
+              ),
             ),
           ),
-          const SizedBox(height: 12),
-          SizedBox(
-            height: 320,
-            child: WorkspaceCanvas(
-              tasks: _tasks,
-              selectedId: _selectedTaskId,
-              onSelect: (id) => setState(() {
-                _selectedTaskId = id;
-                _selectedCadObjectId = null;
-              }),
-              viewMode: _viewMode,
-              floorPlanFile: _floorPlanFile,
-              analysisResult: _analysisResult,
-              cad: _cadWorkspaceState,
-              cadCallbacks: _cadWorkspaceCallbacks,
-              onPickFloorPlanFile: _pickFloorPlan,
-              spaceScene: _spaceScene,
-              spaceSceneV2: _spaceSceneV2,
-              spaceGenerationFailureMessage: _spaceGenerationFailureMessage,
-              generatedIsoImageBytes: _generatedIsoImageBytes,
-              isGeneratingIsoImage: _isGeneratingIsoImage,
-              onExitTo2D: () =>
-                  setState(() => _viewMode = WorkspaceViewMode.plan2d),
-              space3DViewKey: _space3DViewKey,
-              isFullscreen3D: _isFullscreen3D,
-              onToggleFullscreen3D: _onToggleFullscreen3D,
-              tool: _tool,
-              drawings: _drawings,
-              selectedDrawingId: _selectedDrawingId,
-              viewport: _viewport,
-              onCreateDrawing: _createDrawing,
-              onSelectDrawing: _selectDrawing,
-              onViewportChanged: (v) => setState(() => _viewport = v),
-              onCanvasSizeChanged: (s) => _canvasSize = s,
-            ),
-          ),
-          if (_showEditDebugInfo)
-            _EditDebugInfoBar(
-              tool: _tool,
-              drawingCount: _drawings.length,
-              zoomPercent: (_viewport.scale * 100).round(),
-              selectedId: _selectedDrawingId,
-              onTap: _resetViewport,
-              onLongPress: () => setState(() => _showEditDebugInfo = false),
-            ),
-          const SizedBox(height: 12),
-          WorkspaceTaskList(
-            tasks: _tasks,
-            selectedId: _selectedTaskId,
-            onSelect: (id) => setState(() {
-              _selectedTaskId = id;
-              _selectedCadObjectId = null;
-            }),
-            onToggleVisible: (id) => _mutate(
-              (tasks) => [
-                for (final t in tasks)
-                  if (t.id == id) t.copyWith(visible: !t.visible) else t,
-              ],
-            ),
-          ),
-          const SizedBox(height: 16),
-          SizedBox(
-            height: 560,
-            child: UserWorkspacePanel(
-              task: task,
-              projectName: widget.projectName,
-              taskCount: _tasks.length,
-              visibleTaskCount: _tasks.where((t) => t.visible).length,
-              viewMode: _viewMode,
-              hasFloorPlanFile: _floorPlanFile != null,
-              analysisPhase: _analysisPhase,
-              analysisStep: _analysisStep,
-              analysisFailureMessage: _analysisFailureMessage,
-              onReanalyze: _onReanalyzeRequested,
-              cad: _cadWorkspaceState,
-              cadCallbacks: _cadWorkspaceCallbacks,
-              selectedTool: _tool,
-              onToolSelected: _onToolSelected,
-              onToggleVisible: () =>
-                  _updateSelected((t) => t.copyWith(visible: !t.visible)),
-              onToggleLocked: () =>
-                  _updateSelected((t) => t.copyWith(locked: !t.locked)),
-              onRename: () => _showRenameDialog(task),
-              onDuplicate: _duplicateSelected,
-              onDelete: _deleteSelected,
-              onHeightChanged: (value) =>
-                  _updateSelected((t) => t.copyWith(heightMm: value)),
-              onWidthChanged: (value) =>
-                  _updateSelected((t) => t.copyWith(widthMm: value)),
-              onThicknessChanged: (value) =>
-                  _updateSelected((t) => t.copyWith(thicknessMm: value)),
-              onFinishSelected: (value) =>
-                  _updateSelected((t) => t.copyWith(finishLabel: value)),
-              onColorChanged: (value) =>
-                  _updateSelected((t) => t.copyWith(color: value)),
-              canUndo: _undoStack.isNotEmpty,
-              canRedo: _redoStack.isNotEmpty,
-              onUndo: _undo,
-              onRedo: _redo,
-              analysisDebugStats: _analysisResult?.debugStats,
+          Expanded(
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(14, 0, 14, 14),
+              child: child,
             ),
           ),
         ],
       ),
+    );
+  }
+
+  /// WO099 UI COMPACT MODE — 예전 wide(240/320px 고정폭 카드 패널)·
+  /// narrow(세로로 쌓인 같은 카드들) 두 레이아웃을 하나로 합쳤다. 좌/우가
+  /// 이제 얇은 아이콘 레일이라 폭에 따라 완전히 다른 배치를 따로 유지할
+  /// 필요가 없다 — 중앙 canvas를 항상 최대한 넓게 확보하는 이 배치
+  /// 하나만 쓴다(§ 최우선 목표).
+  Widget _buildBody(WorkspaceTaskItem? task) {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        _buildLeftRailArea(),
+        const SizedBox(width: 12),
+        Expanded(child: _buildCenterColumn(task)),
+        const SizedBox(width: 12),
+        UserWorkspacePanel(
+          task: task,
+          projectName: widget.projectName,
+          taskCount: _tasks.length,
+          visibleTaskCount: _tasks.where((t) => t.visible).length,
+          viewMode: _viewMode,
+          hasFloorPlanFile: _floorPlanFile != null,
+          analysisPhase: _analysisPhase,
+          analysisStep: _analysisStep,
+          analysisFailureMessage: _analysisFailureMessage,
+          onReanalyze: _onReanalyzeRequested,
+          cad: _cadWorkspaceState,
+          cadCallbacks: _cadWorkspaceCallbacks,
+          selectedTool: _tool,
+          onToolSelected: _onToolSelected,
+          onToggleVisible: () =>
+              _updateSelected((t) => t.copyWith(visible: !t.visible)),
+          onToggleLocked: () =>
+              _updateSelected((t) => t.copyWith(locked: !t.locked)),
+          onRename: () => _showRenameDialog(task),
+          onDuplicate: _duplicateSelected,
+          onDelete: _deleteSelected,
+          onHeightChanged: (value) =>
+              _updateSelected((t) => t.copyWith(heightMm: value)),
+          onWidthChanged: (value) =>
+              _updateSelected((t) => t.copyWith(widthMm: value)),
+          onThicknessChanged: (value) =>
+              _updateSelected((t) => t.copyWith(thicknessMm: value)),
+          onFinishSelected: (value) =>
+              _updateSelected((t) => t.copyWith(finishLabel: value)),
+          onColorChanged: (value) =>
+              _updateSelected((t) => t.copyWith(color: value)),
+          canUndo: _undoStack.isNotEmpty,
+          canRedo: _redoStack.isNotEmpty,
+          onUndo: _undo,
+          onRedo: _redo,
+          analysisDebugStats: _analysisResult?.debugStats,
+          selectedCadWall: _selectedCadWall,
+          selectedCadOpening: _selectedCadOpening,
+          selectedCadRoom: _selectedCadRoom,
+          selected3DKind: _selected3DKind,
+          cadScale: _scale,
+          cadSourceWidthPx: _cadFloorPlan?.sourceWidthPx ?? 0,
+          cadSourceHeightPx: _cadFloorPlan?.sourceHeightPx ?? 0,
+          canUndoCad: _cadUndoStack.isNotEmpty,
+          onUndoCad: _undoCad,
+          onDeleteCad: _deleteSelectedCadObject,
+          onCreateWorkItemFromCad: _createWorkItemFromCad,
+        ),
+      ],
     );
   }
 
@@ -1495,6 +1506,12 @@ class _FloorPlanWorkspaceScreenState extends State<FloorPlanWorkspaceScreen> {
             onCanvasSizeChanged: (s) => _canvasSize = s,
           ),
         ),
+        // WO099 UI COMPACT MODE — 중앙 하단에 항상 붙어 있던 "작업 목록"을
+        // 제거했다(§ 최우선 목표 "중앙 canvas를 최대한 크게 확보한다" +
+        // "기존 하단 작업 목록 영역은 삭제하고 좌측 '작업 목록' 아이콘
+        // 내부 패널로 이동한다") — 이제 [_buildLeftFlyout]의
+        // [_LeftRailItem.taskList] 분기가 같은 [WorkspaceTaskList]
+        // 위젯을 그대로 재사용해 보여준다.
         if (_showEditDebugInfo)
           _EditDebugInfoBar(
             tool: _tool,
@@ -1504,21 +1521,6 @@ class _FloorPlanWorkspaceScreenState extends State<FloorPlanWorkspaceScreen> {
             onTap: _resetViewport,
             onLongPress: () => setState(() => _showEditDebugInfo = false),
           ),
-        const SizedBox(height: 12),
-        WorkspaceTaskList(
-          tasks: _tasks,
-          selectedId: _selectedTaskId,
-          onSelect: (id) => setState(() {
-            _selectedTaskId = id;
-            _selectedCadObjectId = null;
-          }),
-          onToggleVisible: (id) => _mutate(
-            (tasks) => [
-              for (final t in tasks)
-                if (t.id == id) t.copyWith(visible: !t.visible) else t,
-            ],
-          ),
-        ),
       ],
     );
   }

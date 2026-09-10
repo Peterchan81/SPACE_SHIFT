@@ -75,6 +75,8 @@ class SelectionEditTools extends StatelessWidget {
   }
 }
 
+/// WO099 §"작업도구" — 도구도 icon 중심으로 바꾼다. 이름은 상시 노출
+/// 텍스트가 아니라 [Tooltip](hover 시에만 표시)로만 보여준다.
 class _ToolButton extends StatelessWidget {
   const _ToolButton({
     required this.tool,
@@ -88,49 +90,37 @@ class _ToolButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Material(
-      color: selected
-          ? SpaceShiftColors.selectionAccent.withValues(alpha: 0.1)
-          : Colors.white,
-      borderRadius: BorderRadius.circular(12),
-      child: InkWell(
-        onTap: onTap,
+    return Tooltip(
+      message: tool.label,
+      waitDuration: const Duration(milliseconds: 400),
+      child: Material(
+        color: selected
+            ? SpaceShiftColors.selectionAccent.withValues(alpha: 0.1)
+            : Colors.white,
         borderRadius: BorderRadius.circular(12),
-        child: Container(
-          width: 64,
-          height: 56,
-          padding: const EdgeInsets.symmetric(vertical: 6),
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(12),
-            border: Border.all(
-              color: selected
-                  ? SpaceShiftColors.selectionAccent
-                  : SpaceShiftColors.border,
-              width: selected ? 1.5 : 1,
-            ),
-          ),
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Icon(
-                tool.icon,
-                size: 20,
+        child: InkWell(
+          onTap: onTap,
+          borderRadius: BorderRadius.circular(12),
+          child: Container(
+            width: 44,
+            height: 44,
+            alignment: Alignment.center,
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(
                 color: selected
                     ? SpaceShiftColors.selectionAccent
-                    : SpaceShiftColors.textSecondary,
+                    : SpaceShiftColors.border,
+                width: selected ? 1.5 : 1,
               ),
-              const SizedBox(height: 4),
-              Text(
-                tool.label,
-                style: TextStyle(
-                  fontSize: 10,
-                  fontWeight: FontWeight.w600,
-                  color: selected
-                      ? SpaceShiftColors.selectionAccent
-                      : SpaceShiftColors.textSecondary,
-                ),
-              ),
-            ],
+            ),
+            child: Icon(
+              tool.icon,
+              size: 20,
+              color: selected
+                  ? SpaceShiftColors.selectionAccent
+                  : SpaceShiftColors.textSecondary,
+            ),
           ),
         ),
       ),

@@ -206,6 +206,68 @@ class SpaceOpeningV2 {
   final double widthMm;
 }
 
+/// WO102 §5 — window 하나의 실제 3D frame/glass geometry. [SpaceOpeningV2]
+/// (원본 [CadOpening] 1개당 하나, geometry 없는 identity 전용)와 달리,
+/// 이 타입은 "벽에 실제로 뚫은 opening 구간 하나"당 하나다 — 같은 벽에
+/// 겹치거나 맞닿은 window 후보 여러 개가 병합되면(문과 같은 이유,
+/// [_mergeAlongIntervals]) 병합된 구간 하나가 곧 이 mesh 하나가 되므로
+/// 원본 [CadOpening.id]와 항상 1:1은 아니다 — 그래서 [SpaceOpeningV2]를
+/// 확장하는 대신 별도 타입으로 분리했다. frame/glass는 각각 독립
+/// selectable object다(§9 "선택 시 종류가 유지돼야 한다").
+@immutable
+class SpaceWindowMeshV2 {
+  const SpaceWindowMeshV2({
+    required this.frameIdentity,
+    required this.frameTriangles,
+    required this.glassIdentity,
+    required this.glassTriangles,
+    required this.wallId,
+    required this.centerMm,
+    required this.widthMm,
+  });
+
+  final SpaceObjectIdentityV2 frameIdentity;
+  final List<SpaceTriangleV2> frameTriangles;
+  final SpaceObjectIdentityV2 glassIdentity;
+  final List<SpaceTriangleV2> glassTriangles;
+
+  /// host wall(§5 "hostWallId") — [CadWall.id]와 같다.
+  final String wallId;
+  final Vector3 centerMm;
+  final double widthMm;
+}
+
+/// WO099 §8 — Phase A 최소 가구 3종. 방 종류 분류(bedroom/living room 등)
+/// 데이터가 없으므로([SSRoomType]은 아직 bathroom/other뿐) 이 값은 "이
+/// 방이 침실이다" 같은 의미 판단이 아니라, 순수하게 어떤 primitive
+/// composition을 썼는지만 나타낸다.
+enum SpaceFurnitureType { sofa, table, bed }
+
+/// [SpaceFurnitureType] 하나를 실제 3D 공간에 배치한 결과 — 향후(§10)
+/// 이동/회전/삭제/교체 편집이 가능하도록 [identity]에 안정적인 id를
+/// 담고, 배치 기준점([centerMm])을 별도로 보존한다(geometry를 이미
+/// world mm로 구웠어도, 편집 UI가 "지금 이 가구가 어디 있는지"를 다시
+/// 계산하지 않고 그대로 쓸 수 있게).
+@immutable
+class SpaceFurnitureMeshV2 {
+  const SpaceFurnitureMeshV2({
+    required this.identity,
+    required this.triangles,
+    required this.furnitureType,
+    required this.centerMm,
+    required this.roomId,
+  });
+
+  final SpaceObjectIdentityV2 identity;
+  final List<SpaceTriangleV2> triangles;
+  final SpaceFurnitureType furnitureType;
+  final Vector3 centerMm;
+
+  /// 이 가구가 놓인 방의 [CadRoom.id] — §9 "선택 시 room ID 또는 parent
+  /// identity가 유지되어야 한다"를 만족한다.
+  final String roomId;
+}
+
 /// 도면 전체를 V2 방식으로 옮긴 결과.
 @immutable
 class SpaceSceneV2 {
@@ -213,6 +275,8 @@ class SpaceSceneV2 {
     required this.wallMeshes,
     required this.floorMeshes,
     this.ceilingMeshes = const [],
+    this.furnitureMeshes = const [],
+    this.windowMeshes = const [],
     required this.openings,
     required this.minBounds,
     required this.maxBounds,
@@ -229,6 +293,15 @@ class SpaceSceneV2 {
   /// 바닥과 구분된다). 이번 범위 이전 코드는 항상 빈 리스트를 기대하므로
   /// 기본값 `const []`로 하위 호환을 유지한다.
   final List<SpaceFloorMeshV2> ceilingMeshes;
+
+  /// WO099 §8 — Phase A 최소 가구(sofa/table/bed, 최대 3개). 기본값
+  /// `const []`로 기존 호출부(테스트 등)와 하위 호환을 유지한다.
+  final List<SpaceFurnitureMeshV2> furnitureMeshes;
+
+  /// WO102 §5 — 실제로 벽에 뚫은 window opening의 frame/glass geometry.
+  /// [openings](식별자 전용, 항상 [plan.openings]와 1:1)와 달리 병합된
+  /// 벽-cut 구간 하나당 하나다.
+  final List<SpaceWindowMeshV2> windowMeshes;
   final List<SpaceOpeningV2> openings;
 
   final Vector3 minBounds;
@@ -241,6 +314,8 @@ class SpaceSceneV2 {
   int get wallCount => wallMeshes.length;
   int get floorCount => floorMeshes.length;
   int get ceilingCount => ceilingMeshes.length;
+  int get furnitureCount => furnitureMeshes.length;
+  int get windowCount => windowMeshes.length;
 
   /// 렌더러가 순회할 평면화된 삼각형 목록 — 매 프레임 새로 만들지 않도록
   /// 호출부(렌더러)가 캐시해서 쓰는 것을 권장한다.
@@ -248,6 +323,9 @@ class SpaceSceneV2 {
     for (final wall in wallMeshes) ...wall.triangles,
     for (final floor in floorMeshes) ...floor.triangles,
     for (final ceiling in ceilingMeshes) ...ceiling.triangles,
+    for (final furniture in furnitureMeshes) ...furniture.triangles,
+    for (final window in windowMeshes) ...window.frameTriangles,
+    for (final window in windowMeshes) ...window.glassTriangles,
   ];
 
   Vector3 get center => (minBounds + maxBounds) / 2.0;
