@@ -170,23 +170,42 @@ WallStageResult detectWallsAndOpenings(WallStageInput input) {
   final w = analysisImage.width;
   final h = analysisImage.height;
   final luminance = Uint8List(w * h);
+  final chroma = Uint8List(w * h);
   final histogram = List<int>.filled(256, 0);
+  final chromaHistogram = List<int>.filled(256, 0);
   for (var y = 0; y < h; y++) {
     for (var x = 0; x < w; x++) {
-      final l = analysisImage.getPixel(x, y).luminance.round().clamp(0, 255);
+      final p = analysisImage.getPixel(x, y);
+      final l = p.luminance.round().clamp(0, 255);
+      final r = p.r.round(), g = p.g.round(), b = p.b.round();
+      final c = (math.max(r, math.max(g, b)) - math.min(r, math.min(g, b))).clamp(0, 255).toInt();
       luminance[y * w + x] = l;
+      chroma[y * w + x] = c;
       histogram[l]++;
+      chromaHistogram[c]++;
     }
   }
 
   final threshold = otsuThreshold(histogram, w * h);
+  // Wall Detection Coverage WO — 색상 채움(예: 따뜻한 갈색 바닥 텍스처,
+  // chroma 100+대)이 luminance만으로는 벽 선(거의 무채색, chroma 0~5대)과
+  // 구분되지 않아, 실측: 바닥 색이 충분히 어두운 방(色 채움 있는 방)
+  // 전체가 "어두운 픽셀"(벽 후보)로 통째로 오탐되는 문제가 확인됐다
+  // (vision_cad_poc/drafting_v1/structural_layer.dart가 다른 이미지에서
+  // 이미 같은 문제로 검증해 둔 dark+low-chroma 원칙을 그대로 재사용 —
+  // 새 임계값 로직을 또 만들지 않는다). chroma도 Otsu로 직접 계산해
+  // 하드코딩하지 않는다. 순수 흑백(chroma≡0) 이미지에서는 모든 픽셀이
+  // 항상 chromaThreshold 이하이므로 이 조건이 항상 참이 되어 기존 동작과
+  // 100% 동일하다(기존 회귀 테스트가 전부 순수 흑백 합성 이미지인 이유와
+  // 맞물려 안전하다).
+  final chromaThreshold = otsuThreshold(chromaHistogram, w * h);
   final mask = Uint8List(w * h);
   for (var i = 0; i < mask.length; i++) {
     // Otsu 임계값 t는 "값 <= t가 배경(어두운 픽셀) 클래스"로 누적
     // 계산되므로(otsuThreshold의 weightBackground 누적과 일치해야 함),
     // 여기서도 <=로 나눠야 한다. <로 나누면 순수 이진(0/255) 이미지처럼
     // 임계값이 0으로 나올 때 어두운 픽셀이 전부 빠지는 문제가 있었다.
-    mask[i] = luminance[i] <= threshold ? 1 : 0;
+    mask[i] = (luminance[i] <= threshold && chroma[i] <= chromaThreshold) ? 1 : 0;
   }
 
   // PC2 2D CAD 재조사 WO(핵심 후보로 지목된 axis-aligned 전용 한계) —
