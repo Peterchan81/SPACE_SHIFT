@@ -285,48 +285,66 @@ void main() {
   });
 
   group('Floor isolation(WO 11번) — invalid floor가 벽을 깨뜨리지 않는다', () {
-    test('자기교차하는 room polygon은 바닥 없이 건너뛰고, 벽은 정상 생성된다', () {
-      final plan = CadFloorPlan(
-        sourceWidthPx: 1000,
-        sourceHeightPx: 1000,
-        walls: [
-          _wall('n', const Point2(0.1, 0.1), const Point2(0.9, 0.1)),
-          _wall('s', const Point2(0.1, 0.9), const Point2(0.9, 0.9)),
-          _wall('w', const Point2(0.1, 0.1), const Point2(0.1, 0.9)),
-          _wall('e', const Point2(0.9, 0.1), const Point2(0.9, 0.9)),
-        ],
-        openings: const [],
-        rooms: const [
-          // bowtie(자기교차) — 유효하지 않은 polygon.
-          CadRoom(
-            id: 'broken',
-            polygon: [
-              Point2(0.1, 0.1),
-              Point2(0.9, 0.9),
-              Point2(0.9, 0.1),
-              Point2(0.1, 0.9),
-            ],
-            areaNormalized: 0.5,
-            confidence: 0.9,
-          ),
-        ],
-        warnings: const [],
-      );
-      final scene = buildSpaceSceneV2(
-        plan: plan,
-        scale: _scale,
-        ceilingHeightMm: 2400,
-      );
+    test(
+      '자기교차하는 room polygon도 convex hull로 근사한 바닥을 만든다 '
+      '(WO094 PC1 실기 재검증 FAIL — "검정 화면에 벽 골격만 보임"의 실제 원인이 '
+      '이 경로였다: 바닥을 통째로 건너뛰면 벽만 남아 그렇게 보인다. 방을 목록에서 '
+      '삭제하지 않는 원칙과 같게, 바닥도 완전히 포기하지 않는다)',
+      () {
+        final plan = CadFloorPlan(
+          sourceWidthPx: 1000,
+          sourceHeightPx: 1000,
+          walls: [
+            _wall('n', const Point2(0.1, 0.1), const Point2(0.9, 0.1)),
+            _wall('s', const Point2(0.1, 0.9), const Point2(0.9, 0.9)),
+            _wall('w', const Point2(0.1, 0.1), const Point2(0.1, 0.9)),
+            _wall('e', const Point2(0.9, 0.1), const Point2(0.9, 0.9)),
+          ],
+          openings: const [],
+          rooms: const [
+            // bowtie(자기교차) — 유효하지 않은 polygon. 이 4점의 convex
+            // hull은 (0.1,0.1)-(0.9,0.1)-(0.9,0.9)-(0.1,0.9) 정사각형이다.
+            CadRoom(
+              id: 'broken',
+              polygon: [
+                Point2(0.1, 0.1),
+                Point2(0.9, 0.9),
+                Point2(0.9, 0.1),
+                Point2(0.1, 0.9),
+              ],
+              areaNormalized: 0.5,
+              confidence: 0.9,
+            ),
+          ],
+          warnings: const [],
+        );
+        final scene = buildSpaceSceneV2(
+          plan: plan,
+          scale: _scale,
+          ceilingHeightMm: 2400,
+        );
 
-      expect(
-        scene.wallMeshes,
-        hasLength(4),
-        reason: '바닥이 깨져도 벽 4개는 정상 생성돼야 한다.',
-      );
-      expect(scene.floorMeshes, isEmpty);
-    });
+        expect(
+          scene.wallMeshes,
+          hasLength(4),
+          reason: '바닥 근사 여부와 무관하게 벽 4개는 항상 정상 생성돼야 한다.',
+        );
+        expect(
+          scene.floorMeshes,
+          hasLength(1),
+          reason: '자기교차 polygon이어도 convex hull 근사 바닥이 생겨야 한다.',
+        );
+        expect(scene.floorMeshes.single.roomId, 'broken');
+        expect(scene.ceilingMeshes, hasLength(1));
+        expect(
+          scene.warnings.any((w) => w.contains('convex hull')),
+          isTrue,
+          reason: '근사임을 정직하게 경고로 알려야 한다(가짜 3D 금지 원칙).',
+        );
+      },
+    );
 
-    test('유효한 room과 무효한 room이 섞여 있으면 유효한 쪽만 바닥이 생긴다', () {
+    test('유효한 room과 자기교차 room이 섞여 있으면 둘 다(하나는 근사) 바닥이 생긴다', () {
       final plan = CadFloorPlan(
         sourceWidthPx: 1000,
         sourceHeightPx: 1000,
@@ -366,8 +384,11 @@ void main() {
         scale: _scale,
         ceilingHeightMm: 2400,
       );
-      expect(scene.floorMeshes, hasLength(1));
-      expect(scene.floorMeshes.single.roomId, 'ok');
+      expect(scene.floorMeshes, hasLength(2));
+      expect(
+        scene.floorMeshes.map((f) => f.roomId).toSet(),
+        {'broken', 'ok'},
+      );
       expect(scene.wallMeshes, hasLength(2));
     });
   });

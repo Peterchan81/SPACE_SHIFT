@@ -82,6 +82,61 @@ bool _wallTouchesBathroom(CadWall wall, List<CadRoom> rooms) {
 
 bool _isFiniteVec3(Vector3 v) => v.x.isFinite && v.y.isFinite && v.z.isFinite;
 
+/// WO094 PC1 실기 재검증 FAIL 구조 조사 — 실제 분석된 방 polygon이
+/// 자기교차 등으로 [computeRoomAreasV2]/[earClipTriangulateV2]를 통과하지
+/// 못하면 그 방은 지금까지 바닥/천장이 통째로 생성되지 않았다(경고도
+/// 없이 조용히 스킵됨). 벽은 [CadWall]에서 방과 무관하게 독립적으로
+/// 생성되므로 그대로 남아, 실기에서 "검정 배경 + 벽 골격만 남고 방
+/// 내부가 안 보임"으로 보이는 것과 정확히 일치한다.
+///
+/// 방을 목록에서 절대 삭제하지 않는 것(§6 "confidence 기반 처리, 임의
+/// 삭제 금지")과 같은 원칙으로, 바닥도 포기하는 대신 원본 점들의 convex
+/// hull로 근사한다 — hull은 실제로 관측된 점만으로 계산되므로 "존재하지
+/// 않는 구조를 지어내는 것"이 아니다(오목한 부분이 뭉개지는 근사치임을
+/// [SpaceSceneV2.warnings]로 정직하게 알린다). Andrew's monotone chain,
+/// O(n log n), 입력 winding에 무관하게 항상 유효한 단순 다각형을 만든다.
+List<Vector3> _convexHullXZ(List<Vector3> points) {
+  final unique = <String, Vector3>{};
+  for (final p in points) {
+    unique['${p.x.toStringAsFixed(3)}:${p.z.toStringAsFixed(3)}'] = p;
+  }
+  final sorted = unique.values.toList()
+    ..sort((a, b) => a.x != b.x ? a.x.compareTo(b.x) : a.z.compareTo(b.z));
+  if (sorted.length < 3) return const [];
+
+  double cross(Vector3 o, Vector3 a, Vector3 b) =>
+      (a.x - o.x) * (b.z - o.z) - (a.z - o.z) * (b.x - o.x);
+
+  final lower = <Vector3>[];
+  for (final p in sorted) {
+    while (lower.length >= 2 &&
+        cross(lower[lower.length - 2], lower[lower.length - 1], p) <= 0) {
+      lower.removeLast();
+    }
+    lower.add(p);
+  }
+  final upper = <Vector3>[];
+  for (final p in sorted.reversed) {
+    while (upper.length >= 2 &&
+        cross(upper[upper.length - 2], upper[upper.length - 1], p) <= 0) {
+      upper.removeLast();
+    }
+    upper.add(p);
+  }
+  lower.removeLast();
+  upper.removeLast();
+  final hull = [...lower, ...upper];
+  return hull.length >= 3 ? hull : const [];
+}
+
+/// convex 다각형(꼭짓점 [n]개, 순서대로 볼록함이 보장됨) 전용 fan
+/// triangulation — [_convexHullXZ]의 결과 전용이라 [earClipTriangulateV2]
+/// 같은 오목 판정이 필요 없다.
+List<List<int>> _fanTriangulateConvex(int n) {
+  if (n < 3) return const [];
+  return [for (var i = 1; i < n - 1; i++) [0, i, i + 1]];
+}
+
 /// [plan]/[scale]/[ceilingHeightMm]로부터 [SpaceSceneV2]를 만든다.
 /// 실패(비정상 geometry)는 절대 조용히 숨기지 않고 [SpaceSceneV2.warnings]
 /// 로 정직하게 보고한다(가짜 3D 금지 원칙, WO 공통).
@@ -229,16 +284,33 @@ SpaceSceneV2 buildSpaceSceneV2({
   final floorMeshes = <SpaceFloorMeshV2>[];
   final ceilingMeshes = <SpaceFloorMeshV2>[];
   var floorTriangulationFailures = 0;
+  var approximatedFloorCount = 0;
   for (final room in plan.rooms) {
     final area = areaById[room.id];
-    if (area == null || area.polygonMm.isEmpty) continue; // invalid polygon.
-    final cleanedNormalized = cleanPolygonV2(room.polygon);
-    final earTriangles = earClipTriangulateV2(cleanedNormalized);
-    if (earTriangles.isEmpty) {
-      floorTriangulationFailures++;
-      continue;
+    List<Vector3> pts;
+    List<List<int>> earTriangles;
+    final exactPts = area?.polygonMm;
+    final exactTriangles = (exactPts != null && exactPts.isNotEmpty)
+        ? earClipTriangulateV2(cleanPolygonV2(room.polygon))
+        : const <List<int>>[];
+    if (exactPts != null && exactPts.isNotEmpty && exactTriangles.isNotEmpty) {
+      pts = exactPts;
+      earTriangles = exactTriangles;
+    } else {
+      // WO094 PC1 실기 재검증 FAIL — 원본 polygon이 자기교차 등으로
+      // 유효하지 않거나(area == null) ear-clipping이 실패한 드문
+      // 부동소수점 경계 케이스. 바닥을 완전히 포기하는 대신 원본 점의
+      // convex hull로 근사한다([_convexHullXZ] 참고).
+      final rawMm = [for (final p in room.polygon) pointToMm(p, plan, scale)];
+      final hull = _convexHullXZ(rawMm);
+      if (hull.length < 3) {
+        if (exactPts != null && exactPts.isNotEmpty) floorTriangulationFailures++;
+        continue;
+      }
+      pts = hull;
+      earTriangles = _fanTriangulateConvex(hull.length);
+      approximatedFloorCount++;
     }
-    final pts = area.polygonMm;
     final floorColor = _floorColor(room);
     final triangles = <SpaceTriangleV2>[];
     for (final tri in earTriangles) {
@@ -342,6 +414,10 @@ SpaceSceneV2 buildSpaceSceneV2({
     if (floorTriangulationFailures > 0)
       '$floorTriangulationFailures개 공간의 바닥 polygon을 삼각분할하지 못해 그 공간만 '
           '바닥 없이 표시됩니다(벽은 정상 표시).',
+    if (approximatedFloorCount > 0)
+      '$approximatedFloorCount개 공간은 원본 바닥 polygon이 자기교차 등으로 정확하지 '
+          '않아 convex hull로 근사한 바닥/천장을 대신 표시합니다 — 오목한 부분의 '
+          '모양이 실제와 다를 수 있습니다.',
     if (excludedRoomCount > 0)
       '공간 $excludedRoomCount개가 실제 방이 아닐 가능성이 있어(벽 틈/구조 노이즈 등) 전체 '
           '면적 합계에서 제외했습니다 — 3D에는 계속 표시됩니다.',

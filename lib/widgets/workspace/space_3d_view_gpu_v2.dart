@@ -32,31 +32,52 @@ enum Space3DCameraMode { isometric, perspective }
 /// [onObjectSelected]로 돌려주고, 선택된 mesh는 emissive 강조로 시각
 /// 구분한다.
 ///
-/// WO093 — "3D 아이소 Cutaway/Dollhouse 표현 수정": [Space3DCameraMode.isometric]
-/// 에서는 일반 3D처럼 벽을 전부 세워두지 않는다. 매 프레임 카메라
-/// 위치를 기준으로 "카메라 → 각 방의 여러 샘플 지점" 시선을 가로막는
-/// 벽을 [_applyIsoCutaway]가 찾아 숨겨서, 확대/회전 중에도 지금 보고
-/// 있는 방의 내부가 항상 보이게 한다.
+/// WO093/WO094/WO095-A — "3D 아이소 Cutaway/Dollhouse 표현 수정"은 세
+/// 번 모두 "벽 하나하나에 대해 무엇을 할지" 판정하는 방식이었다 — 카메라
+/// 시선을 가로막는 벽을 통째로 숨기거나(WO093/094), 카메라 반대편(뒤쪽)
+/// 벽만 골라 전체 높이로 남기고 나머지를 낮은 담장으로 대체하는
+/// 방식(WO095-A)이었다. 실측(평면도.PNG, 벽 86개)으로 재현하면 두 방식
+/// 모두 실패했다 — 벽이 조밀하게 몰린 작은 방 클러스터가 있으면 그
+/// 구역 전체가 "덩어리"처럼 남거나("어딘가의 방 하나를 가리는 벽은
+/// 항상 있다"는 구조적 한계), WO095-A 재현에서는 "뒤쪽"으로 뽑힌 9개
+/// 벽 전부가 건물 외곽이 아니라 한 구석에 몰린 작은 방의 내부
+/// 칸막이벽이었다(사용자 PC1 실기 판정: "왼쪽 위에 큰 full-height 벽
+/// 덩어리 + 나머지는 얕은 3D 평면도처럼 보임").
 ///
-/// WO094 — 실기에서 확인된 문제 두 가지를 구조적으로 다시 손봤다:
-/// 1) 방 중심 하나만 목표로 판정하면 방구석은 여전히 가려질 수 있어
-///    ([_applyIsoCutaway] 참고) 방 폴리곤의 여러 점(중심+모서리 안쪽)을
-///    모두 목표로 삼도록 [_rebuildMeshes]를 바꿨다.
-/// 2) `three_js_controls`의 [OrbitControls](raw pointer 기반, Android
-///    실기에서 실제로 360도 회전이 되는지 코드만으로 확신할 수 없었다)
-///    대신 Flutter 자체 [GestureDetector.onScale*]로 직접 구면좌표
-///    카메라를 돌린다 — Flutter의 검증된 제스처 인식만 쓰고, 회전/확대
-///    각도에 인위적 제한을 두지 않는다(§5 "회전 방향 제한 때문에 특정
-///    면을 볼 수 없는 문제 금지").
-/// 3) '전체 화면'이 [Navigator.push]로 이 위젯의 새 인스턴스(=새
-///    three_js/GPU 텍스처)를 만들던 것을 제거했다 — 같은 앱 안에 GPU
-///    렌더러 인스턴스가 두 개 동시에 존재하면서 새 인스턴스가 초기화를
-///    끝내지 못해 무한 로딩으로 보이는 것이 유력한 원인이었다. 이제
-///    '전체 화면'은 [onToggleFullscreen] 콜백으로 상위 위젯에게 레이아웃
-///    전환만 요청하고, 이 State/three_js 인스턴스 자체는 절대 다시
-///    만들어지지 않는다(호출부가 같은 [GlobalKey]로 위젯을 다른 위치에
-///    다시 꽂아 넣는 방식 — Flutter가 Element/State를 그대로 옮겨
-///    scene/camera/선택/재질이 전부 유지된다).
+/// WO095-B — 벽 단위 판정을 완전히 버리고, 실제 건축 Dollhouse/section
+/// view 도구처럼 "건물 전체에 적용되는 단일 GPU 절단면(clip plane)"으로
+/// 교체했다:
+/// - 벽 mesh는 항상 원래 전체 높이 그대로 하나만 만든다(더 이상 낮은
+///   높이 대체 mesh를 만들지 않는다).
+/// - [_applyIsoWallDisplay]가 매 프레임 [computeIsoSectionCut](iso_cutaway.dart)로
+///   "카메라 쪽 근처 몇 %"를 건물 전체 bounding box + 카메라 방향
+///   기준으로 계산해 [three.Plane] 하나를 세우고,
+///   `renderer.clippingPlanes`에 적용한다 — three_js(표준 three.js와
+///   동일한 GPU clipping 기능, `Material.clipping` + `AngleRenderer.
+///   clippingPlanes`/`localClippingEnabled`)가 정점/프래그먼트 단위로
+///   잘라내므로, 벽이 몇 개든 어떻게 분포하든 항상 매끈한 단면 하나로
+///   결과가 일관된다.
+/// - 이 절단면은 벽 재질에만 적용한다([_addObjectMesh]의 `clipping`
+///   인자) — 바닥/천장 재질에는 적용하지 않아 바닥은 항상 전체가
+///   보인다.
+/// - [computeIsoSectionCutFraction]으로 절단 비율을 카메라 줌 거리에
+///   연동한다 — 확대(카메라가 가까워짐)할수록 절단 비율이 줄어 더 많이
+///   열린다("작은 방을 확대하면 내부까지 보여야 한다" 요구 대응).
+/// - 3D 투시([Space3DCameraMode.perspective])는 `clippingPlanes`를 항상
+///   빈 리스트로 둬서 이 로직의 영향을 전혀 받지 않는다(WO095-B 지시 —
+///   "3D 투시는 이번 단계에서 수정하지 않는다").
+/// - 탭 선택([_handleTapUp])은 GPU 클리핑을 CPU 레이캐스터가 모르기
+///   때문에, 히트 지점이 절단면의 "잘려나간" 쪽에 있으면 그 히트를
+///   건너뛰고 다음 히트를 본다 — 화면에 안 보이는(잘린) 부분이 선택되는
+///   혼란을 막는다.
+///
+/// WO094에서 함께 고친 나머지 두 가지는 이번에도 그대로 유지한다:
+/// 1) `three_js_controls`의 [OrbitControls] 대신 Flutter 자체
+///    [GestureDetector.onScale*]로 직접 구면좌표 카메라를 돌린다 — 회전/
+///    확대 각도에 인위적 제한을 두지 않는다.
+/// 2) '전체 화면'은 [onToggleFullscreen] 콜백으로 상위 위젯에게 레이아웃
+///    전환만 요청하고, 이 State/three_js 인스턴스는 절대 다시 만들어지지
+///    않는다(같은 [GlobalKey]로 위젯 위치만 옮긴다).
 class Space3DViewGpuV2 extends StatefulWidget {
   const Space3DViewGpuV2({
     super.key,
@@ -106,20 +127,12 @@ class _Space3DViewGpuV2State extends State<Space3DViewGpuV2> {
   final Map<String, SpaceObjectIdentityV2> _identityByObjectId = {};
   String? _appliedHighlightId;
 
-  /// WO093 — 아이소 cutaway/dollhouse 판정에 쓰는 벽 중심선(XZ 평면,
-  /// mm) 목록. 실제 mesh geometry가 아니라 [SpaceWallMeshV2.startMm]/
-  /// [endMm]만 쓰는 이유는 "가장 단순하고 안정적인 방법"(WO 지침)이라 —
-  /// 벽 두께까지 반영한 정확한 폴리곤 대신 중심선 하나로 충분히
-  /// 안정적으로 판단된다.
-  final List<WallSegmentXZ> _wallSegmentsXZ = [];
-
-  /// WO094 — "카메라 → 이 지점이 막혀 있으면 그 사이 벽을 숨긴다"의
-  /// 목적지 목록. WO093은 방마다 중심점 하나만 썼는데, 그러면 방
-  /// 구석(특히 L자·좁고 긴 방)은 중심까지의 시선이 뚫려 있어도 여전히
-  /// 가려질 수 있었다 — 방마다 중심 + 폴리곤의 각 모서리를 안쪽으로
-  /// 살짝 당긴 점까지 모두 목표로 넣어, "이 방에서 카메라가 실제로 볼
-  /// 수 있어야 하는 지점 중 하나라도 가리면" 그 벽을 숨긴다.
-  final List<(double, double)> _roomSampleTargetsXZ = [];
+  /// WO095-B — 아이소 모드에서 카메라 쪽 근처를 잘라내는 단일 GPU
+  /// 절단면. 매 프레임 [_applyIsoWallDisplay]가 이 인스턴스를 그 자리에서
+  /// 갱신([three.Plane.setFromNormalAndCoplanarPoint])하고, [_threeJs.renderer]에
+  /// 적용한다 — 새 [three.Plane]/[List]를 매 프레임 새로 만들지 않는다.
+  final three.Plane _sectionCutPlane = three.Plane();
+  late final List<three.Plane> _sectionCutPlanes = [_sectionCutPlane];
 
   // WO094 — three_js_controls의 OrbitControls(raw pointer 기반이라
   // Android 실기에서 실제로 동작하는지 코드만으로 확신할 수 없었다)
@@ -136,7 +149,26 @@ class _Space3DViewGpuV2State extends State<Space3DViewGpuV2> {
   @override
   void initState() {
     super.initState();
-    _threeJs = three.ThreeJS(onSetupComplete: () {}, setup: _setup);
+    // WO094 PC1 실기 재검증 FAIL — 렌더러 기본 clearColor가 0x000000(불투명
+    // 검정)이라 scene에 배경을 따로 설정하지 않으면 배경이 항상 검정으로
+    // 보인다(3D 모델 문제가 아니라 렌더러 초기화 문제). 사용자가 요구한
+    // "밝은 배경"에 맞춰 이 앱의 기본 배경색(SpaceShiftColors.background,
+    // 흰색)으로 명시적으로 지정한다.
+    // WO095-B — GPU clipping(Architectural Dollhouse section cut)을 쓰려면
+    // renderer가 localClippingEnabled=true로 초기화돼 있어야 material의
+    // clippingPlanes/clipping이 실제로 반영된다(three_js_angle_renderer
+    // 소스 확인 — Settings.localClippingEnabled → AngleRenderer.render()가
+    // 매 프레임 다시 읽는 필드). clippingPlanes 자체(어떤 평면을 쓸지)는
+    // 매 프레임 [_applyIsoWallDisplay]가 갱신한다.
+    _threeJs = three.ThreeJS(
+      onSetupComplete: () {},
+      setup: _setup,
+      settings: three.Settings(
+        clearColor: 0xFFFFFF,
+        clearAlpha: 1.0,
+        localClippingEnabled: true,
+      ),
+    );
   }
 
   @override
@@ -145,7 +177,7 @@ class _Space3DViewGpuV2State extends State<Space3DViewGpuV2> {
     if (oldWidget.scene != widget.scene) {
       _rebuildMeshes(widget.scene);
       _applyHighlight();
-      _applyIsoCutaway();
+      _applyIsoWallDisplay();
     } else if (oldWidget.selectedObjectId != widget.selectedObjectId) {
       _applyHighlight();
     }
@@ -157,7 +189,7 @@ class _Space3DViewGpuV2State extends State<Space3DViewGpuV2> {
     if (oldWidget.cameraMode != widget.cameraMode) {
       _resetCamera();
       // WO093 §1 — 투시로 전환하면 cutaway를 완전히 끈다(모든 벽 원복).
-      _applyIsoCutaway();
+      _applyIsoWallDisplay();
     }
   }
 
@@ -207,7 +239,7 @@ class _Space3DViewGpuV2State extends State<Space3DViewGpuV2> {
     _applyHighlight();
 
     _resetCamera();
-    _applyIsoCutaway();
+    _applyIsoWallDisplay();
 
     _threeJs.windowResizeUpdate = (Size newSize) {
       final camera = _threeJs.camera;
@@ -221,7 +253,7 @@ class _Space3DViewGpuV2State extends State<Space3DViewGpuV2> {
       // WO093 §5 — 회전/확대로 카메라 위치가 매 프레임 바뀔 수 있어,
       // cutaway 판정도 매 프레임 다시 계산한다. 벽/방 개수가 이 앱
       // 규모(수십 개 이내)라 매 프레임 재계산해도 비용이 미미하다.
-      _applyIsoCutaway();
+      _applyIsoWallDisplay();
     });
   }
 
@@ -238,25 +270,18 @@ class _Space3DViewGpuV2State extends State<Space3DViewGpuV2> {
     _meshByObjectId.clear();
     _identityByObjectId.clear();
     _appliedHighlightId = null;
-    _wallSegmentsXZ.clear();
-    _roomSampleTargetsXZ.clear();
 
     for (final wall in scene3d.wallMeshes) {
-      _addObjectMesh(wall.identity, wall.triangles, doubleSided: true);
-      _wallSegmentsXZ.add((
-        objectId: wall.identity.objectId,
-        sx: wall.startMm.x,
-        sz: wall.startMm.z,
-        ex: wall.endMm.x,
-        ez: wall.endMm.z,
-        topY: wall.identity.dimensions?.heightMm ?? 0,
-      ));
+      // WO095-B — 벽은 항상 원래 전체 높이 mesh 하나만 만든다. 아이소
+      // 모드에서 "카메라 쪽 근처"만 GPU 절단면으로 잘라내므로(§클래스
+      // 문서) 더 이상 낮은 높이 대체 mesh가 필요 없다. `clipping: true`만
+      // 켜 두면 이 mesh는 [_applyIsoWallDisplay]가 매 프레임 갱신하는
+      // 절단면의 영향을 받는다(바닥/천장은 `clipping`을 켜지 않아 항상
+      // 전체가 보인다).
+      _addObjectMesh(wall.identity, wall.triangles, doubleSided: true, clipping: true);
     }
     for (final floor in scene3d.floorMeshes) {
       _addObjectMesh(floor.identity, floor.triangles, doubleSided: true);
-      _roomSampleTargetsXZ.addAll(
-        computeRoomCutawayTargets(floor.polygonMm.map((p) => (p.x, p.z)).toList()),
-      );
     }
     // WO092 §4 — 천장은 방 안쪽(-Y)을 향하는 단면(FrontSide)만 그린다.
     // 기본 아이소 카메라(위에서 내려다봄)는 이 면의 뒤쪽을 보게 되어
@@ -269,10 +294,14 @@ class _Space3DViewGpuV2State extends State<Space3DViewGpuV2> {
     }
   }
 
+  /// WO095-B — [clipping]이 true인 mesh(벽)만 [_applyIsoWallDisplay]가
+  /// 매 프레임 갱신하는 [_sectionCutPlane]의 영향을 받는다. 바닥/천장은
+  /// 기본값 false로 둬서 절단면과 무관하게 항상 전체가 보인다.
   void _addObjectMesh(
     SpaceObjectIdentityV2 identity,
     List<SpaceTriangleV2> triangles, {
     required bool doubleSided,
+    bool clipping = false,
   }) {
     if (triangles.isEmpty) return;
     final positions = Float32List(triangles.length * 9);
@@ -304,6 +333,7 @@ class _Space3DViewGpuV2State extends State<Space3DViewGpuV2> {
     final material = three.MeshLambertMaterial({
       three.MaterialProperty.color: colorHex,
       three.MaterialProperty.side: doubleSided ? three.DoubleSide : three.FrontSide,
+      three.MaterialProperty.clipping: clipping,
     });
     final mesh = three.Mesh(geometry, material);
     mesh.userData['objectId'] = identity.objectId;
@@ -346,36 +376,64 @@ class _Space3DViewGpuV2State extends State<Space3DViewGpuV2> {
     }
   }
 
-  /// WO093/WO094 — "3D 아이소 Cutaway/Dollhouse 표현 수정": 아이소
-  /// 모드에서 카메라와 각 방의 여러 샘플 지점([_roomSampleTargetsXZ])
-  /// 사이를 가로막는 벽을 모두 찾아 숨긴다. 매 프레임 카메라 위치
-  /// 기준으로 다시 계산해서, 회전/확대해도 "지금 실제로 가로막는 벽"만
-  /// 정확히 숨겨진다. 3D 투시 모드([Space3DCameraMode.perspective])는
-  /// 기존 방식을 그대로 유지해야 하므로(§1) 이 함수를 타지 않고 항상
-  /// 모든 벽을 보여준다.
-  ///
-  /// 실제 판정 로직은 [computeIsoCutawayHiddenWallIds](iso_cutaway.dart)에
-  /// 있다 — 카메라 높이까지 반영한 3D 시선 판정이라(단순 XZ 평면
-  /// 투영만으로는 "멀리서 내려다볼 때 낮은 칸막이벽 때문에 먼 방까지
-  /// 숨겨지는" 오판이 실제로 발생했다), 위젯 없이도 단위 테스트로
-  /// 검증할 수 있다.
-  void _applyIsoCutaway() {
+  /// WO095-B — "3D 아이소 Architectural Dollhouse 표현 재설계"(§클래스
+  /// 문서): 벽 단위 판정 없이, 건물 전체 bounding box + 카메라 방향으로
+  /// 계산한 단일 GPU 절단면을 [_threeJs.renderer]에 적용한다. 3D 투시
+  /// 모드는 `clippingPlanes`를 비워 이 로직의 영향을 전혀 받지 않는다.
+  void _applyIsoWallDisplay() {
+    final renderer = _threeJs.renderer;
+    if (renderer == null) return;
     if (widget.cameraMode != Space3DCameraMode.isometric) {
-      for (final segment in _wallSegmentsXZ) {
-        _meshByObjectId[segment.objectId]?.visible = true;
-      }
+      renderer.clippingPlanes = const [];
       return;
     }
-    final hidden = computeIsoCutawayHiddenWallIds(
-      cameraX: _threeJs.camera.position.x,
-      cameraY: _threeJs.camera.position.y,
-      cameraZ: _threeJs.camera.position.z,
-      wallSegments: _wallSegmentsXZ,
-      roomCentroidsXZ: _roomSampleTargetsXZ,
-    );
-    for (final segment in _wallSegmentsXZ) {
-      _meshByObjectId[segment.objectId]?.visible = !hidden.contains(segment.objectId);
+
+    final camera = _threeJs.camera;
+    final scene3d = widget.scene;
+    final center = scene3d.center;
+    final dx = center.x - camera.position.x;
+    final dz = center.z - camera.position.z;
+    final dirLen = math.sqrt(dx * dx + dz * dz);
+    if (dirLen < 1e-6) {
+      renderer.clippingPlanes = const [];
+      return;
     }
+    final dirX = dx / dirLen;
+    final dirZ = dz / dirLen;
+
+    final radius = scene3d.boundingRadius <= 0 ? 1000.0 : scene3d.boundingRadius;
+    // _resetCamera()의 아이소 기본 진입 거리(radius*2.6)와 같은 기준 —
+    // "기본 조망"일 때 baseFraction 그대로, 확대할수록 절단 비율이
+    // 줄어든다.
+    final referenceDistance = radius * 2.6;
+    final cutFraction = computeIsoSectionCutFraction(
+      orbitDistance: _orbitDistance,
+      referenceDistance: referenceDistance,
+    );
+
+    final minB = scene3d.minBounds;
+    final maxB = scene3d.maxBounds;
+    final cut = computeIsoSectionCut(
+      cameraX: camera.position.x,
+      cameraZ: camera.position.z,
+      dirX: dirX,
+      dirZ: dirZ,
+      boundingCornersXZ: [
+        (minB.x, minB.z),
+        (minB.x, maxB.z),
+        (maxB.x, minB.z),
+        (maxB.x, maxB.z),
+      ],
+      cutFraction: cutFraction,
+    );
+
+    final planePointX = camera.position.x + dirX * cut.cutDepth;
+    final planePointZ = camera.position.z + dirZ * cut.cutDepth;
+    _sectionCutPlane.setFromNormalAndCoplanarPoint(
+      three.Vector3(dirX, 0, dirZ),
+      three.Vector3(planePointX, center.y, planePointZ),
+    );
+    renderer.clippingPlanes = _sectionCutPlanes;
   }
 
   /// WO092 §5 — 화면을 탭한 지점으로 실제 ray를 쏴서 부딪힌 mesh를
@@ -390,21 +448,31 @@ class _Space3DViewGpuV2State extends State<Space3DViewGpuV2> {
 
     final raycaster = three.Raycaster();
     raycaster.setFromCamera(three.Vector2(ndcX, ndcY), _threeJs.camera);
-    // WO093 §4 — cutaway로 숨겨진(invisible) 벽은 화면에 보이지 않으므로
-    // 탭 대상에서도 제외한다. three_js의 Raycaster는 `.visible`을 직접
-    // 확인하지 않아서(원본 three.js와 달리 이 포팅에는 그 필터가 없다)
-    // 걸러주지 않으면 안 보이는 벽이 선택되어 "보이는 것과 실제 선택되는
-    // 것이 다른" 혼란(§4 "Cutaway 때문에 객체 선택 기능이 깨지면 안 됨")
-    // 이 생긴다.
-    final pickable = _meshByObjectId.values.where((m) => m.visible).toList(growable: false);
-    final hits = raycaster.intersectObjects(pickable, false);
-    if (hits.isEmpty) {
-      widget.onObjectSelected!(null);
+    final hits = raycaster.intersectObjects(
+      _meshByObjectId.values.toList(growable: false),
+      false,
+    );
+    // WO095-B — GPU 절단면(§클래스 문서)은 화면에 실제로 무엇이 보이는지
+    // 결정하지만, CPU 레이캐스터는 그 절단면을 모르고 원본 전체 높이
+    // geometry 그대로 교차를 계산한다. 그래서 hit들을 거리순(가까운
+    // 순서, [Raycaster.intersectObjects]가 이미 정렬해 돌려준다)으로
+    // 훑으면서, 절단면의 "잘려나간"쪽에 있는 hit는 건너뛰고 실제로 화면에
+    // 보이는 첫 hit만 선택한다 — 그렇지 않으면 화면에 안 보이는(잘린)
+    // 부분을 탭해도 선택되는 혼란이 생긴다.
+    final clippingActive =
+        widget.cameraMode == Space3DCameraMode.isometric &&
+        (_threeJs.renderer?.clippingPlanes.isNotEmpty ?? false);
+    for (final hit in hits) {
+      final point = hit.point;
+      if (clippingActive && point != null && _sectionCutPlane.distanceToPoint(point) < 0) {
+        continue;
+      }
+      final hitObjectId = hit.object?.userData['objectId'] as String?;
+      final identity = hitObjectId == null ? null : _identityByObjectId[hitObjectId];
+      widget.onObjectSelected!(identity);
       return;
     }
-    final hitObjectId = hits.first.object?.userData['objectId'] as String?;
-    final identity = hitObjectId == null ? null : _identityByObjectId[hitObjectId];
-    widget.onObjectSelected!(identity);
+    widget.onObjectSelected!(null);
   }
 
   /// WO094 — [OrbitControls] 없이 직접 구면좌표(target 기준 거리/방위각
