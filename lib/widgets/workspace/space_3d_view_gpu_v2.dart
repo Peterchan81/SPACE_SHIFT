@@ -122,9 +122,20 @@ class Space3DViewGpuV2 extends StatefulWidget {
 const int _kSelectionEmissiveHex = 0x2F6FED;
 const double _kSelectionEmissiveIntensity = 0.55;
 
+/// PC2 FINAL ISO VISUAL PASS §3.C — "2D 평면도의 검정 선"을 3D로
+/// 그대로 올린 architectural edge 색. 순수 검정(0x000000)이 아니라 살짝
+/// 부드러운 다크 그레이를 써서 조명 아래에서도 CAD 도면선처럼 또렷하되
+/// 과하게 딱딱해 보이지 않게 한다.
+const int _kArchitecturalEdgeColorHex = 0x202020;
+const double _kArchitecturalEdgeThresholdDeg = 1;
+
 class _Space3DViewGpuV2State extends State<Space3DViewGpuV2> {
   late three.ThreeJS _threeJs;
   final Map<String, three.Mesh> _meshByObjectId = {};
+  // PC2 FINAL ISO VISUAL PASS §3.C/§4 — 벽마다 [three.EdgesGeometry]로
+  // 뽑은 architectural edge line. mesh와 별도 Object3D라 [_rebuildMeshes]
+  // 때마다 mesh와 똑같이 지우고 다시 만들어야 한다.
+  final List<three.LineSegments> _wallEdgeLines = [];
   final Map<String, SpaceObjectIdentityV2> _identityByObjectId = {};
   String? _appliedHighlightId;
 
@@ -258,7 +269,16 @@ class _Space3DViewGpuV2State extends State<Space3DViewGpuV2> {
         // 낮추고 고르게 밝힌다 — ambient를 크게 올리고 사방에서 오는 fill
     // light 3개를 더해, 벽의 실제 재질 색(흰색 벽/우드 바닥/타일)이
     // 어느 각도에서 봐도 그 색 그대로 보이게 한다.
-    _threeJs.scene.add(three.AmbientLight(0xffffff, 0.85));
+    //
+    // PC2 FINAL ISO VISUAL PASS §8 — 실기 확인 결과, 4개 방향광 중
+    // 어느 것도 닿지 않는 벽면(ambient만 받는 면)은 0.85배로 어두워져
+    // warm white(#F5F4F0)가 뚜렷한 회색(약 rgb 205,204,203)으로
+    // 보였다 — §3.A가 명시적으로 피하라는 "벽이 회색 덩어리" 현상의
+    // 실측 원인이었다. ambient를 1.0으로 올려 그 최악의 경우에도 벽
+    // 재질 색이 그대로(어둡게 곱해지지 않고) 보이게 한다 — 방향광은
+    // 그대로 둬 "면 방향에 따른 깊이"는 유지한다(§8 "과도한 shadow/
+    // effect 금지"에 맞춰 딱 이 원인 하나만 고치는 최소 조정).
+    _threeJs.scene.add(three.AmbientLight(0xffffff, 1.0));
     final keyLight = three.DirectionalLight(0xffffff, 0.55);
     keyLight.position.setValues(-radius * 0.6, radius * 1.4, radius * 0.5);
     _threeJs.scene.add(keyLight);
@@ -307,6 +327,13 @@ class _Space3DViewGpuV2State extends State<Space3DViewGpuV2> {
     _meshByObjectId.clear();
     _identityByObjectId.clear();
     _appliedHighlightId = null;
+    // PC2 FINAL ISO VISUAL PASS §3.C — mesh와 마찬가지로 매번 지우고
+    // 다시 만든다(scene이 바뀌면 이전 edge line이 새 geometry와 어긋난
+    // 채 남아있으면 안 된다).
+    for (final line in _wallEdgeLines) {
+      _threeJs.scene.remove(line);
+    }
+    _wallEdgeLines.clear();
 
     for (final wall in scene3d.wallMeshes) {
       // WO099 §4 — 벽은 항상 원래 전체 높이 실제 solid geometry로 만든다
@@ -316,7 +343,58 @@ class _Space3DViewGpuV2State extends State<Space3DViewGpuV2> {
       // 카메라를 막는 면만 사라지고 그 뒤(방 내부를 감싸는 반대쪽 벽의
       // 안쪽 면)가 보인다. 벽 ID/threshold 판정도, GPU clip-plane도
       // 전혀 없다(§1 반복 금지 대상이 아님 — 아예 다른 방법).
-      _addObjectMesh(wall.identity, wall.triangles, doubleSided: false, useBackSide: true);
+      final wallMesh = _addObjectMesh(wall.identity, wall.triangles, doubleSided: false, useBackSide: true);
+      // PC2 FINAL ISO VISUAL PASS §3.C/§4 — 벽 박스 전체(수직 옆면 4개 +
+      // 상/하 캡)에 대해 EdgesGeometry를 돌리면 벽 하나당 약 12개 모서리가
+      // 나오고, 문/창으로 쪼개진 189개 벽 전부에 대해 그걸 다 그리면
+      // 실기에서 확인한 결과 "흰 벽 + 검정 선"이 아니라 화면 전체가
+      // 촘촘한 회색 wireframe으로 보였다(§3.C가 명시적으로 피하라는
+      // 모습). 게다가 [useBackSide] 때문에 카메라 쪽 벽 면 자체는 안
+      // 보여도 그 벽의 edge는 (line이 mesh의 side 컬링을 모르므로)
+      // 그대로 남아 허공에 뜬 것처럼 겹쳐 보였다.
+      //
+      // 그래서 이번 1차 구현은 §3.C가 우선순위 1번으로 든 "wall top
+      // perimeter"만 남긴다 — 벽 triangle 중 법선이 수평(위/아래를
+      // 향함, 즉 top cap·문/창 상인방 밑면·창턱 윗면)인 것만 걸러
+      // EdgesGeometry에 넣는다. 기본 Dollhouse bird's-eye 카메라는 이
+      // top 경계만으로도 "2D 평면도를 3D로 올린" 윤곽을 충분히 읽을 수
+      // 있다(§6 목표). 수직 모서리/벽 끝단 선은 이번 1차 패스에서
+      // 제외한다 — §12 STOP RULE에 따라 이 결과를 다음 세션에 한계로
+      // 정확히 남기고, 여기서 추가로 반복 튜닝하지 않는다.
+      if (wallMesh != null) {
+        final horizontalOnly = three.BufferGeometry();
+        final positions = <double>[];
+        for (final tri in wall.triangles) {
+          final ux = tri.b.x - tri.a.x, uy = tri.b.y - tri.a.y, uz = tri.b.z - tri.a.z;
+          final vx = tri.c.x - tri.a.x, vy = tri.c.y - tri.a.y, vz = tri.c.z - tri.a.z;
+          final nx = uy * vz - uz * vy;
+          final ny = uz * vx - ux * vz;
+          final nz = ux * vy - uy * vx;
+          final len = math.sqrt(nx * nx + ny * ny + nz * nz);
+          if (len < 1e-9) continue;
+          // 수평 면(top cap/상인방 밑면/창턱 윗면)만: 법선이 거의
+          // 수직(Y축)이면 |ny|/len이 1에 가깝다.
+          if ((ny / len).abs() < 0.9) continue;
+          positions.addAll([
+            tri.a.x, tri.a.y, tri.a.z,
+            tri.b.x, tri.b.y, tri.b.z,
+            tri.c.x, tri.c.y, tri.c.z,
+          ]);
+        }
+        if (positions.isNotEmpty) {
+          horizontalOnly.setAttribute(
+            three.Attribute.position,
+            three.Float32BufferAttribute(Float32List.fromList(positions), 3),
+          );
+          final edgesGeometry = three.EdgesGeometry(horizontalOnly, _kArchitecturalEdgeThresholdDeg);
+          final edgeLine = three.LineSegments(
+            edgesGeometry,
+            three.LineBasicMaterial({three.MaterialProperty.color: _kArchitecturalEdgeColorHex}),
+          );
+          _threeJs.scene.add(edgeLine);
+          _wallEdgeLines.add(edgeLine);
+        }
+      }
     }
     for (final floor in scene3d.floorMeshes) {
       _addObjectMesh(floor.identity, floor.triangles, doubleSided: true);
@@ -350,14 +428,14 @@ class _Space3DViewGpuV2State extends State<Space3DViewGpuV2> {
   /// [_applyIsoWallDisplay]가 절단면을 항상 비워서 지금은 사실상
   /// 아무 효과가 없다(향후 명시적 단면 도구를 다시 붙일 때를 위해
   /// 매개변수 자체는 남겨 둔다).
-  void _addObjectMesh(
+  three.Mesh? _addObjectMesh(
     SpaceObjectIdentityV2 identity,
     List<SpaceTriangleV2> triangles, {
     required bool doubleSided,
     bool clipping = false,
     bool useBackSide = false,
   }) {
-    if (triangles.isEmpty) return;
+    if (triangles.isEmpty) return null;
     final positions = Float32List(triangles.length * 9);
     var i = 0;
     for (final tri in triangles) {
@@ -397,6 +475,7 @@ class _Space3DViewGpuV2State extends State<Space3DViewGpuV2> {
     _threeJs.scene.add(mesh);
     _meshByObjectId[identity.objectId] = mesh;
     _identityByObjectId[identity.objectId] = identity;
+    return mesh;
   }
 
   int _colorToHex(Color color) {

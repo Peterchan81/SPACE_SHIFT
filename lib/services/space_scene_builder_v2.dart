@@ -24,10 +24,15 @@ import 'room_area_calculator_v2.dart';
 // 고정된 최종 결과가 아니라 DEFAULT다: [CadWall.materialOverride]/
 // [CadRoom.materialOverride](사용자가 "작업/재질/마감재"에서 고른 색)가
 // 있으면 이 값보다 항상 우선한다(아래 [_wallColor]/[_floorColor] 참고).
-const Color _exteriorWallColorV2 = Color(0xFFC9C2B4);
-const Color _interiorWallColorV2 = Color(0xFFFAFAF7); // 일반 내부 벽: white.
+// PC2 FINAL ISO VISUAL PASS — "회백색 CAD extrusion"처럼 벽/바닥/벽
+// 상단이 서로 섞이던 문제를 없애기 위해, 외벽/내벽을 하나의 뚜렷한
+// warm white로 통일하고(외벽만 살짝 더 짙게 구분하던 이전 베이지색은
+// 제거 — 이번 시각 언어의 목표는 "벽=흰색"이지 "외벽/내벽 구분"이
+// 아니다) 바닥 우드 톤을 흰 벽과 명확히 대비되도록 더 진하게 만든다.
+const Color _exteriorWallColorV2 = Color(0xFFF5F4F0);
+const Color _interiorWallColorV2 = Color(0xFFF5F4F0); // 일반 내부 벽: warm white.
 const Color _bathroomWallColorV2 = Color(0xFFD8E2E4); // bathroom wall: tile.
-const Color _woodFloorColorV2 = Color(0xFFD9CBB2); // 일반 공간 바닥: wood flooring.
+const Color _woodFloorColorV2 = Color(0xFFC7A06C); // 일반 공간 바닥: 흰 벽과 뚜렷이 대비되는 light wood.
 const Color _bathroomFloorColorV2 = Color(0xFFD3DEE1); // bathroom floor: tile.
 
 // WO092 §4 — 천장 기본색(백색 페인트). 방 종류와 무관하게 항상 이
@@ -41,8 +46,17 @@ const Color _ceilingColorV2 = Color(0xFFF5F3EE);
 /// 어둡게 섞는 고정 비율 하나로 "단면은 마감이 아니라 두께가 잘린
 /// 부분"이라는 인상을 준다 — 방 종류/벽 종류에 관계없이 항상 같은
 /// 비율로만 적용되는 단순 규칙이라 wall-hide류 알고리즘과 무관하다.
+///
+/// PC2 FINAL ISO VISUAL PASS — 기본 Dollhouse bird's-eye 카메라는 벽
+/// 옆면보다 이 top face를 훨씬 많이 보여준다. WO099의 16% 어둡게는
+/// 벽이 아직 베이지색이던 시절 값이라, 벽을 warm white로 바꾼 지금
+/// 그대로 두면 top face가 실측 화면에서 "흰 벽"이 아니라 "회색
+/// 지붕처럼" 보인다(§3.A가 명시적으로 피하라는 바로 그 모습). 그래서
+/// top face 어둡게를 최소치로 줄인다 — 벽 구조 자체는 §3.C의 검정
+/// architectural edge line이 표현하고, 이 색 차이는 아주 옅은 깊이
+/// 힌트로만 남긴다.
 Color _wallTopColor(Color base) {
-  const darken = 0.16;
+  const darken = 0.04;
   return Color.fromARGB(
     255,
     (base.r * 255 * (1 - darken)).round().clamp(0, 255),
