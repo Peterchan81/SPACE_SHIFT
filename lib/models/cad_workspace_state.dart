@@ -2,6 +2,7 @@ import 'package:flutter/foundation.dart';
 
 import 'cad_floor_plan.dart';
 import 'floor_plan_geometry.dart';
+import 'scale_calibration.dart';
 
 /// 중앙 캔버스가 평면도를 어떤 형태로 보여줄지 — CAD 변환 결과를
 /// 기본으로 우선 표시하고(WO 6번), 원본 이미지 또는 둘 다(비교)로
@@ -32,6 +33,7 @@ class CadWorkspaceState {
     this.calibrationEnd,
     this.calibrationPixelLength,
     this.scale,
+    this.scaleSamples = const [],
     this.ceilingHeightMm,
     this.generatedFloorPlanImageBytes,
     this.isGeneratingFloorPlanImage = false,
@@ -76,6 +78,13 @@ class CadWorkspaceState {
   bool get hasCalibrationSelection => calibrationPixelLength != null;
 
   final FloorPlanScale? scale;
+
+  /// SS CAD TEST — 지금까지 사용자가 입력한 모든 실측 기준(벽별 1개씩,
+  /// 다시 재면 교체). [scale]은 이 목록의 중앙값으로 계산된 대표값이다
+  /// ([resolveScaleFromSamples] 참고). 2개 이상이면 화면이 "기준값 N개 ·
+  /// 편차 X%"를 보여줄 수 있다.
+  final List<ScaleReferenceSample> scaleSamples;
+
   final double? ceilingHeightMm;
 
   bool get hasGeometry => floorPlan != null;

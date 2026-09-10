@@ -6,6 +6,7 @@ import '../models/cad_floor_plan.dart';
 import '../models/cad_workspace_state.dart';
 import '../models/floor_plan_file.dart';
 import '../models/floor_plan_geometry.dart';
+import '../models/scale_calibration.dart';
 import '../models/space_scene.dart';
 import '../models/space_scene_v2.dart';
 import '../models/workspace_drawing_entity.dart';
@@ -182,6 +183,12 @@ class _FloorPlanWorkspaceScreenState extends State<FloorPlanWorkspaceScreen> {
   Point2? _calibrationEnd;
   double? _calibrationPixelLength;
   FloorPlanScale? _scale;
+
+  /// SS CAD TEST — 다중 실측 기준. 벽 하나만 재도 기존과 동일하게
+  /// 동작하지만(샘플 1개 → 그 값 그대로), 2~3개를 재면 중앙값으로
+  /// 대표 축척을 계산하고 서로 크게 어긋나면 conflict로 표시한다
+  /// ([scale_calibration.dart] 참고). GPT는 이 값에 전혀 관여하지 않는다.
+  List<ScaleReferenceSample> _scaleSamples = [];
   double? _ceilingHeightMm;
 
   /// 실제로 생성된 3D 공간 — [_onGenerate3D]가 성공했을 때만 채워진다.
@@ -242,6 +249,7 @@ class _FloorPlanWorkspaceScreenState extends State<FloorPlanWorkspaceScreen> {
       _calibrationEnd = null;
       _calibrationPixelLength = null;
       _scale = null;
+      _scaleSamples = [];
       _ceilingHeightMm = null;
       _spaceScene = null;
       _spaceSceneV2 = null;
@@ -583,6 +591,12 @@ class _FloorPlanWorkspaceScreenState extends State<FloorPlanWorkspaceScreen> {
   /// 전체 면적·3D 크기가 전부 이 새 축척(measured)으로 다시 계산된다
   /// (같은 [_scale] 필드를 참조하는 모든 계산이 자동으로 갱신됨, WO
   /// 14번).
+  ///
+  /// SS CAD TEST — 다중 실측 기준 WO: 이번 측정을 [_scaleSamples]에
+  /// 추가(같은 벽을 다시 쟀으면 이전 값을 교체)하고, 전체 샘플의
+  /// 중앙값으로 대표 축척을 다시 계산한다. 샘플이 1개뿐이면
+  /// [resolveScaleFromSamples]가 그 값을 그대로 돌려주므로 기존 단일
+  /// 보정과 결과가 완전히 같다 — 이 확장으로 기존 동작을 바꾸지 않는다.
   void _onApplyCalibrationLength(double realMm) {
     final start = _calibrationStart;
     final end = _calibrationEnd;
@@ -593,9 +607,21 @@ class _FloorPlanWorkspaceScreenState extends State<FloorPlanWorkspaceScreen> {
         pixelLength <= 0) {
       return;
     }
+    final wallId = _calibrationWallId;
+    final newSample = ScaleReferenceSample(
+      wallId: wallId,
+      pixelLength: pixelLength,
+      measuredMm: realMm,
+    );
     setState(() {
+      _scaleSamples = [
+        for (final s in _scaleSamples)
+          if (wallId == null || s.wallId != wallId) s,
+        newSample,
+      ];
+      final resolved = resolveScaleFromSamples(_scaleSamples);
       _scale = FloorPlanScale(
-        mmPerPixel: realMm / pixelLength,
+        mmPerPixel: resolved.mmPerPixel,
         referenceStart: start,
         referenceEnd: end,
         referenceLengthMm: realMm,
@@ -858,6 +884,7 @@ class _FloorPlanWorkspaceScreenState extends State<FloorPlanWorkspaceScreen> {
     calibrationEnd: _calibrationEnd,
     calibrationPixelLength: _calibrationPixelLength,
     scale: _scale,
+    scaleSamples: _scaleSamples,
     ceilingHeightMm: _ceilingHeightMm,
     generatedFloorPlanImageBytes: _generatedFloorPlanImageBytes,
     isGeneratingFloorPlanImage: _isGeneratingFloorPlanImage,

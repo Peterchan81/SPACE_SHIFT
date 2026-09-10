@@ -497,6 +497,71 @@ class CadFloorPlan {
     return normalizedLength * diagonalPx * scale.mmPerPixel;
   }
 
+  /// SS CAD TEST — 정규화 좌표(0~1) 한 점을 실제 mm 좌표로 바꾸는 유일한
+  /// 변환식. [metricWall]/[metricOpening]/[metricRoom]과 DXF export
+  /// (문/창처럼 저장된 geometry가 아니라 그 자리에서 합성하는 점)가 모두
+  /// 이 메서드 하나만 거친다 — 이 메서드 밖에서는 mm 좌표를 직접
+  /// 계산하지 않는다.
+  ({double xMm, double yMm}) pointToMm(Point2 p, FloorPlanScale scale) => (
+    xMm: p.x * sourceWidthPx * scale.mmPerPixel,
+    yMm: p.y * sourceHeightPx * scale.mmPerPixel,
+  );
+
+  /// SS CAD TEST — 이 벽 하나의 좌표/길이를 실제 mm 단위로 변환한
+  /// [MetricWall]을 만든다. 저장하지 않고 매번 [scale]로부터 다시
+  /// 계산한다(WO 9번 — 축척이 바뀌면 캐시가 낡을 위험을 아예 없앤다).
+  MetricWall metricWall(CadWall wall, FloorPlanScale scale) {
+    final p1 = pointToMm(wall.start, scale);
+    final p2 = pointToMm(wall.end, scale);
+    return MetricWall(
+      wallId: wall.id,
+      x1Mm: p1.xMm,
+      y1Mm: p1.yMm,
+      x2Mm: p2.xMm,
+      y2Mm: p2.yMm,
+      lengthMm: pixelDistance(wall.start, wall.end) * scale.mmPerPixel,
+      wallType: wall.wallType,
+      source: wall.source,
+    );
+  }
+
+  /// [walls] 전체를 [metricWall]로 변환한다.
+  List<MetricWall> metricWalls(FloorPlanScale scale) =>
+      [for (final w in walls) metricWall(w, scale)];
+
+  /// 문/창 하나의 중심점을 실제 mm 좌표로 변환한다. 폭(widthMm)도 함께
+  /// 계산한다 — 대각선 기준 정규화 폭이므로 [diagonalPx]를 그대로 쓴다
+  /// (다른 정규화 길이 mm 변환과 동일한 축, [realMmForNormalizedLength]
+  /// 참고).
+  MetricOpening metricOpening(CadOpening opening, FloorPlanScale scale) {
+    final center = pointToMm(opening.center, scale);
+    return MetricOpening(
+      openingId: opening.id,
+      type: opening.type,
+      centerXMm: center.xMm,
+      centerYMm: center.yMm,
+      widthMm: opening.widthNormalized * diagonalPx * scale.mmPerPixel,
+      wallId: opening.wallId,
+      source: opening.source,
+    );
+  }
+
+  List<MetricOpening> metricOpenings(FloorPlanScale scale) =>
+      [for (final o in openings) metricOpening(o, scale)];
+
+  /// 방 폴리곤 전체를 실제 mm 좌표 점 목록으로 변환한다.
+  MetricRoom metricRoom(CadRoom room, FloorPlanScale scale) {
+    return MetricRoom(
+      roomId: room.id,
+      polygonMm: [for (final p in room.polygon) pointToMm(p, scale)],
+      areaM2: roomAreaM2(this, room, scale),
+      source: room.source,
+    );
+  }
+
+  List<MetricRoom> metricRooms(FloorPlanScale scale) =>
+      [for (final r in rooms) metricRoom(r, scale)];
+
   CadFloorPlan copyWithWalls(List<CadWall> walls) {
     return CadFloorPlan(
       sourceWidthPx: sourceWidthPx,
@@ -522,6 +587,71 @@ class CadFloorPlan {
       objectCandidates: objectCandidates,
     );
   }
+}
+
+/// SS CAD TEST — [CadWall] 하나의 실제 mm 좌표/길이. [CadFloorPlan.metricWall]
+/// 로만 만들어지는 계산 결과이며 그 자체로 저장되지 않는다(pixel 좌표가
+/// 유일한 저장 형태, mm은 항상 [FloorPlanScale]로부터 다시 계산되는
+/// 파생값 — WO 9번 "따로 캐시하지 않는다"와 동일한 원칙).
+@immutable
+class MetricWall {
+  const MetricWall({
+    required this.wallId,
+    required this.x1Mm,
+    required this.y1Mm,
+    required this.x2Mm,
+    required this.y2Mm,
+    required this.lengthMm,
+    required this.wallType,
+    required this.source,
+  });
+
+  final String wallId;
+  final double x1Mm;
+  final double y1Mm;
+  final double x2Mm;
+  final double y2Mm;
+  final double lengthMm;
+  final CadWallType wallType;
+  final CadElementSource source;
+}
+
+/// SS CAD TEST — [CadOpening] 하나의 실제 mm 중심 좌표/폭.
+@immutable
+class MetricOpening {
+  const MetricOpening({
+    required this.openingId,
+    required this.type,
+    required this.centerXMm,
+    required this.centerYMm,
+    required this.widthMm,
+    required this.wallId,
+    required this.source,
+  });
+
+  final String openingId;
+  final OpeningType type;
+  final double centerXMm;
+  final double centerYMm;
+  final double widthMm;
+  final String? wallId;
+  final CadElementSource source;
+}
+
+/// SS CAD TEST — [CadRoom] 폴리곤의 실제 mm 좌표 점 목록.
+@immutable
+class MetricRoom {
+  const MetricRoom({
+    required this.roomId,
+    required this.polygonMm,
+    required this.areaM2,
+    required this.source,
+  });
+
+  final String roomId;
+  final List<({double xMm, double yMm})> polygonMm;
+  final double? areaM2;
+  final CadElementSource source;
 }
 
 /// 실제 분석 엔진 결과([FloorPlanAnalysisResult] — 검출기 evidence)를

@@ -29,13 +29,16 @@ class E2eDxfExporter {
         ? 'SCALED (measured): ${scale.referenceLengthMm.toStringAsFixed(0)}mm 실측 기준, mmPerPixel=${scale.mmPerPixel.toStringAsFixed(4)}'
         : 'UNSCALED / NORMALIZED POC — 실제 mm 단위가 아님. 테스트 전용 파일입니다.';
 
+    // SS CAD TEST — mm 변환은 [CadFloorPlan.pointToMm](또는 그 위에 쌓인
+    // metricWall/metricRoom)만 거친다: 벽/방/문·창 좌표가 전부 같은
+    // 실측 기준(다중 샘플 중앙값, [scale_calibration.dart])에서 나온다는
+    // 보장이 exporter 자체의 별도 계산으로 깨지지 않게 하기 위해서다.
     (double, double) toUnits(Point2 p) {
       if (!isScaled) return (p.x, p.y);
-      final mmX = p.x * plan.sourceWidthPx * scale.mmPerPixel;
-      final mmY = p.y * plan.sourceHeightPx * scale.mmPerPixel;
+      final mm = plan.pointToMm(p, scale);
       // DXF/CAD 관례상 Y축은 위로 갈수록 증가 — 이미지 좌표(Y 아래로
       // 증가)를 뒤집는다.
-      return (mmX, -mmY);
+      return (mm.xMm, -mm.yMm);
     }
 
     final buffer = StringBuffer();

@@ -6,6 +6,7 @@ import '../../models/cad_floor_plan.dart';
 import '../../models/cad_workspace_state.dart';
 import '../../models/floor_plan_file.dart';
 import '../../models/floor_plan_geometry.dart';
+import '../../models/scale_calibration.dart';
 import '../../models/space_scene.dart';
 import '../../models/space_scene_v2.dart';
 import '../../models/workspace_task_item.dart';
@@ -1112,6 +1113,10 @@ class _SpaceSummaryCard extends StatelessWidget {
             onTap: callbacks.onStartCalibration,
           ),
         ),
+        if (cad.scaleSamples.length >= 2) ...[
+          const SizedBox(height: 6),
+          _ScaleSamplesSummary(samples: cad.scaleSamples),
+        ],
         if (cad.calibrating) ...[
           const SizedBox(height: 8),
           if (!cad.hasCalibrationSelection)
@@ -1129,6 +1134,33 @@ class _SpaceSummaryCard extends StatelessWidget {
             _CalibrationSelectionPanel(cad: cad, callbacks: callbacks),
         ],
       ],
+    );
+  }
+}
+
+/// SS CAD TEST — 다중 실측 기준 WO. 실측 기준이 2개 이상 쌓였을 때만
+/// 보여준다(1개면 기존 화면과 완전히 동일하게 유지). 서로 크게 어긋나면
+/// (기본 8% 초과) 경고색으로 바꿔, GPT geometry가 부정확하거나 사용자가
+/// 서로 다른 벽을 잰 것일 수 있다는 신호를 숨기지 않는다.
+class _ScaleSamplesSummary extends StatelessWidget {
+  const _ScaleSamplesSummary({required this.samples});
+
+  final List<ScaleReferenceSample> samples;
+
+  @override
+  Widget build(BuildContext context) {
+    final result = resolveScaleFromSamples(samples);
+    final deviationPct = (result.maxDeviationRatio * 100).toStringAsFixed(1);
+    final color = result.hasConflict
+        ? Colors.orange.shade800
+        : SpaceShiftColors.textSecondary;
+    final text = result.hasConflict
+        ? '⚠ 기준값 ${samples.length}개 · 최대 편차 $deviationPct% — 서로 다른 '
+              '벽을 쟀는지 확인해주세요'
+        : '기준값 ${samples.length}개 · 최대 편차 $deviationPct%';
+    return Text(
+      text,
+      style: TextStyle(fontSize: 11, color: color, height: 1.3),
     );
   }
 }
