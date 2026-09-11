@@ -18,7 +18,7 @@ import 'package:ason_space/models/vision_understanding.dart';
 import 'package:ason_space/services/gpt_floorplan_vision_service.dart';
 
 const _realImagePath = r'C:\Users\user\Desktop\스크린샷\평면도.PNG';
-const _edgeFunctionUrl = 'https://mljvgngjmrvoqjwvvyeg.supabase.co/functions/v1/gpt-floorplan-understand';
+const _edgeFunctionUrl = 'https://imaxmdtnknychqyphaaa.supabase.co/functions/v1/gpt-floorplan-understand';
 const _overlayOutPath = r'C:\ASON\SPACE_SHIFT\test\pc2_ai_structural_overlay.png';
 
 void main() async {

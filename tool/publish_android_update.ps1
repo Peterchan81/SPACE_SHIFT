@@ -41,17 +41,21 @@
   업로드할 release APK의 전체 경로.
 
 .PARAMETER ProjectRef
-  Supabase 프로젝트 ref. NOMPASS와 **같은** 프로젝트를 공유해서 쓰기로
-  확정되었으므로 기본값을 그 프로젝트로 둔다 — 대신 버킷 이름(항상
-  `space-shift-releases`, 아래 코드 레벨 allowlist로 강제)과 `version.json`의
-  `app` 필드로 격리한다. 이 값이 예상 프로젝트와 다르면 즉시 FAIL한다(다른
-  프로젝트로 잘못 배포되는 사고 방지).
+  Supabase 프로젝트 ref. SPACE SHIFT/NOMPASS Supabase 분리 작업(2026-09)에
+  따라 이제 SPACE SHIFT 전용 프로젝트(`imaxmdtnknychqyphaaa`)를 기본값으로
+  쓴다 — 버킷 이름(항상 `space-shift-releases`, 아래 코드 레벨 allowlist로
+  강제)과 `version.json`의 `app` 필드로도 이중 격리한다. 이 값이 예상
+  프로젝트와 다르면 즉시 FAIL한다(다른 프로젝트로 잘못 배포되는 사고 방지).
 
 .PARAMETER AwsProfile
-  이 배포에 사용할 AWS CLI 프로필 이름(NOMPASS와 같은 프로젝트를 공유하는
-  것으로 확정되었으므로 기존 `nompass-storage` 프로필 재사용을 허용한다 —
-  단, 이 스크립트는 코드 레벨 allowlist로 `space-shift-releases` 버킷
-  외에는 그 어떤 자격증명으로도 절대 쓰기 요청을 보내지 않는다).
+  이 배포에 사용할 AWS CLI 프로필 이름. 분리 이전에는 NOMPASS와 프로젝트를
+  공유해 기존 `nompass-storage` 프로필을 재사용했지만, 이제 프로젝트
+  자체가 분리됐으므로 **새 프로젝트(`imaxmdtnknychqyphaaa`)의 S3 호환
+  Storage 자격증명으로 새로 만든 AWS CLI 프로필**을 지정해야 한다(예:
+  `aws configure --profile space-shift-storage`) — 옛 `nompass-storage`
+  프로필은 예전 프로젝트의 자격증명이라 새 프로젝트에 대해서는 인증이
+  거부된다. 이 스크립트는 코드 레벨 allowlist로 `space-shift-releases`
+  버킷 외에는 그 어떤 자격증명으로도 절대 쓰기 요청을 보내지 않는다.
 
 .PARAMETER Region
   Supabase 프로젝트의 Storage 리전. 기본값 ap-northeast-2.
@@ -62,14 +66,14 @@
 .EXAMPLE
   .\tool\publish_android_update.ps1 `
     -ApkPath "C:\ASON\SPACE_SHIFT_TAB_APK\SPACE_SHIFT_V1_MASTER_TAB_E2E_vc9.apk" `
-    -AwsProfile "nompass-storage"
+    -AwsProfile "space-shift-storage"
 #>
 [CmdletBinding()]
 param(
     [Parameter(Mandatory = $true)]
     [string]$ApkPath,
 
-    [string]$ProjectRef = "mljvgngjmrvoqjwvvyeg",
+    [string]$ProjectRef = "imaxmdtnknychqyphaaa",
 
     [Parameter(Mandatory = $true)]
     [string]$AwsProfile,
@@ -87,7 +91,7 @@ $ErrorActionPreference = "Stop"
 # NOMPASS의 app-releases)을 넘길 수 있기 때문이다. 이 값은 스크립트
 # 코드에서만 바꿀 수 있고, 모든 S3 쓰기 함수는 실행 직전에 이 값과
 # 정확히 같은지 다시 검증한다(방어적 이중 확인).
-$ExpectedProjectRef = "mljvgngjmrvoqjwvvyeg"
+$ExpectedProjectRef = "imaxmdtnknychqyphaaa"
 $AllowedBucket = "space-shift-releases"
 $ForbiddenBuckets = @("app-releases", "project-documents")
 $Bucket = $AllowedBucket

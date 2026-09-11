@@ -56,9 +56,9 @@ URL은 Secret이 아니라 공개 엔드포인트이므로 dart-define으로 노
 ```bash
 flutter run \
   --dart-define=AI_PROVIDER=fal \
-  --dart-define=AI_EDGE_FUNCTION_URL=https://mljvgngjmrvoqjwvvyeg.supabase.co/functions/v1/generate-interior \
-  --dart-define=ESTIMATE_EDGE_FUNCTION_URL=https://mljvgngjmrvoqjwvvyeg.supabase.co/functions/v1/submit-estimate \
-  --dart-define=SITE_MEETING_EDGE_FUNCTION_URL=https://mljvgngjmrvoqjwvvyeg.supabase.co/functions/v1/submit-site-meeting
+  --dart-define=AI_EDGE_FUNCTION_URL=https://imaxmdtnknychqyphaaa.supabase.co/functions/v1/generate-interior \
+  --dart-define=ESTIMATE_EDGE_FUNCTION_URL=https://imaxmdtnknychqyphaaa.supabase.co/functions/v1/submit-estimate \
+  --dart-define=SITE_MEETING_EDGE_FUNCTION_URL=https://imaxmdtnknychqyphaaa.supabase.co/functions/v1/submit-site-meeting
 ```
 
 `flutter build appbundle`/`flutter build ipa` 등 실제 배포용 빌드도 반드시
