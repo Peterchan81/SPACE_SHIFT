@@ -261,6 +261,24 @@ class FloorPlanPreview extends StatelessWidget {
               calibrating: true,
               onCalibrationDragEnd: cadCallbacks.onCalibrationDragEnd,
             ),
+          )
+        // CANONICAL 2D CONFIRMATION → 3D PIPELINE WO §4 — "구조 확인/보정"도
+        // 같은 [CadFloorPlanOverlay]를 basemap(원본 또는 AI Clean 이미지)
+        // 위에 얹는다 — 치수 보정과 달리 select/addWall/addDoor/addWindow
+        // 도구 전환 + 문/창 이동 핸들이 함께 켜진다.
+        else if (cad.structureEditing && cad.floorPlan != null)
+          Positioned.fill(
+            child: CadFloorPlanOverlay(
+              floorPlan: cad.floorPlan!,
+              selectedId: cad.selectedObjectId,
+              onSelect: cadCallbacks.onSelectObject,
+              onWallEndpointChanged: cadCallbacks.onWallEndpointChanged,
+              structureEditing: true,
+              tool: cad.cadEditTool,
+              onAddWallDrag: cadCallbacks.onAddWallDrag,
+              onAddOpeningTap: cadCallbacks.onAddOpeningTap,
+              onOpeningMoved: cadCallbacks.onOpeningMoved,
+            ),
           ),
       ],
     );
@@ -1123,14 +1141,27 @@ class _SpaceSummaryCard extends StatelessWidget {
         const SizedBox(height: 6),
         _CeilingHeightChips(cad: cad, callbacks: callbacks),
         const SizedBox(height: 14),
-        Align(
-          alignment: Alignment.centerLeft,
-          child: _ToolbarTextButton(
-            icon: Icons.straighten_rounded,
-            label: '치수 보정',
-            active: cad.calibrating,
-            onTap: callbacks.onStartCalibration,
-          ),
+        // CANONICAL 2D CONFIRMATION → 3D PIPELINE WO §4 — "구조 확인/보정"은
+        // "치수 보정"과 같은 자리에 나란히 두는 독립 opt-in 모드다. 서로
+        // 동시에 켜질 수 없다(화면 State가 보장 — [FloorPlanWorkspaceScreen
+        // ._onToggleStructureEditing]).
+        Wrap(
+          spacing: 12,
+          runSpacing: 6,
+          children: [
+            _ToolbarTextButton(
+              icon: Icons.architecture_rounded,
+              label: '구조 확인/보정',
+              active: cad.structureEditing,
+              onTap: callbacks.onToggleStructureEditing,
+            ),
+            _ToolbarTextButton(
+              icon: Icons.straighten_rounded,
+              label: '치수 보정',
+              active: cad.calibrating,
+              onTap: callbacks.onStartCalibration,
+            ),
+          ],
         ),
         if (cad.calibrating) ...[
           const SizedBox(height: 8),
@@ -1148,7 +1179,82 @@ class _SpaceSummaryCard extends StatelessWidget {
           else
             _CalibrationSelectionPanel(cad: cad, callbacks: callbacks),
         ],
+        if (cad.structureEditing) ...[
+          const SizedBox(height: 10),
+          _StructureEditingPanel(cad: cad, callbacks: callbacks),
+        ],
       ],
+    );
+  }
+}
+
+/// CANONICAL 2D CONFIRMATION → 3D PIPELINE WO §4/§6 — "구조 확인/보정"
+/// 모드가 켜져 있는 동안 보이는 도구 선택 + 안내 + "2D 공간 확정" 버튼.
+/// 정교한 CAD 편집기가 아니라 "몇 번의 클릭으로 보정"이 목표라 도구는
+/// 4개뿐이다(§4).
+class _StructureEditingPanel extends StatelessWidget {
+  const _StructureEditingPanel({required this.cad, required this.callbacks});
+
+  final CadWorkspaceState cad;
+  final CadWorkspaceCallbacks callbacks;
+
+  String get _instruction => switch (cad.cadEditTool) {
+    CadEditTool.select => '벽/문/창을 탭해 선택하세요. 선택 후 우측에서 삭제할 수 있습니다.',
+    CadEditTool.addWall => '캔버스를 드래그해 새 벽을 그으세요.',
+    CadEditTool.addDoor => '기존 벽 위를 탭하면 그 자리에 문이 추가됩니다.',
+    CadEditTool.addWindow => '기존 벽 위를 탭하면 그 자리에 창이 추가됩니다.',
+  };
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(10),
+      decoration: BoxDecoration(
+        color: SpaceShiftColors.selectionAccent.withValues(alpha: 0.06),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: SpaceShiftColors.selectionAccent.withValues(alpha: 0.4)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Wrap(
+            spacing: 6,
+            runSpacing: 6,
+            children: [
+              for (final tool in CadEditTool.values)
+                ChoiceChip(
+                  label: Text(tool.label, style: const TextStyle(fontSize: 12)),
+                  selected: cad.cadEditTool == tool,
+                  onSelected: (_) => callbacks.onCadEditToolChanged(tool),
+                ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Text(
+            _instruction,
+            style: const TextStyle(fontSize: 11.5, color: SpaceShiftColors.textSecondary, height: 1.4),
+          ),
+          const SizedBox(height: 10),
+          Row(
+            children: [
+              Expanded(
+                child: FilledButton.icon(
+                  onPressed: cad.hasGeometry ? callbacks.onConfirmFloorPlan : null,
+                  icon: const Icon(Icons.check_circle_outline_rounded, size: 18),
+                  label: const Text('2D 공간 확정'),
+                ),
+              ),
+              if (cad.isConfirmed) ...[
+                const SizedBox(width: 8),
+                const Tooltip(
+                  message: '지금 상태가 3D의 유일한 입력으로 확정되어 있습니다.',
+                  child: Icon(Icons.verified_rounded, color: Colors.green, size: 22),
+                ),
+              ],
+            ],
+          ),
+        ],
+      ),
     );
   }
 }

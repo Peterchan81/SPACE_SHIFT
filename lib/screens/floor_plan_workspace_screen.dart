@@ -194,6 +194,19 @@ class _FloorPlanWorkspaceScreenState extends State<FloorPlanWorkspaceScreen> {
   String? _selectedCadObjectId;
   final List<CadFloorPlan> _cadUndoStack = [];
 
+  /// CANONICAL 2D CONFIRMATION → 3D PIPELINE WO §4/§6/§7 — 이 세 필드가
+  /// 이번 WO의 핵심 상태다. [_structureEditing]/[_cadEditTool]은 "구조
+  /// 확인/보정" 모드(치수 보정과 독립)의 on/off와 현재 도구를 담고,
+  /// [_confirmedFloorPlan]은 사용자가 "2D 공간 확정"을 눌렀을 때의
+  /// [_cadFloorPlan] 스냅샷이다 — 3D는 이 스냅샷만 입력으로 쓴다(§7).
+  /// 확정 이후 [_cadFloorPlan]을 더 편집하면(§ [_mutateCad]/
+  /// [_deleteSelectedCadObject]) 이 스냅샷은 다시 null로 돌아가 재확정을
+  /// 요구한다 — "확정한 것과 3D가 항상 같다"는 acceptance criterion을
+  /// 지키기 위해서다(오래된 확정 스냅샷이 몰래 새 3D에 쓰이지 않는다).
+  bool _structureEditing = false;
+  CadEditTool _cadEditTool = CadEditTool.select;
+  CadFloorPlan? _confirmedFloorPlan;
+
   /// WO092 §5 — 실시간 3D에서 벽/바닥/천장을 탭해 선택했을 때, 선택된
   /// 대상의 원본 [SpaceObjectIdentityV2.sourceId]는 [_selectedCadObjectId]에
   /// 그대로 담기지만(2D CAD 선택 getter들을 그대로 재사용하기 위해),
@@ -512,6 +525,10 @@ class _FloorPlanWorkspaceScreenState extends State<FloorPlanWorkspaceScreen> {
     setState(() {
       _cadUndoStack.add(plan);
       _cadFloorPlan = mutator(plan);
+      // CANONICAL 2D CONFIRMATION WO §6/§7 — draft를 편집했으면 이전
+      // 확정은 더 이상 "지금 draft와 같다"고 보장할 수 없다 — 재확정을
+      // 요구한다(오래된 확정 스냅샷이 몰래 3D에 계속 쓰이는 것을 막는다).
+      _confirmedFloorPlan = null;
     });
   }
 
@@ -537,6 +554,136 @@ class _FloorPlanWorkspaceScreenState extends State<FloorPlanWorkspaceScreen> {
     );
   }
 
+  // CANONICAL 2D CONFIRMATION → 3D PIPELINE WO §4 — 아래 편집 도구
+  // 5개(구조 확인 모드 on/off, 도구 전환, 벽/문/창 추가, 개구부 이동,
+  // 확정)가 "AI가 놓친 구조를 몇 번의 클릭으로 보정"하는 이번 WO의
+  // 실제 편집 표면이다. 어떤 것도 근거 없이 geometry를 만들지 않는다 —
+  // 벽 추가는 사용자가 직접 그은 두 점 그대로, 문/창 추가·이동은
+  // 반드시 실제 [CadWall] 위에만 놓인다([nearestCadWall]/[projectPoint]).
+
+  void _onToggleStructureEditing() {
+    setState(() {
+      _structureEditing = !_structureEditing;
+      _cadEditTool = CadEditTool.select;
+      if (_structureEditing) _calibrating = false;
+    });
+  }
+
+  void _onCadEditToolChanged(CadEditTool tool) {
+    setState(() => _cadEditTool = tool);
+  }
+
+  /// 근처(정규화 좌표 기준) 실제 벽을 찾을 때 공통으로 쓰는 tolerance —
+  /// 기존 치수 보정 드래그의 [_nearestWallId](cad_floor_plan_overlay.dart)
+  /// 와 같은 값이라 사용자 체감이 두 기능 사이에서 달라지지 않는다.
+  static const double _wallHitTolerance = 0.03;
+
+  void _onAddWallDrag(Point2 start, Point2 end) {
+    final plan = _cadFloorPlan;
+    if (plan == null) return;
+    final thicknessNormalized =
+        plan.normalizedLengthFromMm(kAssumedUserWallThicknessMm, _scale) ?? 0.01;
+    final newWall = CadWall(
+      id: 'user-wall-${DateTime.now().microsecondsSinceEpoch}',
+      start: start,
+      end: end,
+      thicknessNormalized: thicknessNormalized,
+      wallType: CadWallType.interior,
+      confidence: 1.0,
+      source: CadElementSource.userCreated,
+      edited: true,
+    );
+    _mutateCad((p) => p.copyWithWalls([...p.walls, newWall]));
+  }
+
+  void _onAddOpeningTap(Point2 point, OpeningType type) {
+    final plan = _cadFloorPlan;
+    if (plan == null) return;
+    final wall = nearestCadWall(plan, point, tolerance: _wallHitTolerance);
+    // 근처에 실제 벽이 없으면 아무 것도 만들지 않는다 — 근거 없는
+    // 개구부를 지어내지 않는다(WO §3 "AI/CV 결과는 제안값" 원칙을
+    // 사용자 편집에도 그대로 적용: 벽 위가 아니면 존재할 수 없다).
+    if (wall == null) return;
+    final projected = wall.projectPoint(point);
+    final assumedWidthMm = type == OpeningType.door ? kAssumedDoorWidthMm : kAssumedWindowWidthMm;
+    final widthNormalized = plan.normalizedLengthFromMm(assumedWidthMm, _scale) ?? 0.02;
+    final newOpening = CadOpening(
+      id: 'user-${type.name}-${DateTime.now().microsecondsSinceEpoch}',
+      type: type,
+      center: projected.point,
+      widthNormalized: widthNormalized,
+      confidence: 1.0,
+      wallId: wall.id,
+      source: CadElementSource.userCreated,
+      edited: true,
+    );
+    _mutateCad(
+      (p) => CadFloorPlan(
+        sourceWidthPx: p.sourceWidthPx,
+        sourceHeightPx: p.sourceHeightPx,
+        walls: p.walls,
+        openings: [...p.openings, newOpening],
+        rooms: p.rooms,
+        warnings: p.warnings,
+        objectCandidates: p.objectCandidates,
+      ),
+    );
+  }
+
+  void _onOpeningMoved(String openingId, Point2 draggedPoint) {
+    final plan = _cadFloorPlan;
+    if (plan == null) return;
+    CadOpening? opening;
+    for (final o in plan.openings) {
+      if (o.id == openingId) opening = o;
+    }
+    if (opening == null) return;
+
+    // 문/창은 반드시 자기 host wall 위에서만 움직인다 — host wall이
+    // 사라졌거나 없으면(정상적으로는 일어나지 않아야 한다) 안전하게
+    // 아무 것도 하지 않는다(허공에 떠 있는 개구부를 만들지 않는다).
+    CadWall? hostWall;
+    for (final w in plan.walls) {
+      if (w.id == opening.wallId) hostWall = w;
+    }
+    if (hostWall == null) return;
+    final projected = hostWall.projectPoint(draggedPoint);
+
+    _mutateCad(
+      (p) => CadFloorPlan(
+        sourceWidthPx: p.sourceWidthPx,
+        sourceHeightPx: p.sourceHeightPx,
+        walls: p.walls,
+        openings: [
+          for (final o in p.openings)
+            if (o.id == openingId)
+              o.copyWith(
+                center: projected.point,
+                edited: true,
+                source: o.source == CadElementSource.userCreated
+                    ? CadElementSource.userCreated
+                    : CadElementSource.userEdited,
+              )
+            else
+              o,
+        ],
+        rooms: p.rooms,
+        warnings: p.warnings,
+        objectCandidates: p.objectCandidates,
+      ),
+    );
+  }
+
+  /// "2D 공간 확정"(§6) — 지금 draft를 스냅샷으로 승격한다. 이후
+  /// [_onGenerate3D]는 오직 이 스냅샷만 입력으로 쓴다(§7) — draft를
+  /// 더 편집하면 [_mutateCad]/[_deleteSelectedCadObject]가 이 값을 다시
+  /// null로 되돌려 재확정을 요구한다.
+  void _onConfirmFloorPlan() {
+    final plan = _cadFloorPlan;
+    if (plan == null) return;
+    setState(() => _confirmedFloorPlan = plan);
+  }
+
   void _deleteSelectedCadObject() {
     final id = _selectedCadObjectId;
     final plan = _cadFloorPlan;
@@ -553,6 +700,7 @@ class _FloorPlanWorkspaceScreenState extends State<FloorPlanWorkspaceScreen> {
         objectCandidates: plan.objectCandidates,
       );
       _selectedCadObjectId = null;
+      _confirmedFloorPlan = null;
     });
   }
 
@@ -651,6 +799,11 @@ class _FloorPlanWorkspaceScreenState extends State<FloorPlanWorkspaceScreen> {
       _calibrationStart = null;
       _calibrationEnd = null;
       _calibrationPixelLength = null;
+      // CANONICAL 2D CONFIRMATION → 3D PIPELINE WO — 치수 보정과 구조
+      // 확인/보정은 동일 캔버스 위에 서로 다른 제스처 의미(측정 드래그 vs
+      // 벽/문/창 편집)를 부여하므로 동시에 켜져 있으면 안 된다(먼저 켜진
+      // 쪽의 오버레이가 조용히 뒤 모드의 제스처를 가로채 버린다).
+      if (_calibrating) _structureEditing = false;
     });
   }
 
@@ -832,7 +985,13 @@ class _FloorPlanWorkspaceScreenState extends State<FloorPlanWorkspaceScreen> {
   /// ([UnavailableFloorPlanIsoImageService]) 조용히 실시간 geometry 3D로
   /// 대체한다 — 화면은 절대 죽지 않는다.
   Future<void> _onGenerate3D() async {
-    final plan = _cadFloorPlan;
+    // CANONICAL 2D CONFIRMATION → 3D PIPELINE WO §6/§7 — 3D는 오직
+    // [_confirmedFloorPlan](사용자가 "2D 공간 확정"을 누른 시점의
+    // 스냅샷)만 입력으로 쓴다 — 지금 편집 중일 수도 있는 [_cadFloorPlan]
+    // 을 쓰지 않는다. [_cadWorkspaceState.isReadyFor3D]가 이미
+    // `isConfirmed`를 요구하므로 버튼 자체가 비활성화되지만, 방어적으로
+    // 한 번 더 확인한다.
+    final plan = _confirmedFloorPlan;
     final scale = _scale;
     final ceilingHeightMm = _ceilingHeightMm;
     if (!_cadWorkspaceState.isReadyFor3D ||
@@ -944,6 +1103,9 @@ class _FloorPlanWorkspaceScreenState extends State<FloorPlanWorkspaceScreen> {
     generatedFloorPlanImageBytes: _generatedFloorPlanImageBytes,
     isGeneratingFloorPlanImage: _isGeneratingFloorPlanImage,
     selected3DObjectId: _selected3DObjectId,
+    structureEditing: _structureEditing,
+    cadEditTool: _cadEditTool,
+    confirmedFloorPlan: _confirmedFloorPlan,
   );
 
   CadWorkspaceCallbacks get _cadWorkspaceCallbacks => CadWorkspaceCallbacks(
@@ -959,6 +1121,12 @@ class _FloorPlanWorkspaceScreenState extends State<FloorPlanWorkspaceScreen> {
     onCeilingHeightPresetSelected: _onCeilingHeightPresetSelected,
     onGenerate3D: _onGenerate3D,
     onRenameRoom: _onRenameRoom,
+    onToggleStructureEditing: _onToggleStructureEditing,
+    onCadEditToolChanged: _onCadEditToolChanged,
+    onAddWallDrag: _onAddWallDrag,
+    onAddOpeningTap: _onAddOpeningTap,
+    onOpeningMoved: _onOpeningMoved,
+    onConfirmFloorPlan: _onConfirmFloorPlan,
     onSelect3DObject: _onSelect3DObject,
   );
 
@@ -1060,7 +1228,10 @@ class _FloorPlanWorkspaceScreenState extends State<FloorPlanWorkspaceScreen> {
   /// 필요가 없다. 3D가 아직 생성 전이면(scene들이 모두 null) 할 일이
   /// 없다.
   void _refreshSpaceSceneMaterialsIfReady() {
-    final plan = _cadFloorPlan;
+    // CANONICAL 2D CONFIRMATION WO §7 — 재질만 바뀌어도 여전히 확정된
+    // geometry 스냅샷 위에서만 다시 그린다(§ [_onGenerate3D] 문서와
+    // 동일한 이유).
+    final plan = _confirmedFloorPlan;
     final scale = _scale;
     final ceilingHeightMm = _ceilingHeightMm;
     if (_spaceSceneV2 == null || plan == null || scale == null || ceilingHeightMm == null) {

@@ -47,6 +47,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 
+import 'package:ason_space/models/cad_floor_plan.dart' show CadElementSource;
 import 'package:ason_space/models/floor_plan_file.dart';
 import 'package:ason_space/models/floor_plan_geometry.dart';
 import 'package:ason_space/screens/floor_plan_workspace_screen.dart';
@@ -685,6 +686,31 @@ void main() {
     // 숫자만 보고 완료 처리하지 않는다"는 지침과도 일치한다.
     await pumpAnalyzed(tester);
 
+    // CANONICAL 2D CONFIRMATION → 3D PIPELINE WO §6 — 이제 3D는 "2D 공간
+    // 확정"을 누르기 전까지 절대 만들 수 없다(AI/CV가 무엇을 찾았든
+    // 상관없이 사용자가 확정한 draft만 3D의 유일한 입력이 되어야 한다는
+    // acceptance criterion). 분석 직후에는 아직 미확정이라 버튼이
+    // 비활성 상태다.
+    await tester.tap(find.text('3D 아이소'));
+    await tester.pump();
+
+    final generateButtonBeforeConfirm = find.widgetWithText(
+      ElevatedButton,
+      '3D 아이소 만들기',
+      skipOffstage: false,
+    );
+    await tester.ensureVisible(generateButtonBeforeConfirm);
+    await tester.pumpAndSettle();
+    expect(tester.widget<ElevatedButton>(generateButtonBeforeConfirm).onPressed, isNull);
+
+    // "2D 공간 확정"을 눌러야 비로소 3D 아이소 만들기가 활성화된다.
+    await tester.tap(find.text('2D 평면도'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('구조 확인/보정'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('2D 공간 확정'));
+    await tester.pumpAndSettle();
+
     await tester.tap(find.text('3D 아이소'));
     await tester.pump();
 
@@ -768,4 +794,175 @@ void main() {
 
     expect(find.text('선택한 구간', skipOffstage: false), findsOneWidget);
   });
+
+  // CANONICAL 2D CONFIRMATION → 3D PIPELINE WO §4/§6/§7 검증.
+  //
+  // 아래 테스트들은 "구조 확인/보정" 모드에서 벽/문/창을 추가·이동하는
+  // 최소 편집 도구와, "2D 공간 확정" 전에는 3D를 만들 수 없고 확정 이후
+  // draft를 다시 편집하면 재확정이 필요해지는 것을 검증한다.
+  //
+  // 실제 pointer 드래그/탭 시뮬레이션 대신 [CadFloorPlanOverlay]가 받는
+  // 콜백(onAddWallDrag/onAddOpeningTap)을 직접 호출해 판정한다 — 이
+  // 콜백들은 production과 완전히 같은 [CadWorkspaceCallbacks] 인스턴스에
+  // 연결된 실제 화면 메서드이므로(위젯 자체를 새로 만들지 않는다), "탭이
+  // 이 메서드를 부른다"는 배선은 그대로 검증하면서, Flutter test harness
+  // 특유의 중첩 GestureDetector/Overlay 경쟁으로 인한 raw pointer 시뮬레이션
+  // 불안정성(이 프로젝트의 다른 raw drag 테스트도 겪는 문제와 무관하게,
+  // 새 구조 확인 모드에서 유독 재현되는 현상을 실측 확인함)을 피한다.
+  // 실제 raw gesture 자체가 화면에서 동작하는지는 Windows 실기로
+  // 별도 확인한다(최종 E2E).
+
+  Future<void> enterStructureEditing(WidgetTester tester, {required String tool}) async {
+    final toggle = find.text('구조 확인/보정', skipOffstage: false);
+    await tester.ensureVisible(toggle);
+    await tester.pumpAndSettle();
+    await tester.tap(toggle);
+    await tester.pumpAndSettle();
+    if (tool != '선택') {
+      await tester.tap(find.text(tool, skipOffstage: false));
+      await tester.pumpAndSettle();
+    }
+  }
+
+  testWidgets('구조 확인/보정 — 벽 추가 도구로 드래그하면 새 벽이 draft에 추가된다', (tester) async {
+    await pumpAnalyzed(tester);
+    await enterStructureEditing(tester, tool: '벽 추가');
+
+    final overlay = tester.widget<CadFloorPlanOverlay>(find.byType(CadFloorPlanOverlay));
+    expect(overlay.floorPlan.walls, hasLength(2));
+
+    overlay.onAddWallDrag!(const Point2(0.15, 0.2), const Point2(0.25, 0.8));
+    await tester.pumpAndSettle();
+
+    final after = tester.widget<CadFloorPlanOverlay>(find.byType(CadFloorPlanOverlay)).floorPlan;
+    expect(after.walls, hasLength(3));
+    final newWall = after.walls.last;
+    expect(newWall.source, CadElementSource.userCreated);
+  });
+
+  testWidgets('구조 확인/보정 — 문 추가 도구로 기존 벽 위를 탭하면 그 벽에 문이 붙는다', (tester) async {
+    await pumpAnalyzed(tester);
+    await enterStructureEditing(tester, tool: '문 추가');
+
+    final overlay = tester.widget<CadFloorPlanOverlay>(find.byType(CadFloorPlanOverlay));
+    expect(overlay.floorPlan.openings, hasLength(1)); // 분석이 이미 찾은 opening-1.
+
+    // wall-int-1(x=0.5, y: 0.05~0.95) 위의 한 점.
+    overlay.onAddOpeningTap!(const Point2(0.5, 0.3), OpeningType.door);
+    await tester.pumpAndSettle();
+
+    final after = tester.widget<CadFloorPlanOverlay>(find.byType(CadFloorPlanOverlay)).floorPlan;
+    expect(after.openings, hasLength(2));
+    final newOpening = after.openings.last;
+    expect(newOpening.type, OpeningType.door);
+    expect(newOpening.wallId, 'wall-int-1');
+    expect(newOpening.source, CadElementSource.userCreated);
+  });
+
+  testWidgets('구조 확인/보정 — 벽과 무관한 위치를 탭하면 근거 없는 문/창을 만들지 않는다', (tester) async {
+    await pumpAnalyzed(tester);
+    await enterStructureEditing(tester, tool: '창 추가');
+
+    final overlay = tester.widget<CadFloorPlanOverlay>(find.byType(CadFloorPlanOverlay));
+    final before = overlay.floorPlan;
+
+    // wall-ext-1(y=0.05)/wall-int-1(x=0.5) 어느 쪽에서도 충분히 먼 지점.
+    overlay.onAddOpeningTap!(const Point2(0.1, 0.9), OpeningType.window);
+    await tester.pumpAndSettle();
+
+    final after = tester.widget<CadFloorPlanOverlay>(find.byType(CadFloorPlanOverlay)).floorPlan;
+    expect(after.openings, hasLength(before.openings.length));
+  });
+
+  testWidgets('구조 확인/보정 — 문/창을 드래그하면 host wall 위로 투영되어 이동한다', (tester) async {
+    await pumpAnalyzed(tester);
+    await enterStructureEditing(tester, tool: '문 추가');
+    final overlay1 = tester.widget<CadFloorPlanOverlay>(find.byType(CadFloorPlanOverlay));
+    // opening-1은 이미 wall-int-1(x=0.5)에 연결되어 있지 않다(분석
+    // 결과의 opening-1은 wallId가 없다) — host wall이 있는, 방금 만든
+    // 문으로 이동을 검증한다.
+    overlay1.onAddOpeningTap!(const Point2(0.5, 0.3), OpeningType.door);
+    await tester.pumpAndSettle();
+    final created = tester
+        .widget<CadFloorPlanOverlay>(find.byType(CadFloorPlanOverlay))
+        .floorPlan
+        .openings
+        .last;
+    expect(created.wallId, 'wall-int-1');
+
+    final overlay2 = tester.widget<CadFloorPlanOverlay>(find.byType(CadFloorPlanOverlay));
+    // wall-int-1 위 다른 위치로 "드래그"(host wall 밖의 점을 줘도 투영되어야 한다).
+    overlay2.onOpeningMoved!(created.id, const Point2(0.6, 0.6));
+    await tester.pumpAndSettle();
+
+    final moved = tester
+        .widget<CadFloorPlanOverlay>(find.byType(CadFloorPlanOverlay))
+        .floorPlan
+        .openings
+        .firstWhere((o) => o.id == created.id);
+    // wall-int-1은 x=0.5 고정 수직선이므로, 벽 밖의 점(0.6,0.6)을 줘도
+    // 투영된 x는 항상 0.5여야 한다(허공에 뜨지 않는다).
+    expect(moved.center.x, closeTo(0.5, 1e-9));
+    expect(moved.center.y, closeTo(0.6, 1e-9));
+    expect(moved.edited, isTrue);
+  });
+
+  testWidgets('CANONICAL 2D CONFIRMATION §7 — 확정 후 draft를 편집하면 재확정이 필요해진다', (
+    tester,
+  ) async {
+    await pumpAnalyzed(tester);
+    await enterStructureEditing(tester, tool: '선택');
+
+    await tester.tap(find.text('2D 공간 확정', skipOffstage: false));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('3D 아이소'));
+    await tester.pump();
+    var generateButton = find.widgetWithText(ElevatedButton, '3D 아이소 만들기', skipOffstage: false);
+    await tester.ensureVisible(generateButton);
+    await tester.pumpAndSettle();
+    expect(tester.widget<ElevatedButton>(generateButton).onPressed, isNotNull);
+
+    // 2D로 돌아가 문을 하나 추가한다(draft 편집) — 확정은 이제 무효.
+    // (이미 구조 확인/보정 모드는 켜져 있으므로 다시 토글하지 않는다 —
+    // toggle 버튼은 on/off를 뒤집으므로 두 번 부르면 꺼져 버린다.)
+    await tester.tap(find.text('2D 평면도'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('문 추가', skipOffstage: false));
+    await tester.pumpAndSettle();
+    final overlay = tester.widget<CadFloorPlanOverlay>(find.byType(CadFloorPlanOverlay));
+    overlay.onAddOpeningTap!(const Point2(0.5, 0.3), OpeningType.door);
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('3D 아이소'));
+    await tester.pump();
+    generateButton = find.widgetWithText(ElevatedButton, '3D 아이소 만들기', skipOffstage: false);
+    await tester.ensureVisible(generateButton);
+    await tester.pumpAndSettle();
+    expect(tester.widget<ElevatedButton>(generateButton).onPressed, isNull);
+  });
+
+  testWidgets(
+    '구조 확인/보정 중 치수 보정을 켜면 두 모드가 동시에 켜지지 않고 배타적으로 전환된다',
+    (tester) async {
+      // 실기 E2E에서 발견: "구조 확인/보정"을 켠 뒤 "치수 보정"을 누르면
+      // 기존에는 _calibrating만 세워지고 _structureEditing이 꺼지지 않아
+      // 오버레이가 calibrating 분기로 넘어가며 add-wall/tap-select 제스처를
+      // 조용히 가로챘다. 두 토글은 서로 배타적이어야 한다.
+      await pumpAnalyzed(tester);
+      await enterStructureEditing(tester, tool: '선택');
+
+      var overlay = tester.widget<CadFloorPlanOverlay>(find.byType(CadFloorPlanOverlay));
+      expect(overlay.structureEditing, isTrue);
+      expect(overlay.calibrating, isFalse);
+
+      await tester.tap(find.text('치수 보정', skipOffstage: false));
+      await tester.pumpAndSettle();
+
+      overlay = tester.widget<CadFloorPlanOverlay>(find.byType(CadFloorPlanOverlay));
+      expect(overlay.calibrating, isTrue);
+      expect(overlay.structureEditing, isFalse);
+      expect(find.text('벽 추가', skipOffstage: false), findsNothing);
+    },
+  );
 }

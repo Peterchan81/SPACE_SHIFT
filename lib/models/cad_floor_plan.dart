@@ -13,7 +13,16 @@ enum CadWallType { exterior, interior }
 
 /// geometry 한 개가 어떻게 만들어졌는지 — 실제 분석 결과인지, 사용자가
 /// 도면을 보정한 것인지, 사용자가 새로 그린 것인지 구분한다.
-enum CadElementSource { analyzed, userEdited, userCreated }
+///
+/// CANONICAL 2D CONFIRMATION → 3D PIPELINE WO — [aiSuggested]/
+/// [userConfirmed]를 추가한다. [analyzed]는 순수 CV 픽셀 분석
+/// (`buildCadFloorPlan`) 결과, [aiSuggested]는 AI(vision) semantic
+/// 힌트를 실제 pixel 증거로 재검증해 병합한 결과([ai_opening_bridge.dart]
+/// `mergeAiDetectedOpenings`)를 가리킨다 — 둘 다 "초안/제안"일 뿐 아직
+/// 사용자가 확인한 정답은 아니다(WO §2 "AI/CV 결과는 제안값"). [userConfirmed]는
+/// 사용자가 "2D 공간 확정"을 눌렀을 때 그 시점 draft 상태를 그대로
+/// 승격하는 값이다(§6) — 새로 편집한 것은 아니므로 [userEdited]와 구분한다.
+enum CadElementSource { analyzed, aiSuggested, userEdited, userCreated, userConfirmed }
 
 /// 편집 가능한 CAD 벽 — 실제 분석 엔진(run-length 벽 검출)의 [WallSegment]
 /// 결과를 감싸되, 중심선 + 두께 개념으로 명시적으로 분리하고 사용자가
@@ -80,6 +89,18 @@ class CadWall {
   Point2 get centerEnd => end;
   double get lengthNormalized => start.distanceTo(end);
 
+  /// CANONICAL 2D CONFIRMATION → 3D PIPELINE WO §4 — 점 [p]를 이 벽의
+  /// 중심선 위로 투영한다. [t]는 0([start])~1([end])로 clamp된 위치,
+  /// [point]는 그 위치의 실제 좌표. 문/창을 "반드시 실제 벽 위"에
+  /// 놓거나 옮길 때 재사용한다(허공에 떠 있는 개구부를 만들지 않는다).
+  ({double t, Point2 point}) projectPoint(Point2 p) {
+    final dx = end.x - start.x, dy = end.y - start.y;
+    final lengthSquared = dx * dx + dy * dy;
+    if (lengthSquared == 0) return (t: 0.0, point: start);
+    final t = (((p.x - start.x) * dx + (p.y - start.y) * dy) / lengthSquared).clamp(0.0, 1.0);
+    return (t: t, point: Point2(start.x + t * dx, start.y + t * dy));
+  }
+
   /// 두께가 있는 벽을 그리기 위한 4점 폴리곤(중심선 기준 양쪽으로
   /// 두께의 절반만큼 수직 offset) — CAD 렌더링과 hit-test(끝점 편집)가
   /// 모두 이 계산을 재사용한다.
@@ -138,6 +159,7 @@ class CadOpening {
     required this.confidence,
     this.wallId,
     this.source = CadElementSource.analyzed,
+    this.edited = false,
     this.reviewNeeded = false,
     this.reviewReasons = const [],
   });
@@ -150,11 +172,41 @@ class CadOpening {
   final String? wallId;
   final CadElementSource source;
 
+  /// CANONICAL 2D CONFIRMATION WO — [CadWall.edited]와 같은 의미:
+  /// 사용자가 위치/폭을 직접 옮기거나 바꿨는지. 자동/AI 제안 상태와
+  /// "사용자가 실제로 손을 댄" 상태를 구분해야 confidence 기반 표시가
+  /// 사용자 편집을 덮어쓰지 않는다.
+  final bool edited;
+
   /// WO084/085 — true면 문/창 종류(kind)를 pixel gap 근거만으로 확정하지
   /// 못해 사람이 다시 봐야 한다는 뜻이다([SSOpening.reviewNeeded] 승계).
   /// 자동으로 door/window로 단정하지 않는다(WO084 §C 절대 원칙).
   final bool reviewNeeded;
   final List<String> reviewReasons;
+
+  CadOpening copyWith({
+    Point2? center,
+    double? widthNormalized,
+    String? wallId,
+    CadElementSource? source,
+    bool? edited,
+    double? confidence,
+    bool? reviewNeeded,
+    List<String>? reviewReasons,
+  }) {
+    return CadOpening(
+      id: id,
+      type: type,
+      center: center ?? this.center,
+      widthNormalized: widthNormalized ?? this.widthNormalized,
+      confidence: confidence ?? this.confidence,
+      wallId: wallId ?? this.wallId,
+      source: source ?? this.source,
+      edited: edited ?? this.edited,
+      reviewNeeded: reviewNeeded ?? this.reviewNeeded,
+      reviewReasons: reviewReasons ?? this.reviewReasons,
+    );
+  }
 }
 
 /// 편집 가능한 CAD 공간(방) 후보.
@@ -291,6 +343,25 @@ const double kSquareMetersPerPyeong = 3.305785;
 
 double squareMetersToPyeong(double m2) => m2 / kSquareMetersPerPyeong;
 
+/// CANONICAL 2D CONFIRMATION → 3D PIPELINE WO §4 — [point](정규화 좌표)
+/// 근처 [tolerance] 이내의 가장 가까운 실제 [CadWall]을 찾는다. 문/창
+/// 추가·이동 도구가 "반드시 실제 벽 위에" 개구부를 붙이기 위해 쓴다 —
+/// 근처에 벽이 없으면 null(호출부는 아무 것도 만들지 않고 조용히
+/// 무시해야 한다 — 근거 없는 개구부를 지어내지 않는다).
+CadWall? nearestCadWall(CadFloorPlan plan, Point2 point, {required double tolerance}) {
+  CadWall? nearest;
+  var bestDistance = double.infinity;
+  for (final wall in plan.walls) {
+    final projected = wall.projectPoint(point);
+    final distance = projected.point.distanceTo(point);
+    if (distance <= tolerance && distance < bestDistance) {
+      bestDistance = distance;
+      nearest = wall;
+    }
+  }
+  return nearest;
+}
+
 /// [room]의 실제 면적(㎡) — [scale]이 있어야 계산 가능하다(WO 9번, 축척
 /// 없이 임의 mm 추정 금지). 정규화 면적(이미지 전체 대비 비율)에 실제
 /// 픽셀 면적과 mmPerPixel²을 곱해 mm²→㎡로 변환한다.
@@ -379,6 +450,13 @@ class FloorPlanScale {
 /// 계산한 [FloorPlanScale]은 항상 [ScaleSource.estimatedFromDoor]로
 /// 표시한다(2D 단순화 WO — 5번).
 const double kAssumedDoorWidthMm = 900;
+
+/// CANONICAL 2D CONFIRMATION WO §4 — 사용자가 "문/창 추가" 도구로 직접
+/// 새 개구부를 찍을 때 쓰는 기본 폭/두께. [kAssumedDoorWidthMm]과 같은
+/// 성격의 통상값이다 — 실측이 아니라 "일단 놓고 나중에 조정 가능한"
+/// 출발점일 뿐이다.
+const double kAssumedWindowWidthMm = 1200;
+const double kAssumedUserWallThicknessMm = 100;
 
 /// 문 후보(gap 폭 기반, 항상 [FloorPlanObjectStatus.needsReview])로부터
 /// 축척을 추정한다.
@@ -524,6 +602,17 @@ class CadFloorPlan {
   ) {
     if (scale == null) return null;
     return normalizedLength * diagonalPx * scale.mmPerPixel;
+  }
+
+  /// [realMmForNormalizedLength]의 역변환 — 사용자가 "문/창/벽 추가"
+  /// 도구로 새 geometry를 만들 때, [kAssumedDoorWidthMm] 같은 통상 mm
+  /// 값을 지금 화면의 정규화 좌표계로 바꾸는 데 쓴다(CANONICAL 2D
+  /// CONFIRMATION WO §4). [scale]은 실측이든 자동 추정이든 상관없이
+  /// 항상 존재해야 한다(분석 직후 [resolveAutoScale]이 항상 채운다) —
+  /// 그래도 없으면 임의로 지어내지 않고 null을 돌려준다.
+  double? normalizedLengthFromMm(double mm, FloorPlanScale? scale) {
+    if (scale == null || scale.mmPerPixel <= 0) return null;
+    return mm / (diagonalPx * scale.mmPerPixel);
   }
 
   CadFloorPlan copyWithWalls(List<CadWall> walls) {

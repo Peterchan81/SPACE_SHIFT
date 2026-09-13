@@ -228,7 +228,10 @@ Future<CadFloorPlan> mergeAiDetectedOpenings({
         widthNormalized: widthNormalized,
         confidence: visionTypeConfident && snapIsClose ? 0.85 : 0.6,
         wallId: wall.id,
-        source: CadElementSource.analyzed,
+        // CANONICAL 2D CONFIRMATION WO §2 — 이건 순수 CV 검출이 아니라
+        // AI semantic 힌트를 pixel로 재검증한 결과다. `analyzed`(순수
+        // CV)와 구분해 "이것도 여전히 초안/제안일 뿐"임을 명확히 한다.
+        source: CadElementSource.aiSuggested,
         reviewNeeded: !visionTypeConfident || !snapIsClose,
         reviewReasons: [
           if (!visionTypeConfident) 'AI가 문/창 종류를 낮은 확신으로 판단했습니다 — pixel은 gap 존재만 확인했습니다.',

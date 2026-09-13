@@ -211,8 +211,10 @@ class CadStructureTab extends StatelessWidget {
 
   String _sourceLabel(CadElementSource source) => switch (source) {
     CadElementSource.analyzed => '자동 분석',
+    CadElementSource.aiSuggested => 'AI 제안',
     CadElementSource.userEdited => '사용자 보정',
     CadElementSource.userCreated => '사용자 생성',
+    CadElementSource.userConfirmed => '사용자 확정',
   };
 }
 

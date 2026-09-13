@@ -17,6 +17,21 @@ extension FloorPlanDisplayModeX on FloorPlanDisplayMode {
   };
 }
 
+/// CANONICAL 2D CONFIRMATION → 3D PIPELINE WO §4 — "구조 확인/보정" 모드에서
+/// 캔버스 탭 한 번이 어떤 편집으로 이어지는지 결정하는 도구. 정교한 CAD
+/// 편집기가 목적이 아니므로 딱 이 4개만 둔다: 선택(기존 select/삭제
+/// 흐름 그대로), 벽 추가(드래그 두 점), 문/창 추가(기존 벽 위 탭 한 번).
+enum CadEditTool { select, addWall, addDoor, addWindow }
+
+extension CadEditToolX on CadEditTool {
+  String get label => switch (this) {
+    CadEditTool.select => '선택',
+    CadEditTool.addWall => '벽 추가',
+    CadEditTool.addDoor => '문 추가',
+    CadEditTool.addWindow => '창 추가',
+  };
+}
+
 /// CAD 캔버스/오버레이가 필요로 하는 값들을 한 번에 묶어, 위젯 생성자
 /// 파라미터가 지나치게 늘어나지 않게 한다. 화면(State)에서 만들어
 /// [FloorPlanPreview]/[WorkspaceCanvas]에 그대로 전달한다.
@@ -37,6 +52,10 @@ class CadWorkspaceState {
     this.generatedFloorPlanImageBytes,
     this.isGeneratingFloorPlanImage = false,
     this.selected3DObjectId,
+    this.structureEditing = false,
+    this.cadEditTool = CadEditTool.select,
+    this.pendingWallStart,
+    this.confirmedFloorPlan,
   });
 
   final CadFloorPlan? floorPlan;
@@ -93,15 +112,38 @@ class CadWorkspaceState {
   bool get hasScale => scale != null;
   bool get hasCeilingHeight => ceilingHeightMm != null;
 
+  /// CANONICAL 2D CONFIRMATION → 3D PIPELINE WO §6/§7 — "2D 공간 확정"을
+  /// 누르기 전까지는 3D를 만들 수 없다. AI/CV 결과가 몇 개를 찾았는지와
+  /// 무관하게, 사용자가 확정한 [confirmedFloorPlan] 스냅샷 하나만 3D의
+  /// 유일한 입력이 된다(§7 "다시 CV/GPT를 호출해서 재분석하지 않는다").
+  final CadFloorPlan? confirmedFloorPlan;
+  bool get isConfirmed => confirmedFloorPlan != null;
+
+  /// true인 동안 중앙 캔버스가 (원본/AI Clean 이미지를 basemap으로 삼아)
+  /// [CadFloorPlanOverlay]를 편집 가능 상태로 얹어 보여준다 — "치수
+  /// 보정"([calibrating])과는 독립된, 별도의 opt-in 모드다.
+  final bool structureEditing;
+  final CadEditTool cadEditTool;
+
+  /// [CadEditTool.addWall] 도구에서 드래그 대신 두 번 탭으로 벽을 그릴
+  /// 경우를 대비해 첫 번째 탭 위치를 잠시 들고 있는 자리 — 이번 구현은
+  /// 드래그 한 번으로 벽을 긋는 방식을 기본으로 쓰므로 대부분 null이다.
+  final Point2? pendingWallStart;
+
   /// [3D 아이소 만들기] 버튼 활성화 조건을 만족하지 못하는 이유들(WO
   /// 11번) — 비어 있으면 3D 준비가 끝난 것이다. 축척/천장고는 분석
   /// 직후 자동으로 채워지므로(2D 단순화 WO — [resolveAutoScale]/
   /// [kDefaultCeilingHeightMm]), 실사용에서는 사실상 항상 만족된다 —
   /// 그래도 아직 채워지지 않은 예외적인 순간을 위해 안내 문구는 남긴다.
+  ///
+  /// CANONICAL 2D CONFIRMATION WO §6 — "2D 공간 확정" 전이면 아무리
+  /// geometry/축척/천장고가 갖춰져도 3D를 만들 수 없다(가장 중요한
+  /// acceptance criterion — 확정한 것과 3D가 항상 같아야 한다).
   List<String> get missing3DReasons => [
     if (!hasGeometry) '평면도 분석을 먼저 진행해주세요.',
     if (!hasScale) '공간 크기를 계산하지 못했습니다.',
     if (!hasCeilingHeight) '천장 높이를 확인해주세요.',
+    if (!isConfirmed) '2D에서 공간을 먼저 확정해주세요.',
   ];
 
   bool get isReadyFor3D => missing3DReasons.isEmpty;
@@ -124,6 +166,12 @@ class CadWorkspaceCallbacks {
     required this.onGenerate3D,
     required this.onRenameRoom,
     required this.onSelect3DObject,
+    required this.onToggleStructureEditing,
+    required this.onCadEditToolChanged,
+    required this.onAddWallDrag,
+    required this.onAddOpeningTap,
+    required this.onOpeningMoved,
+    required this.onConfirmFloorPlan,
   });
 
   final ValueChanged<String?> onSelectObject;
@@ -166,4 +214,24 @@ class CadWorkspaceCallbacks {
   /// 자동 이름은 분석이 실제로 알아낸 값이 아니므로, 바꾸고 싶은 사용자를
   /// 위한 구조를 지금부터 만들어 둔다).
   final void Function(String roomId, String name) onRenameRoom;
+
+  // CANONICAL 2D CONFIRMATION → 3D PIPELINE WO §4/§6 — 구조 확인/보정 모드.
+  final VoidCallback onToggleStructureEditing;
+  final ValueChanged<CadEditTool> onCadEditToolChanged;
+
+  /// [CadEditTool.addWall] — 캔버스를 드래그해 새 벽 하나를 긋는다
+  /// (시작점 → 끝점).
+  final void Function(Point2 start, Point2 end) onAddWallDrag;
+
+  /// [CadEditTool.addDoor]/[CadEditTool.addWindow] — 기존 벽 위(또는
+  /// 근처)를 탭해 그 벽에 새 문/창을 붙인다. 벽 근처가 아니면 아무 일도
+  /// 일어나지 않는다(근거 없는 개구부를 지어내지 않는다).
+  final void Function(Point2 point, OpeningType type) onAddOpeningTap;
+
+  /// 선택된 문/창을 드래그해 같은 host wall 위의 다른 위치로 옮긴다.
+  final void Function(String openingId, Point2 draggedPoint) onOpeningMoved;
+
+  /// "2D 공간 확정" — 지금 draft 상태를 스냅샷으로 승격해 3D의 유일한
+  /// 입력으로 삼는다(§6/§7).
+  final VoidCallback onConfirmFloorPlan;
 }
