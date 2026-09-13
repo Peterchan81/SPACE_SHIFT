@@ -26,6 +26,14 @@ class _FakeVisionService implements VisionInterpretationService {
   Future<VisionUnderstanding> interpret(Uint8List imageBytes) async => understanding;
 }
 
+class _CallCountingVisionService implements VisionInterpretationService {
+  _CallCountingVisionService(this.onCall);
+  final VisionUnderstanding Function() onCall;
+
+  @override
+  Future<VisionUnderstanding> interpret(Uint8List imageBytes) async => onCall();
+}
+
 class _ThrowingVisionService implements VisionInterpretationService {
   const _ThrowingVisionService();
   @override
@@ -63,10 +71,12 @@ CadWall _continuousHorizontalWall() => const CadWall(
   confidence: 0.9,
 );
 
-CadFloorPlan _planWithWall(CadWall wall) => CadFloorPlan(
+CadFloorPlan _planWithWall(CadWall wall) => _planWithWalls([wall]);
+
+CadFloorPlan _planWithWalls(List<CadWall> walls) => CadFloorPlan(
   sourceWidthPx: kImage2Width,
   sourceHeightPx: kImage2Height,
-  walls: [wall],
+  walls: walls,
   openings: const [],
   rooms: const [],
   warnings: const [],
@@ -97,6 +107,7 @@ void main() {
       plan: plan,
       originalImageBytes: image2Bytes,
       visionService: vision,
+      sampleCount: 1,
     );
 
     expect(merged.openings, hasLength(1));
@@ -153,6 +164,54 @@ void main() {
     expect(merged.openings, isEmpty);
     expect(merged.walls, plan.walls);
     expect(merged.warnings, isNotEmpty);
+  });
+
+  test('코너 근처에서 가장 가까운 벽이 틀린 벽이어도, 다음으로 가까운 벽에서 실제 gap을 찾아낸다', () async {
+    // (280,190)은 gap 있는 수직 벽(x=280)과 gap 없는 수평 벽(y=190)이
+    // 만나는 코너다. hint(290,188)는 수평 벽(dist=2)이 수직 벽
+    // (dist=10)보다 훨씬 가깝다 — "가장 가까운 벽 1개"만 시도하면
+    // 수평 벽(연속 벽)에서 실패하고 끝나버린다. 새 구현은 실패하면
+    // 다음 후보(수직 벽)를 마저 시도해 실제 gap을 찾아야 한다.
+    final verticalWithGap = _realVerticalWall();
+    final horizontalContinuous = _continuousHorizontalWall();
+    final plan = _planWithWalls([horizontalContinuous, verticalWithGap]);
+    final vision = _FakeVisionService(_understandingWith([_doorOpeningAt(290, 188)]));
+
+    final merged = await mergeAiDetectedOpenings(
+      plan: plan,
+      originalImageBytes: image2Bytes,
+      visionService: vision,
+      sampleCount: 1,
+    );
+
+    expect(merged.openings, hasLength(1));
+    expect(merged.openings.single.wallId, verticalWithGap.id);
+  });
+
+  test('여러 번 표본추출(sampleCount)해 다른 호출에서만 감지된 문도 놓치지 않는다', () async {
+    // 첫 호출은 완전히 다른(무관한) 위치만 감지하고, 두 번째 호출에서만
+    // 실제 gap 위치를 감지한다고 가정한다 — 실제 GPT 호출 간 변동성을
+    // 흉내낸다. sampleCount>1이면 한 번이라도 맞으면 반영돼야 한다.
+    final wall = _realVerticalWall();
+    final plan = _planWithWall(wall);
+    var callCount = 0;
+    final vision = _CallCountingVisionService(() {
+      callCount++;
+      return callCount == 1
+          ? _understandingWith([_doorOpeningAt(150, 450)]) // 벽과 무관한 위치.
+          : _understandingWith([_doorOpeningAt(280, 165)]); // 실제 gap 위치.
+    });
+
+    final merged = await mergeAiDetectedOpenings(
+      plan: plan,
+      originalImageBytes: image2Bytes,
+      visionService: vision,
+      sampleCount: 3,
+    );
+
+    expect(callCount, 3);
+    expect(merged.openings, isNotEmpty);
+    expect(merged.openings.any((o) => o.wallId == wall.id), isTrue);
   });
 
   test('AI가 openings를 하나도 감지하지 못하면 원본 plan을 그대로 돌려준다', () async {
