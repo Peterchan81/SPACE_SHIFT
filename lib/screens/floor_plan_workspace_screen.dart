@@ -11,12 +11,15 @@ import '../models/space_scene_v2.dart';
 import '../models/workspace_drawing_entity.dart';
 import '../models/workspace_task_item.dart';
 import '../models/workspace_viewport_transform.dart';
+import '../services/ai_opening_bridge.dart';
 import '../services/floor_plan_analysis_service.dart';
 import '../services/floor_plan_upload_service.dart';
 import '../services/gpt_floorplan_image_service.dart';
 import '../services/gpt_floorplan_iso_service.dart';
+import '../services/gpt_floorplan_vision_service.dart';
 import '../services/space_scene_builder.dart';
 import '../services/space_scene_builder_v2.dart';
+import '../services/vision_interpretation_service.dart';
 import '../theme/space_shift_colors.dart';
 import '../widgets/workspace/ceiling_height_sheet.dart';
 import '../widgets/workspace/floor_plan_upload_card.dart';
@@ -62,6 +65,7 @@ class FloorPlanWorkspaceScreen extends StatefulWidget {
     this.analysisService = const FloorPlanAnalysisService(),
     this.floorPlanImageService,
     this.floorPlanIsoService,
+    this.visionOpeningService,
   });
 
   final String projectName;
@@ -87,6 +91,12 @@ class FloorPlanWorkspaceScreen extends StatefulWidget {
   /// 구현을 고른다.
   final FloorPlanIsoImageGenerationService? floorPlanIsoService;
 
+  /// AI×CV CANONICAL MERGE WO — 테스트 주입 지점. 지정하지 않으면
+  /// (실사용 경로) [_createProductionVisionOpeningService]가 dart-define
+  /// 설정에 따라 안전한 기본값 또는 실제 Edge Function 구현을 고른다.
+  /// [floorPlanImageService]/[floorPlanIsoService]와 같은 패턴이다.
+  final VisionInterpretationService? visionOpeningService;
+
   @override
   State<FloorPlanWorkspaceScreen> createState() =>
       _FloorPlanWorkspaceScreenState();
@@ -99,15 +109,23 @@ class FloorPlanWorkspaceScreen extends StatefulWidget {
 const double kDefaultCeilingHeightMm = 2400;
 
 /// V1 AI-IMAGE FLOW WO — 방향 수정: pixel_wall_v4(WO088 POC)도, GPT가
-/// 좌표/topology(SSSpatialModel)를 만드는 이전 경로(gpt_floorplan_vision_service.dart,
-/// R&D/대체 경로로 보존)도 더 이상 이 화면의 production 경로가 아니다.
-/// V1이 실제로 원하는 것은 "GPT가 원본 배치를 유지한 깨끗한 CAD 스타일
-/// 2D 평면도 이미지를 새로 그려서 돌려주고, 그 이미지를 화면에 그대로
-/// 보여준다"이다(좌표 복원/centerline/snap 연구 아님). GPT Edge Function이
-/// 아직 배포되지 않았으면([createFloorPlanImageGenerationService]가 안전한
-/// 기본값 [UnavailableFloorPlanImageGenerationService]를 돌려줌) 즉시
-/// 실패하고, 호출부(§ 아래 [_startAnalysis])가 원본 사진을 그대로 보여주는
-/// 것으로 정직하게 폴백한다 — 절대 죽지 않는다.
+/// 좌표/topology(SSSpatialModel) 전체를 만드는 이전 경로
+/// ([VisionGuidedSpatialModelBuilder], R&D/대체 경로로 보존)도 이 화면의
+/// **2D 표시** production 경로는 아니다. V1이 실제로 원하는 것은 "GPT가
+/// 원본 배치를 유지한 깨끗한 CAD 스타일 2D 평면도 이미지를 새로 그려서
+/// 돌려주고, 그 이미지를 화면에 그대로 보여준다"이다(좌표 복원/
+/// centerline/snap 연구 아님). GPT Edge Function이 아직 배포되지
+/// 않았으면([createFloorPlanImageGenerationService]가 안전한 기본값
+/// [UnavailableFloorPlanImageGenerationService]를 돌려줌) 즉시 실패하고,
+/// 호출부(§ 아래 [_startAnalysis])가 원본 사진을 그대로 보여주는 것으로
+/// 정직하게 폴백한다 — 절대 죽지 않는다.
+///
+/// AI×CV CANONICAL MERGE WO — 다만 [gpt_floorplan_vision_service.dart]의
+/// `VisionUnderstanding` 자체는 완전히 죽은 코드가 아니다 —
+/// [_createProductionVisionOpeningService]가 그 중 **openings(문/창)
+/// semantic만** 좁게 재사용해 실제 CV 벽 geometry에 병합한다(아래 참고).
+/// "2D topology 전체를 이 경로로 새로 만들지 않는다"는 원칙은 그대로
+/// 유지된다 — 벽/방 geometry는 여전히 CV 파이프라인이 유일한 출처다.
 FloorPlanImageGenerationService _createProductionFloorPlanImageService() =>
     createFloorPlanImageGenerationService();
 
@@ -120,6 +138,15 @@ FloorPlanImageGenerationService _createProductionFloorPlanImageService() =>
 /// geometry 결과로 안전하게 폴백한다.
 FloorPlanIsoImageGenerationService _createProductionFloorPlanIsoService() =>
     createFloorPlanIsoImageService();
+
+/// AI×CV CANONICAL MERGE WO — CV가 찾지 못한 문/창(§[mergeAiDetectedOpenings]
+/// 문서)을 AI semantic + 실제 pixel 재검증으로 보완한다. Edge Function이
+/// 아직 배포/설정되지 않았으면([createVisionInterpretationService]가
+/// 안전한 기본값 [UnavailableVisionInterpretationService]를 돌려줌)
+/// 호출부(§ 아래 [_startAnalysis])가 즉시, 조용히 원래 CV 결과 그대로
+/// 폴백한다 — 이 기능이 있든 없든 화면은 항상 정상 동작한다.
+VisionInterpretationService _createProductionVisionOpeningService() =>
+    createVisionInterpretationService();
 
 /// WO099 UI COMPACT MODE — 좌측 세로 아이콘 레일의 5개 항목. 이 중
 /// [upload]/[taskList]만 오른쪽으로 펼쳐지는 패널을 갖는다(§ 좌측 —
@@ -302,6 +329,9 @@ class _FloorPlanWorkspaceScreenState extends State<FloorPlanWorkspaceScreen> {
   FloorPlanIsoImageGenerationService get _isoService =>
       widget.floorPlanIsoService ?? _createProductionFloorPlanIsoService();
 
+  VisionInterpretationService get _visionOpeningService =>
+      widget.visionOpeningService ?? _createProductionVisionOpeningService();
+
   /// "AI 평면도 생성" — V1 AI-IMAGE FLOW WO 방향 수정.
   ///
   /// 1) 기존 [FloorPlanAnalysisService](단순 픽셀 엔진, 좌표 복원 연구
@@ -357,7 +387,20 @@ class _FloorPlanWorkspaceScreenState extends State<FloorPlanWorkspaceScreen> {
     }
 
     final result = outcome.result!;
-    final cadFloorPlan = buildCadFloorPlan(result);
+    final cvCadFloorPlan = buildCadFloorPlan(result);
+
+    // AI×CV CANONICAL MERGE WO — CV 벽 geometry는 그대로 두고, AI가
+    // 원본 이미지에서 실제로 인식한 문/창 위치를 실제 CV 벽에 pixel로
+    // 재검증해 병합한다(§ [mergeAiDetectedOpenings] 문서). 이 호출을
+    // (await하지 않고) 먼저 시작만 해 두고 아래 이미지 생성 호출을 바로
+    // 이어서 시작하면, 서로 무관한 두 네트워크 호출(둘 다 원본 사진
+    // 기반)이 동시에 진행된다 — 순서대로 기다리면 두 호출 시간이
+    // 그대로 더해져 분석이 불필요하게 두 배 느려진다.
+    final openingsMergeFuture = mergeAiDetectedOpenings(
+      plan: cvCadFloorPlan,
+      originalImageBytes: file.bytes!,
+      visionService: _visionOpeningService,
+    );
 
     setState(() => _isGeneratingFloorPlanImage = true);
     Uint8List? generatedImage;
@@ -368,6 +411,16 @@ class _FloorPlanWorkspaceScreenState extends State<FloorPlanWorkspaceScreen> {
       // 예외 비노출" 관례) — generatedImage는 null로 남고, 화면은 원본
       // 사진을 그대로 보여준다.
       generatedImage = null;
+    }
+
+    // [mergeAiDetectedOpenings] 자체는 예외를 던지지 않는 함수지만,
+    // 혹시 모를 다른 원인의 예외까지 화면이 죽는 일이 없도록 한 번 더
+    // 감싼다.
+    CadFloorPlan cadFloorPlan;
+    try {
+      cadFloorPlan = await openingsMergeFuture;
+    } catch (_) {
+      cadFloorPlan = cvCadFloorPlan;
     }
     if (!mounted) return;
 
