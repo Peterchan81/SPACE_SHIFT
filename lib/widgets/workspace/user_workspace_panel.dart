@@ -12,35 +12,50 @@ import 'display_tab.dart';
 import 'floor_plan_preview.dart';
 import 'furniture_tab.dart';
 import 'info_tab.dart';
+import 'interior_elements_tab.dart';
+import 'lighting_tab.dart';
+import 'materials_tab.dart';
 import 'selected_3d_object_tab.dart';
 import 'selection_edit_tools.dart';
 import 'work_tab.dart';
 import 'workspace_icon_rail.dart';
 
-enum _PanelTab { work, furniture, display, info }
+/// PROFESSIONAL WORKSPACE UI RESTRUCTURE WO §6/§9 — 우측 Tool Rail의 7개
+/// 탭. "디스플레이"였던 자리는 "환경/조도"로 이름을 바꾸고(내용은 그대로
+/// [DisplayTab] 재사용 — 그리드/치수/마커 표시, 조명 프리셋, 렌더링
+/// 품질이 실제로 "환경/조도" 범주다), 조명(기구)/인테리어 요소/재질·색상은
+/// 각각 독립된 탭으로 새로 만든다.
+enum _PanelTab { work, furniture, lighting, interior, materials, environment, info }
 
 extension on _PanelTab {
   String get label => switch (this) {
     _PanelTab.work => '작업도구',
     _PanelTab.furniture => '가구',
-    _PanelTab.display => '디스플레이',
+    _PanelTab.lighting => '조명',
+    _PanelTab.interior => '인테리어 요소',
+    _PanelTab.materials => '재질/색상',
+    _PanelTab.environment => '환경/조도',
     _PanelTab.info => '정보',
   };
 
   IconData get icon => switch (this) {
     _PanelTab.work => Icons.build_outlined,
     _PanelTab.furniture => Icons.weekend_outlined,
-    _PanelTab.display => Icons.tune_rounded,
+    _PanelTab.lighting => Icons.lightbulb_outline_rounded,
+    _PanelTab.interior => Icons.style_outlined,
+    _PanelTab.materials => Icons.palette_outlined,
+    _PanelTab.environment => Icons.wb_sunny_outlined,
     _PanelTab.info => Icons.info_outline_rounded,
   };
 }
 
 /// 우측 "사용자 작업 환경" 패널.
 ///
-/// 정확히 4개 탭(작업/가구/디스플레이/정보)만 둔다 — "속성"은 "작업"으로
-/// 이름을 바꾸고, 별도 "조명" 탭은 두지 않고 디스플레이 탭 안에 흡수한다
-/// (WO 10번). Undo/Redo는 화면 좌측 상단의 옛 플로팅 툴바 대신 이 패널
-/// 안으로 옮겼다.
+/// PROFESSIONAL WORKSPACE UI RESTRUCTURE WO §6/§9 — 작업도구/가구/조명/
+/// 인테리어 요소/재질·색상/환경·조도/정보, 총 7개 탭. Undo/Redo/화면 맞춤은
+/// 이제 화면 전체에 걸리는 도구라 이 패널이 아니라 상단 View Bar
+/// ([FloorPlanWorkspaceScreen._buildTopViewBar])로 옮겼다 — 이 패널은
+/// 선택한 탭의 콘텐츠에만 집중한다.
 ///
 /// 실기 FAIL 재수정 WO(16번) — 이 2D/CAD 준비 단계에서는 AI 어시스턴트가
 /// 핵심 기능이 아니라는 실사용 피드백에 따라 진입 버튼을 제거했다.
@@ -73,10 +88,6 @@ class UserWorkspacePanel extends StatefulWidget {
     required this.onThicknessChanged,
     required this.onFinishSelected,
     required this.onColorChanged,
-    required this.canUndo,
-    required this.canRedo,
-    required this.onUndo,
-    required this.onRedo,
     this.analysisDebugStats,
     this.selectedCadWall,
     this.selectedCadOpening,
@@ -143,11 +154,6 @@ class UserWorkspacePanel extends StatefulWidget {
   final ValueChanged<double> onThicknessChanged;
   final ValueChanged<String> onFinishSelected;
   final ValueChanged<Color> onColorChanged;
-
-  final bool canUndo;
-  final bool canRedo;
-  final VoidCallback onUndo;
-  final VoidCallback onRedo;
 
   @override
   State<UserWorkspacePanel> createState() => _UserWorkspacePanelState();
@@ -231,18 +237,6 @@ class _UserWorkspacePanelState extends State<UserWorkspacePanel> {
                   ),
                 ),
                 IconButton(
-                  onPressed: widget.canUndo ? widget.onUndo : null,
-                  tooltip: '실행 취소',
-                  visualDensity: VisualDensity.compact,
-                  icon: const Icon(Icons.undo_rounded, size: 20),
-                ),
-                IconButton(
-                  onPressed: widget.canRedo ? widget.onRedo : null,
-                  tooltip: '다시 실행',
-                  visualDensity: VisualDensity.compact,
-                  icon: const Icon(Icons.redo_rounded, size: 20),
-                ),
-                IconButton(
                   onPressed: () => setState(() => _expanded = false),
                   tooltip: '패널 닫기',
                   visualDensity: VisualDensity.compact,
@@ -311,7 +305,13 @@ class _UserWorkspacePanelState extends State<UserWorkspacePanel> {
         );
       case _PanelTab.furniture:
         return const FurnitureTab();
-      case _PanelTab.display:
+      case _PanelTab.lighting:
+        return const LightingTab();
+      case _PanelTab.interior:
+        return const InteriorElementsTab();
+      case _PanelTab.materials:
+        return MaterialsTab(selectionLabel: _currentSelectionLabel());
+      case _PanelTab.environment:
         return const DisplayTab();
       case _PanelTab.info:
         return InfoTab(
@@ -387,6 +387,31 @@ class _UserWorkspacePanelState extends State<UserWorkspacePanel> {
       onFinishSelected: widget.onFinishSelected,
       onColorChanged: widget.onColorChanged,
     );
+  }
+
+  /// PROFESSIONAL WORKSPACE UI RESTRUCTURE WO §7 — "재질/색상" 탭이
+  /// "선택된 벽/바닥/가구에 적용하는 property panel"이 되려면 지금 무엇이
+  /// 선택되어 있는지 알아야 한다. 실제 재질 적용 backend는 이번 WO
+  /// 범위가 아니므로(§12), 여기서는 어떤 대상이 선택되어 있는지 이름만
+  /// 돌려준다 — [MaterialsTab]은 이 이름을 보여주는 용도로만 쓴다.
+  String? _currentSelectionLabel() {
+    final kind = widget.selected3DKind;
+    if (kind != null) {
+      return switch (kind) {
+        SpaceElementKindV2.wall => '벽',
+        SpaceElementKindV2.ceiling => '천장',
+        SpaceElementKindV2.furniture => '가구',
+        SpaceElementKindV2.opening => '창문',
+        _ => '바닥',
+      };
+    }
+    if (widget.selectedCadWall != null) return '벽';
+    if (widget.selectedCadOpening != null) {
+      return widget.selectedCadOpening!.type == OpeningType.door ? '문' : '창문';
+    }
+    if (widget.selectedCadRoom != null) return '바닥(공간)';
+    if (widget.task != null) return widget.task!.name;
+    return null;
   }
 }
 

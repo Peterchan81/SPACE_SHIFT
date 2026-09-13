@@ -111,7 +111,7 @@ class WorkspaceCanvas extends StatelessWidget {
     return Container(
       decoration: BoxDecoration(
         color: Colors.white,
-        borderRadius: BorderRadius.circular(20),
+        borderRadius: BorderRadius.circular(14),
         border: Border.all(color: SpaceShiftColors.border),
       ),
       clipBehavior: Clip.antiAlias,

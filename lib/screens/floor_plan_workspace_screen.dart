@@ -148,12 +148,22 @@ FloorPlanIsoImageGenerationService _createProductionFloorPlanIsoService() =>
 VisionInterpretationService _createProductionVisionOpeningService() =>
     createVisionInterpretationService();
 
-/// WO099 UI COMPACT MODE — 좌측 세로 아이콘 레일의 5개 항목. 이 중
-/// [upload]/[taskList]만 오른쪽으로 펼쳐지는 패널을 갖는다(§ 좌측 —
-/// "선택 시 필요한 패널만 오른쪽으로 펼쳐지게 한다") — 나머지(직접
-/// 그리기/사진으로 변환/설정)는 기존과 동일하게 즉시 동작(SnackBar
-/// 안내 또는 화면 전환)만 하고 패널을 펼치지 않는다.
-enum _LeftRailItem { upload, drawManually, photoConvert, taskList, settings }
+/// PROFESSIONAL WORKSPACE UI RESTRUCTURE WO §3 — 좌측 세로 아이콘 레일의
+/// 7개 항목(평면도 업로드/실측도면 업로드/직접 그리기/사진 업로드/작업
+/// 목록/AI Assistant/설정). 이 중 [upload]/[taskList]만 오른쪽으로
+/// 펼쳐지는 패널을 갖는다 — 나머지는 즉시 동작(SnackBar 안내 또는 화면
+/// 전환)만 하고 패널을 펼치지 않는다. [measuredUpload]/[aiAssistant]는
+/// 아직 실제 기능이 없어 "준비 중" 안내만 보여준다(§3 — 임의 구현 금지,
+/// disabled 상태를 명확히 표현).
+enum _LeftRailItem {
+  upload,
+  measuredUpload,
+  drawManually,
+  photoConvert,
+  taskList,
+  aiAssistant,
+  settings,
+}
 
 class _FloorPlanWorkspaceScreenState extends State<FloorPlanWorkspaceScreen> {
   WorkspaceViewMode _viewMode = WorkspaceViewMode.plan2d;
@@ -1387,7 +1397,22 @@ class _FloorPlanWorkspaceScreenState extends State<FloorPlanWorkspaceScreen> {
       case _LeftRailItem.settings:
         setState(() => _leftExpandedItem = null);
         _openSettings();
+      case _LeftRailItem.measuredUpload:
+        setState(() => _leftExpandedItem = null);
+        _showNotReadySnackBar('실측도면 업로드');
+      case _LeftRailItem.aiAssistant:
+        setState(() => _leftExpandedItem = null);
+        _showNotReadySnackBar('AI Assistant');
     }
+  }
+
+  /// PROFESSIONAL WORKSPACE UI RESTRUCTURE WO §3 — 아직 구현되지 않은
+  /// 메뉴 공통 안내. 기존 기능을 임의로 흉내 내지 않고, 준비 중임을
+  /// 명확히 알린다.
+  void _showNotReadySnackBar(String featureName) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text('"$featureName"은(는) 준비 중입니다. 곧 지원할 예정입니다.')),
+    );
   }
 
   /// "직접 그리기"는 아직 실제 화면이 없어 준비중 안내만 보여준다(WO
@@ -1457,7 +1482,7 @@ class _FloorPlanWorkspaceScreenState extends State<FloorPlanWorkspaceScreen> {
             ),
             body: SafeArea(
               child: Padding(
-                padding: const EdgeInsets.all(16),
+                padding: const EdgeInsets.all(12),
                 // WO099 UI COMPACT MODE — 좌/우가 이제 얇은 아이콘
                 // 레일(펼쳐질 때만 패널이 옆에 붙는다)이라, 폭에 따라
                 // 완전히 다른 레이아웃을 따로 유지할 필요가 없어졌다
@@ -1517,8 +1542,15 @@ class _FloorPlanWorkspaceScreenState extends State<FloorPlanWorkspaceScreen> {
                 onTap: () => _handleLeftRailTap(_LeftRailItem.upload),
               ),
               WorkspaceRailItem(
+                icon: Icons.straighten_rounded,
+                tooltip: '실측도면 업로드',
+                enabled: false,
+                onTap: () => _handleLeftRailTap(_LeftRailItem.measuredUpload),
+              ),
+              WorkspaceRailItem(
                 icon: WorkspaceStartMethod.drawManually.icon,
                 tooltip: WorkspaceStartMethod.drawManually.title,
+                enabled: false,
                 onTap: () => _handleLeftRailTap(_LeftRailItem.drawManually),
               ),
               WorkspaceRailItem(
@@ -1531,6 +1563,12 @@ class _FloorPlanWorkspaceScreenState extends State<FloorPlanWorkspaceScreen> {
                 tooltip: '작업 목록',
                 selected: expanded == _LeftRailItem.taskList,
                 onTap: () => _handleLeftRailTap(_LeftRailItem.taskList),
+              ),
+              WorkspaceRailItem(
+                icon: Icons.auto_awesome_rounded,
+                tooltip: 'AI Assistant',
+                enabled: false,
+                onTap: () => _handleLeftRailTap(_LeftRailItem.aiAssistant),
               ),
               WorkspaceRailItem(
                 icon: Icons.settings_outlined,
@@ -1582,7 +1620,9 @@ class _FloorPlanWorkspaceScreenState extends State<FloorPlanWorkspaceScreen> {
       case _LeftRailItem.drawManually:
       case _LeftRailItem.photoConvert:
       case _LeftRailItem.settings:
-        // 이 셋은 _handleLeftRailTap에서 _leftExpandedItem을 항상 null로
+      case _LeftRailItem.measuredUpload:
+      case _LeftRailItem.aiAssistant:
+        // 이들은 _handleLeftRailTap에서 _leftExpandedItem을 항상 null로
         // 되돌리므로 이 분기에 실제로 도달하지 않는다.
         child = const SizedBox.shrink();
     }
@@ -1629,9 +1669,9 @@ class _FloorPlanWorkspaceScreenState extends State<FloorPlanWorkspaceScreen> {
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         _buildLeftRailArea(),
-        const SizedBox(width: 12),
+        const SizedBox(width: 8),
         Expanded(child: _buildCenterColumn(task)),
-        const SizedBox(width: 12),
+        const SizedBox(width: 8),
         UserWorkspacePanel(
           task: task,
           projectName: widget.projectName,
@@ -1664,10 +1704,6 @@ class _FloorPlanWorkspaceScreenState extends State<FloorPlanWorkspaceScreen> {
               _updateSelected((t) => t.copyWith(finishLabel: value)),
           onColorChanged: (value) =>
               _updateSelected((t) => t.copyWith(color: value)),
-          canUndo: _undoStack.isNotEmpty,
-          canRedo: _redoStack.isNotEmpty,
-          onUndo: _undo,
-          onRedo: _redo,
           analysisDebugStats: _analysisResult?.debugStats,
           selectedCadWall: _selectedCadWall,
           selectedCadOpening: _selectedCadOpening,
@@ -1685,17 +1721,77 @@ class _FloorPlanWorkspaceScreenState extends State<FloorPlanWorkspaceScreen> {
     );
   }
 
+  /// PROFESSIONAL WORKSPACE UI RESTRUCTURE WO §4 — "2D 평면도 | 3D 아이소
+  /// | 3D 투시" View 전환은 세 개의 서로 다른 프로젝트가 아니라 같은
+  /// 공간을 보는 세 가지 View다. 이 View 전환과, 화면 전체에 걸리는
+  /// 작은 도구(Undo/Redo/화면 맞춤/저장 상태)만 이 얇은 상단 바에 둔다
+  /// — 예전에 우측 패널 안에 있던 Undo/Redo를 여기로 옮겨(§ 좌측
+  /// Navigation처럼 "필요한 도구는 가장자리에서만") 우측 패널은 그
+  /// 콘텐츠(작업도구/가구/조명 등)에만 집중하게 한다. "저장 상태"는
+  /// 실제 서버 저장 기능이 없으므로(§12 — 없는 backend를 가짜로 만들지
+  /// 않는다) 있는 그대로 "이 기기에만 있다"는 사실만 정직하게 보여준다.
+  Widget _buildTopViewBar() {
+    return Container(
+      height: 48,
+      padding: const EdgeInsets.symmetric(horizontal: 6),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: SpaceShiftColors.border),
+      ),
+      child: Row(
+        children: [
+          IconButton(
+            onPressed: _undoStack.isNotEmpty ? _undo : null,
+            tooltip: '실행 취소',
+            visualDensity: VisualDensity.compact,
+            icon: const Icon(Icons.undo_rounded, size: 20),
+          ),
+          IconButton(
+            onPressed: _redoStack.isNotEmpty ? _redo : null,
+            tooltip: '다시 실행',
+            visualDensity: VisualDensity.compact,
+            icon: const Icon(Icons.redo_rounded, size: 20),
+          ),
+          Expanded(
+            child: Center(
+              child: WorkspaceViewSwitcher(
+                selected: _viewMode,
+                onSelected: (mode) => setState(() => _viewMode = mode),
+              ),
+            ),
+          ),
+          IconButton(
+            onPressed: _viewMode == WorkspaceViewMode.plan2d
+                ? _resetViewport
+                : null,
+            tooltip: '화면 맞춤',
+            visualDensity: VisualDensity.compact,
+            icon: const Icon(Icons.fit_screen_outlined, size: 20),
+          ),
+          const SizedBox(width: 4),
+          const Tooltip(
+            message: '이 작업은 이 기기에만 있습니다. 새로고침하면 사라집니다.',
+            child: Padding(
+              padding: EdgeInsets.symmetric(horizontal: 6),
+              child: Icon(
+                Icons.cloud_off_outlined,
+                size: 18,
+                color: SpaceShiftColors.textSecondary,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _buildCenterColumn(WorkspaceTaskItem? task) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        Center(
-          child: WorkspaceViewSwitcher(
-            selected: _viewMode,
-            onSelected: (mode) => setState(() => _viewMode = mode),
-          ),
-        ),
-        const SizedBox(height: 12),
+        _buildTopViewBar(),
+        const SizedBox(height: 10),
         Expanded(
           child: WorkspaceCanvas(
             tasks: _tasks,

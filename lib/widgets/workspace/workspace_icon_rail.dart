@@ -10,12 +10,19 @@ class WorkspaceRailItem {
     required this.tooltip,
     required this.onTap,
     this.selected = false,
+    this.enabled = true,
   });
 
   final IconData icon;
   final String tooltip;
   final bool selected;
   final VoidCallback onTap;
+
+  /// PROFESSIONAL WORKSPACE UI RESTRUCTURE WO §3 — 아직 실제 기능이 없는
+  /// 메뉴는 다른 항목과 똑같이 보이면 안 된다("disabled/준비중 상태를
+  /// 명확하게 표현"). tap 자체는 계속 받아 안내(SnackBar 등)는 그대로
+  /// 나가되, 아이콘만 눈에 띄게 흐리게 표시한다.
+  final bool enabled;
 }
 
 /// WO099 UI COMPACT MODE — 좌/우 큰 카드형 패널을 대체하는 세로 아이콘
@@ -88,7 +95,9 @@ class _RailButton extends StatelessWidget {
             child: Icon(
               item.icon,
               size: 22,
-              color: item.selected
+              color: !item.enabled
+                  ? SpaceShiftColors.textSecondary.withValues(alpha: 0.35)
+                  : item.selected
                   ? SpaceShiftColors.selectionAccent
                   : SpaceShiftColors.textSecondary,
             ),

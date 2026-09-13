@@ -232,10 +232,18 @@ void main() {
       );
       expect(tester.takeException(), isNull);
 
-      // 우측 패널의 가구/디스플레이/정보/작업도구 탭 전환도 렌더링 오류
-      // 없이 동작한다(이제 tooltip이 달린 아이콘이다 — 상시 노출 텍스트
-      // 아님).
-      for (final label in ['가구', '디스플레이', '정보', '작업도구']) {
+      // 우측 패널의 가구/조명/인테리어 요소/재질·색상/환경·조도/정보/
+      // 작업도구 탭 전환도 렌더링 오류 없이 동작한다(이제 tooltip이 달린
+      // 아이콘이다 — 상시 노출 텍스트 아님).
+      for (final label in [
+        '가구',
+        '조명',
+        '인테리어 요소',
+        '재질/색상',
+        '환경/조도',
+        '정보',
+        '작업도구',
+      ]) {
         await tester.tap(find.byTooltip(label));
         await tester.pump();
         expect(tester.takeException(), isNull);
