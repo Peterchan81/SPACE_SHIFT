@@ -23,7 +23,8 @@ import '../services/vision_interpretation_service.dart';
 import '../theme/space_shift_colors.dart';
 import '../widgets/workspace/ceiling_height_sheet.dart';
 import '../widgets/workspace/floor_plan_upload_card.dart';
-import '../widgets/workspace/space_3d_view_gpu_v2.dart' show Space3DCameraMode, Space3DViewGpuV2;
+import '../widgets/workspace/space_3d_view_gpu_v2.dart'
+    show Space3DCameraMode, Space3DViewGpuV2;
 import '../widgets/workspace/user_workspace_panel.dart';
 import '../widgets/workspace/workspace_canvas.dart';
 import '../widgets/workspace/workspace_icon_rail.dart';
@@ -38,7 +39,10 @@ import 'settings_screen.dart';
 /// 그대로 push/pop)를 그대로 재사용하되, 담는 내용만 tasks 하나에서
 /// {tasks, drawings} 묶음으로 넓혔다 — 두 번째 Undo 스택을 새로 만들지
 /// 않는다.
-typedef _WorkspaceSnapshot = ({List<WorkspaceTaskItem> tasks, List<WorkspaceDrawingEntity> drawings});
+typedef _WorkspaceSnapshot = ({
+  List<WorkspaceTaskItem> tasks,
+  List<WorkspaceDrawingEntity> drawings,
+});
 
 /// 신규 MASTER 1번 — "평면도 업로드" 작업실이자, 로그인/회원가입 이후
 /// 진입하는 신규 MASTER 메인 작업 화면.
@@ -148,14 +152,15 @@ FloorPlanIsoImageGenerationService _createProductionFloorPlanIsoService() =>
 VisionInterpretationService _createProductionVisionOpeningService() =>
     createVisionInterpretationService();
 
-/// PROFESSIONAL WORKSPACE UI RESTRUCTURE WO §3 — 좌측 세로 아이콘 레일의
-/// 7개 항목(평면도 업로드/실측도면 업로드/직접 그리기/사진 업로드/작업
-/// 목록/AI Assistant/설정). 이 중 [upload]/[taskList]만 오른쪽으로
-/// 펼쳐지는 패널을 갖는다 — 나머지는 즉시 동작(SnackBar 안내 또는 화면
-/// 전환)만 하고 패널을 펼치지 않는다. [measuredUpload]/[aiAssistant]는
-/// 아직 실제 기능이 없어 "준비 중" 안내만 보여준다(§3 — 임의 구현 금지,
-/// disabled 상태를 명확히 표현).
+/// FINAL PROFESSIONAL UI RESTRUCTURE WO §3 — 좌측 세로 Main Menu의 8개
+/// 항목(프로젝트/평면도 업로드/실측도면 업로드/직접 그리기/사진 업로드/
+/// 작업 목록/AI Assistant/설정). 이 중 [project]/[upload]/[taskList]만
+/// 오른쪽으로 펼쳐지는 Sub Menu를 갖는다 — 나머지는 즉시 동작(SnackBar
+/// 안내 또는 화면 전환)만 하고 패널을 펼치지 않는다. [measuredUpload]/
+/// [aiAssistant]는 아직 실제 기능이 없어 "준비 중" 안내만 보여준다(§3 —
+/// 임의 구현 금지, disabled 상태를 명확히 표현).
 enum _LeftRailItem {
+  project,
   upload,
   measuredUpload,
   drawManually,
@@ -238,9 +243,10 @@ class _FloorPlanWorkspaceScreenState extends State<FloorPlanWorkspaceScreen> {
       SpaceElementKindV2.ceiling => 'ceiling:$id',
       SpaceElementKindV2.floor => 'floor:$id',
       SpaceElementKindV2.wall => 'wall:$id',
-      _ => _selectedCadRoom != null
-          ? 'floor:$id'
-          : (_selectedCadWall != null ? 'wall:$id' : null),
+      _ =>
+        _selectedCadRoom != null
+            ? 'floor:$id'
+            : (_selectedCadWall != null ? 'wall:$id' : null),
     };
   }
 
@@ -549,7 +555,9 @@ class _FloorPlanWorkspaceScreenState extends State<FloorPlanWorkspaceScreen> {
     final wantCeiling = kind == SpaceElementKindV2.ceiling;
     for (final task in _tasks) {
       if (task.sourceCadId != cadId) continue;
-      if (task.category == WorkspaceTaskCategory.ceiling && !wantCeiling) continue;
+      if (task.category == WorkspaceTaskCategory.ceiling && !wantCeiling) {
+        continue;
+      }
       if (task.category == WorkspaceTaskCategory.floor && wantCeiling) continue;
       return task.id;
     }
@@ -619,7 +627,8 @@ class _FloorPlanWorkspaceScreenState extends State<FloorPlanWorkspaceScreen> {
     final plan = _cadFloorPlan;
     if (plan == null) return;
     final thicknessNormalized =
-        plan.normalizedLengthFromMm(kAssumedUserWallThicknessMm, _scale) ?? 0.01;
+        plan.normalizedLengthFromMm(kAssumedUserWallThicknessMm, _scale) ??
+        0.01;
     final newWall = CadWall(
       id: 'user-wall-${DateTime.now().microsecondsSinceEpoch}',
       start: start,
@@ -642,8 +651,11 @@ class _FloorPlanWorkspaceScreenState extends State<FloorPlanWorkspaceScreen> {
     // 사용자 편집에도 그대로 적용: 벽 위가 아니면 존재할 수 없다).
     if (wall == null) return;
     final projected = wall.projectPoint(point);
-    final assumedWidthMm = type == OpeningType.door ? kAssumedDoorWidthMm : kAssumedWindowWidthMm;
-    final widthNormalized = plan.normalizedLengthFromMm(assumedWidthMm, _scale) ?? 0.02;
+    final assumedWidthMm = type == OpeningType.door
+        ? kAssumedDoorWidthMm
+        : kAssumedWindowWidthMm;
+    final widthNormalized =
+        plan.normalizedLengthFromMm(assumedWidthMm, _scale) ?? 0.02;
     final newOpening = CadOpening(
       id: 'user-${type.name}-${DateTime.now().microsecondsSinceEpoch}',
       type: type,
@@ -777,7 +789,9 @@ class _FloorPlanWorkspaceScreenState extends State<FloorPlanWorkspaceScreen> {
       // 기존과 같이 "공간(바닥) 작업"으로 처리된다.
       final isCeiling = _selected3DKind == SpaceElementKindV2.ceiling;
       name = isCeiling ? '천장 작업' : '공간 작업';
-      category = isCeiling ? WorkspaceTaskCategory.ceiling : WorkspaceTaskCategory.floor;
+      category = isCeiling
+          ? WorkspaceTaskCategory.ceiling
+          : WorkspaceTaskCategory.floor;
       var sx = 0.0, sy = 0.0;
       for (final p in room!.polygon) {
         sx += p.x;
@@ -986,7 +1000,9 @@ class _FloorPlanWorkspaceScreenState extends State<FloorPlanWorkspaceScreen> {
         // 대상이 없다.
       }
     }
-    if (wallOverrideById.isEmpty && floorOverrideById.isEmpty && ceilingOverrideById.isEmpty) {
+    if (wallOverrideById.isEmpty &&
+        floorOverrideById.isEmpty &&
+        ceilingOverrideById.isEmpty) {
       return plan;
     }
     return CadFloorPlan(
@@ -1002,7 +1018,9 @@ class _FloorPlanWorkspaceScreenState extends State<FloorPlanWorkspaceScreen> {
       rooms: [
         for (final room in plan.rooms)
           room
-              .withMaterialOverride(floorOverrideById[room.id] ?? room.materialOverride)
+              .withMaterialOverride(
+                floorOverrideById[room.id] ?? room.materialOverride,
+              )
               .withCeilingMaterialOverride(
                 ceilingOverrideById[room.id] ?? room.ceilingMaterialOverride,
               ),
@@ -1076,7 +1094,8 @@ class _FloorPlanWorkspaceScreenState extends State<FloorPlanWorkspaceScreen> {
     // §7 — "원본 평면도 + GPT Clean 2D 결과를 GPT에 다시 전달". 이미
     // 검증된 단일 이미지 edit 패턴을 그대로 재사용해, Clean 2D가 있으면
     // 그것을(더 정돈된 참조), 없으면 원본 사진을 입력으로 보낸다.
-    final referenceImage = _generatedFloorPlanImageBytes ?? _floorPlanFile?.bytes;
+    final referenceImage =
+        _generatedFloorPlanImageBytes ?? _floorPlanFile?.bytes;
     if (referenceImage == null) {
       setState(() => _isGeneratingIsoImage = false);
       return;
@@ -1274,7 +1293,8 @@ class _FloorPlanWorkspaceScreenState extends State<FloorPlanWorkspaceScreen> {
     });
   }
 
-  _WorkspaceSnapshot get _currentSnapshot => (tasks: List.of(_tasks), drawings: List.of(_drawings));
+  _WorkspaceSnapshot get _currentSnapshot =>
+      (tasks: List.of(_tasks), drawings: List.of(_drawings));
 
   void _mutate(
     List<WorkspaceTaskItem> Function(List<WorkspaceTaskItem>) mutator,
@@ -1300,7 +1320,10 @@ class _FloorPlanWorkspaceScreenState extends State<FloorPlanWorkspaceScreen> {
     final plan = _confirmedFloorPlan;
     final scale = _scale;
     final ceilingHeightMm = _ceilingHeightMm;
-    if (_spaceSceneV2 == null || plan == null || scale == null || ceilingHeightMm == null) {
+    if (_spaceSceneV2 == null ||
+        plan == null ||
+        scale == null ||
+        ceilingHeightMm == null) {
       return;
     }
     final planWithMaterials = _applyMaterialOverrides(plan);
@@ -1353,10 +1376,12 @@ class _FloorPlanWorkspaceScreenState extends State<FloorPlanWorkspaceScreen> {
   void _restoreSnapshot(_WorkspaceSnapshot snapshot) {
     _tasks = snapshot.tasks;
     _drawings = snapshot.drawings;
-    if (_selectedTaskId != null && !_tasks.any((t) => t.id == _selectedTaskId)) {
+    if (_selectedTaskId != null &&
+        !_tasks.any((t) => t.id == _selectedTaskId)) {
       _selectedTaskId = null;
     }
-    if (_selectedDrawingId != null && !_drawings.any((d) => d.id == _selectedDrawingId)) {
+    if (_selectedDrawingId != null &&
+        !_drawings.any((d) => d.id == _selectedDrawingId)) {
       _selectedDrawingId = null;
     }
   }
@@ -1388,7 +1413,8 @@ class _FloorPlanWorkspaceScreenState extends State<FloorPlanWorkspaceScreen> {
     setState(() => _selectedDrawingId = null);
   }
 
-  void _resetViewport() => setState(() => _viewport = WorkspaceViewportTransform.identity);
+  void _resetViewport() =>
+      setState(() => _viewport = WorkspaceViewportTransform.identity);
 
   /// [WorkspaceDrawingLayer.onCanvasSizeChanged]가 보고한 실측 크기 —
   /// §13 확대/축소 버튼이 화면 중심을 기준으로 zoom하는 데 쓴다.
@@ -1439,6 +1465,7 @@ class _FloorPlanWorkspaceScreenState extends State<FloorPlanWorkspaceScreen> {
   /// [_openSettings] 동작을 그대로 수행하면서 열려 있던 패널을 닫는다.
   void _handleLeftRailTap(_LeftRailItem item) {
     switch (item) {
+      case _LeftRailItem.project:
       case _LeftRailItem.upload:
       case _LeftRailItem.taskList:
         setState(() {
@@ -1529,13 +1556,12 @@ class _FloorPlanWorkspaceScreenState extends State<FloorPlanWorkspaceScreen> {
         children: [
           Scaffold(
             backgroundColor: SpaceShiftColors.background,
-            appBar: AppBar(
-              title: const Text('평면도 업로드 작업실'),
-              backgroundColor: SpaceShiftColors.background,
-              foregroundColor: SpaceShiftColors.textPrimary,
-              elevation: 0,
-              surfaceTintColor: Colors.transparent,
-            ),
+            // FINAL PROFESSIONAL UI RESTRUCTURE WO §1/§6 — "중앙 작업
+            // 화면이 가장 크게" 보이는 것이 이번 WO의 최우선 목표라,
+            // 화면 세로 공간을 가져가던 상단 AppBar(정적인 "평면도 업로드
+            // 작업실" 타이틀만 있었다)를 없앤다. 화면을 식별하는 역할은
+            // 이제 좌측 상단 [_WorkspaceBrandMark](SPACE SHIFT 심볼+
+            // 텍스트)가 대신한다.
             body: SafeArea(
               child: Padding(
                 padding: const EdgeInsets.all(12),
@@ -1585,53 +1611,79 @@ class _FloorPlanWorkspaceScreenState extends State<FloorPlanWorkspaceScreen> {
   Widget _buildLeftRailArea() {
     final expanded = _leftExpandedItem;
     return SizedBox(
-      width: expanded != null ? kWorkspaceRailWidth + 8 + 300 : kWorkspaceRailWidth,
+      width: expanded != null
+          ? kWorkspaceRailWidth + 8 + 300
+          : kWorkspaceRailWidth,
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          WorkspaceIconRail(
-            items: [
-              WorkspaceRailItem(
-                icon: WorkspaceStartMethod.floorPlanUpload.icon,
-                tooltip: WorkspaceStartMethod.floorPlanUpload.title,
-                selected: expanded == _LeftRailItem.upload,
-                onTap: () => _handleLeftRailTap(_LeftRailItem.upload),
-              ),
-              WorkspaceRailItem(
-                icon: Icons.straighten_rounded,
-                tooltip: '실측도면 업로드',
-                enabled: false,
-                onTap: () => _handleLeftRailTap(_LeftRailItem.measuredUpload),
-              ),
-              WorkspaceRailItem(
-                icon: WorkspaceStartMethod.drawManually.icon,
-                tooltip: WorkspaceStartMethod.drawManually.title,
-                enabled: false,
-                onTap: () => _handleLeftRailTap(_LeftRailItem.drawManually),
-              ),
-              WorkspaceRailItem(
-                icon: WorkspaceStartMethod.photoConvert.icon,
-                tooltip: WorkspaceStartMethod.photoConvert.title,
-                onTap: () => _handleLeftRailTap(_LeftRailItem.photoConvert),
-              ),
-              WorkspaceRailItem(
-                icon: Icons.list_alt_rounded,
-                tooltip: '작업 목록',
-                selected: expanded == _LeftRailItem.taskList,
-                onTap: () => _handleLeftRailTap(_LeftRailItem.taskList),
-              ),
-              WorkspaceRailItem(
-                icon: Icons.auto_awesome_rounded,
-                tooltip: 'AI Assistant',
-                enabled: false,
-                onTap: () => _handleLeftRailTap(_LeftRailItem.aiAssistant),
-              ),
-              WorkspaceRailItem(
-                icon: Icons.settings_outlined,
-                tooltip: '설정',
-                onTap: () => _handleLeftRailTap(_LeftRailItem.settings),
-              ),
-            ],
+          SizedBox(
+            width: kWorkspaceRailWidth,
+            child: Column(
+              children: [
+                // FINAL PROFESSIONAL UI RESTRUCTURE WO §4 — 좌측 상단
+                // 브랜드 영역. 기존 공식 심볼 asset을 그대로 쓰고, 메뉴
+                // 폭 안에서 정렬되도록 별도로 만들지 않는다.
+                const _WorkspaceBrandMark(),
+                const SizedBox(height: 8),
+                Expanded(
+                  child: WorkspaceIconRail(
+                    items: [
+                      WorkspaceRailItem(
+                        icon: Icons.folder_outlined,
+                        tooltip: '프로젝트',
+                        selected: expanded == _LeftRailItem.project,
+                        onTap: () => _handleLeftRailTap(_LeftRailItem.project),
+                      ),
+                      WorkspaceRailItem(
+                        icon: WorkspaceStartMethod.floorPlanUpload.icon,
+                        tooltip: WorkspaceStartMethod.floorPlanUpload.title,
+                        selected: expanded == _LeftRailItem.upload,
+                        onTap: () => _handleLeftRailTap(_LeftRailItem.upload),
+                      ),
+                      WorkspaceRailItem(
+                        icon: Icons.straighten_rounded,
+                        tooltip: '실측도면 업로드',
+                        enabled: false,
+                        onTap: () =>
+                            _handleLeftRailTap(_LeftRailItem.measuredUpload),
+                      ),
+                      WorkspaceRailItem(
+                        icon: WorkspaceStartMethod.drawManually.icon,
+                        tooltip: WorkspaceStartMethod.drawManually.title,
+                        enabled: false,
+                        onTap: () =>
+                            _handleLeftRailTap(_LeftRailItem.drawManually),
+                      ),
+                      WorkspaceRailItem(
+                        icon: WorkspaceStartMethod.photoConvert.icon,
+                        tooltip: WorkspaceStartMethod.photoConvert.title,
+                        onTap: () =>
+                            _handleLeftRailTap(_LeftRailItem.photoConvert),
+                      ),
+                      WorkspaceRailItem(
+                        icon: Icons.list_alt_rounded,
+                        tooltip: '작업 목록',
+                        selected: expanded == _LeftRailItem.taskList,
+                        onTap: () => _handleLeftRailTap(_LeftRailItem.taskList),
+                      ),
+                      WorkspaceRailItem(
+                        icon: Icons.auto_awesome_rounded,
+                        tooltip: 'AI Assistant',
+                        enabled: false,
+                        onTap: () =>
+                            _handleLeftRailTap(_LeftRailItem.aiAssistant),
+                      ),
+                      WorkspaceRailItem(
+                        icon: Icons.settings_outlined,
+                        tooltip: '설정',
+                        onTap: () => _handleLeftRailTap(_LeftRailItem.settings),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
           ),
           if (expanded != null) ...[
             const SizedBox(width: 8),
@@ -1649,6 +1701,15 @@ class _FloorPlanWorkspaceScreenState extends State<FloorPlanWorkspaceScreen> {
     // 여기서는 "패널 닫기" 버튼만 두고 내용의 제목은 각 위젯에게 맡긴다.
     final Widget child;
     switch (item) {
+      case _LeftRailItem.project:
+        // FINAL PROFESSIONAL UI RESTRUCTURE WO §3 — 실제 프로젝트 저장/
+        // 전환 backend가 없으므로(§6/§12 — 가짜 기능 금지), 지금 작업
+        // 중인 프로젝트 이름만 정직하게 보여주고 나머지는 준비 중으로
+        // 표시한다.
+        child = _ProjectSubMenu(
+          projectName: widget.projectName,
+          onNotReady: _showNotReadySnackBar,
+        );
       case _LeftRailItem.upload:
         child = SingleChildScrollView(
           child: FloorPlanUploadCard(
@@ -1814,6 +1875,24 @@ class _FloorPlanWorkspaceScreenState extends State<FloorPlanWorkspaceScreen> {
               ),
             ),
           ),
+          // FINAL PROFESSIONAL UI RESTRUCTURE WO §8 — compact 화면 조작
+          // 표시. 실제 "확대/축소" 도구 자체는 이미 우측 "작업도구" Sub
+          // Menu([SelectionEditTools])에 있어 여기서 다시 만들지 않는다
+          // (§8 "우측 작업도구와 중복되지 않게") — 대신 그 도구로 바뀌는
+          // 실제 배율([_viewport.scale])을 상단에서도 곧바로 볼 수 있게
+          // 정직한 실측 Zoom%만 더한다(2D에서만 의미 있는 값이라 2D일
+          // 때만 보인다).
+          if (_viewMode == WorkspaceViewMode.plan2d) ...[
+            Text(
+              '${(_viewport.scale * 100).round()}%',
+              style: const TextStyle(
+                fontSize: 12,
+                fontWeight: FontWeight.w600,
+                color: SpaceShiftColors.textSecondary,
+              ),
+            ),
+            const SizedBox(width: 4),
+          ],
           IconButton(
             onPressed: _viewMode == WorkspaceViewMode.plan2d
                 ? _resetViewport
@@ -1839,6 +1918,17 @@ class _FloorPlanWorkspaceScreenState extends State<FloorPlanWorkspaceScreen> {
     );
   }
 
+  /// FINAL PROFESSIONAL UI RESTRUCTURE WO §3/§20 — "메뉴 외부/중앙
+  /// Workspace 클릭 시 [좌측 Sub Menu] 자동 닫힘". [Listener]로 포인터
+  /// down만 관찰해(기존 [WorkspaceCanvas]/도형 편집의 탭·드래그 제스처
+  /// 인식과 경쟁하지 않는다 — GestureDetector가 아니라 순수 관찰자라
+  /// arena에 참여하지 않는다) 좌측 패널이 펼쳐져 있으면 닫기만 한다.
+  void _closeLeftFlyoutOnCenterTap() {
+    if (_leftExpandedItem != null) {
+      setState(() => _leftExpandedItem = null);
+    }
+  }
+
   Widget _buildCenterColumn(WorkspaceTaskItem? task) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -1846,34 +1936,46 @@ class _FloorPlanWorkspaceScreenState extends State<FloorPlanWorkspaceScreen> {
         _buildTopViewBar(),
         const SizedBox(height: 10),
         Expanded(
-          child: WorkspaceCanvas(
-            tasks: _tasks,
-            selectedId: _selectedTaskId,
-            onSelect: _selectTask,
-            viewMode: _viewMode,
-            floorPlanFile: _floorPlanFile,
-            analysisResult: _analysisResult,
-            cad: _cadWorkspaceState,
-            cadCallbacks: _cadWorkspaceCallbacks,
-            onPickFloorPlanFile: _pickFloorPlan,
-            spaceScene: _spaceScene,
-            spaceSceneV2: _spaceSceneV2,
-            spaceGenerationFailureMessage: _spaceGenerationFailureMessage,
-            generatedIsoImageBytes: _generatedIsoImageBytes,
-            isGeneratingIsoImage: _isGeneratingIsoImage,
-            onExitTo2D: () =>
-                setState(() => _viewMode = WorkspaceViewMode.plan2d),
-            space3DViewKey: _space3DViewKey,
-            isFullscreen3D: _isFullscreen3D,
-            onToggleFullscreen3D: _onToggleFullscreen3D,
-            tool: _tool,
-            drawings: _drawings,
-            selectedDrawingId: _selectedDrawingId,
-            viewport: _viewport,
-            onCreateDrawing: _createDrawing,
-            onSelectDrawing: _selectDrawing,
-            onViewportChanged: (v) => setState(() => _viewport = v),
-            onCanvasSizeChanged: (s) => _canvasSize = s,
+          // FINAL PROFESSIONAL UI RESTRUCTURE WO §3/§20 — 닫힘 대상은
+          // 상단 View Bar(전환/Undo·Redo 버튼)가 아니라 실제 "중앙
+          // Workspace"(캔버스) 영역이라, [Listener]는 이 [Expanded]
+          // 안쪽(캔버스)만 감싼다. [Listener]는 포인터 down만 관찰해
+          // (기존 [WorkspaceCanvas]/도형 편집의 탭·드래그 제스처 인식과
+          // 경쟁하지 않는다 — GestureDetector가 아니라 순수 관찰자라
+          // arena에 참여하지 않는다) 좌측 Sub Menu가 펼쳐져 있으면 닫기만
+          // 한다.
+          child: Listener(
+            onPointerDown: (_) => _closeLeftFlyoutOnCenterTap(),
+            behavior: HitTestBehavior.translucent,
+            child: WorkspaceCanvas(
+              tasks: _tasks,
+              selectedId: _selectedTaskId,
+              onSelect: _selectTask,
+              viewMode: _viewMode,
+              floorPlanFile: _floorPlanFile,
+              analysisResult: _analysisResult,
+              cad: _cadWorkspaceState,
+              cadCallbacks: _cadWorkspaceCallbacks,
+              onPickFloorPlanFile: _pickFloorPlan,
+              spaceScene: _spaceScene,
+              spaceSceneV2: _spaceSceneV2,
+              spaceGenerationFailureMessage: _spaceGenerationFailureMessage,
+              generatedIsoImageBytes: _generatedIsoImageBytes,
+              isGeneratingIsoImage: _isGeneratingIsoImage,
+              onExitTo2D: () =>
+                  setState(() => _viewMode = WorkspaceViewMode.plan2d),
+              space3DViewKey: _space3DViewKey,
+              isFullscreen3D: _isFullscreen3D,
+              onToggleFullscreen3D: _onToggleFullscreen3D,
+              tool: _tool,
+              drawings: _drawings,
+              selectedDrawingId: _selectedDrawingId,
+              viewport: _viewport,
+              onCreateDrawing: _createDrawing,
+              onSelectDrawing: _selectDrawing,
+              onViewportChanged: (v) => setState(() => _viewport = v),
+              onCanvasSizeChanged: (s) => _canvasSize = s,
+            ),
           ),
         ),
         // WO099 UI COMPACT MODE — 중앙 하단에 항상 붙어 있던 "작업 목록"을
@@ -1999,6 +2101,179 @@ class _EditDebugInfoBar extends StatelessWidget {
         child: Text(
           '편집 모드: ${tool.label}  ·  도형: $drawingCount  ·  Zoom: $zoomPercent%(탭=초기화)  ·  선택: ${selectedId ?? '없음'}',
           style: const TextStyle(fontSize: 10, color: Colors.black45),
+        ),
+      ),
+    );
+  }
+}
+
+/// FINAL PROFESSIONAL UI RESTRUCTURE WO §4 — 좌측 상단 브랜드 영역. 기존
+/// 공식 심볼 asset(assets/icons/space_shift_symbol.png — 로그인 화면의
+/// [_SpaceShiftLogoMark]가 쓰는 것과 같은 파일)을 그대로 재사용하고, 새
+/// 로고를 만들지 않는다. 좌측 Main Menu 레일과 같은 폭/카드 스타일로
+/// 맞춰 너무 크지 않게 유지한다.
+class _WorkspaceBrandMark extends StatelessWidget {
+  const _WorkspaceBrandMark();
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 4),
+      decoration: BoxDecoration(
+        color: SpaceShiftColors.background,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: SpaceShiftColors.border),
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const SizedBox(
+            width: 26,
+            height: 26,
+            child: Image(
+              image: AssetImage('assets/icons/space_shift_symbol.png'),
+              fit: BoxFit.contain,
+            ),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            'SPACE\nSHIFT',
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              fontSize: 8,
+              height: 1.15,
+              fontWeight: FontWeight.w800,
+              letterSpacing: 0.2,
+              color: SpaceShiftColors.textPrimary.withValues(alpha: 0.85),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// FINAL PROFESSIONAL UI RESTRUCTURE WO §3 — 좌측 "프로젝트" Main Menu의
+/// Sub Menu. 실제로 존재하는 프로젝트 목록/저장/전환 backend가 없으므로
+/// (이 화면은 "이 기기에만 있는" 단일 세션 프로젝트 하나만 다룬다), 지금
+/// 작업 중인 프로젝트 이름([FloorPlanWorkspaceScreen.projectName], 실제
+/// 값)만 정직하게 보여주고 나머지 항목은 준비 중으로 명확히 표시한다 —
+/// 가짜 프로젝트 목록/최근 항목을 지어내지 않는다(§12).
+class _ProjectSubMenu extends StatelessWidget {
+  const _ProjectSubMenu({required this.projectName, required this.onNotReady});
+
+  final String projectName;
+  final ValueChanged<String> onNotReady;
+
+  static const List<(IconData, String)> _notReadyItems = [
+    (Icons.list_alt_outlined, '프로젝트 목록'),
+    (Icons.add_box_outlined, '새 프로젝트'),
+    (Icons.folder_open_outlined, '프로젝트 열기'),
+    (Icons.history_rounded, '최근 프로젝트'),
+    (Icons.star_border_rounded, '즐겨찾기'),
+  ];
+
+  @override
+  Widget build(BuildContext context) {
+    return SingleChildScrollView(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text(
+            '프로젝트',
+            style: TextStyle(
+              fontSize: 14,
+              fontWeight: FontWeight.bold,
+              color: SpaceShiftColors.textPrimary,
+            ),
+          ),
+          const SizedBox(height: 12),
+          Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: SpaceShiftColors.border),
+            ),
+            child: Row(
+              children: [
+                const Icon(
+                  Icons.folder_open_rounded,
+                  size: 18,
+                  color: SpaceShiftColors.textSecondary,
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    projectName,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w600,
+                      color: SpaceShiftColors.textPrimary,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 16),
+          for (final entry in _notReadyItems)
+            _ProjectMenuRow(
+              icon: entry.$1,
+              label: entry.$2,
+              onTap: () => onNotReady(entry.$2),
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+class _ProjectMenuRow extends StatelessWidget {
+  const _ProjectMenuRow({
+    required this.icon,
+    required this.label,
+    required this.onTap,
+  });
+
+  final IconData icon;
+  final String label;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(10),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 4),
+          child: Row(
+            children: [
+              Icon(
+                icon,
+                size: 18,
+                color: SpaceShiftColors.textSecondary.withValues(alpha: 0.6),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  label,
+                  style: const TextStyle(
+                    fontSize: 13,
+                    color: SpaceShiftColors.textSecondary,
+                  ),
+                ),
+              ),
+              const Icon(
+                Icons.chevron_right_rounded,
+                size: 16,
+                color: SpaceShiftColors.textSecondary,
+              ),
+            ],
+          ),
         ),
       ),
     );

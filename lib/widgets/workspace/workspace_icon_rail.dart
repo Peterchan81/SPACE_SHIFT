@@ -25,11 +25,12 @@ class WorkspaceRailItem {
   final bool enabled;
 }
 
-/// WO099 UI COMPACT MODE — 좌/우 큰 카드형 패널을 대체하는 세로 아이콘
-/// 레일. 중앙 canvas를 최대한 확보하기 위해 폭을 고정된 좁은 값
-/// ([kWorkspaceRailWidth])으로 유지하고, 각 항목은 [Tooltip]으로만
-/// 제목을 보여준다(기본 상태에서는 아이콘만 보인다 — 상시 노출 텍스트
-/// 없음).
+/// FINAL PROFESSIONAL UI RESTRUCTURE WO §3/§10 — Supabase 스타일 좌/우
+/// Main Menu 레일. 이전(WO099)에는 "기본 상태는 아이콘만, 이름은 hover
+/// tooltip으로만" 이었지만, 이번 WO는 "아이콘 + 짧은 메뉴명"이 항상 함께
+/// 보이는 구조를 요구한다 — 그래서 [item.tooltip]을 hover 안내뿐 아니라
+/// 아이콘 아래 상시 노출 캡션으로도 그대로 재사용한다(새 label 필드를
+/// 따로 만들지 않는다 — 문자열 하나로 두 역할을 겸한다).
 class WorkspaceIconRail extends StatelessWidget {
   const WorkspaceIconRail({super.key, required this.items});
 
@@ -44,22 +45,31 @@ class WorkspaceIconRail extends StatelessWidget {
         borderRadius: BorderRadius.circular(16),
         border: Border.all(color: SpaceShiftColors.border),
       ),
-      padding: const EdgeInsets.symmetric(vertical: 10),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          for (final item in items) ...[
-            _RailButton(item: item),
-            if (item != items.last) const SizedBox(height: 6),
+      padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 6),
+      // FINAL PROFESSIONAL UI RESTRUCTURE WO §3/§10 — 아이콘 아래 캡션이
+      // 항상 보이면서 항목 수도 늘어나(좌측 8개) 레일 하나의 전체 높이가
+      // 짧은 창/작은 화면에서는 사용 가능한 세로 공간보다 커질 수 있다.
+      // 예전(아이콘만) 폭 [Column]은 그 경우 RenderFlex overflow로
+      // 깨졌다 — 항목을 줄이거나 숨기는 대신 스크롤 가능하게 만들어
+      // 어떤 창 크기에서도 모든 메뉴가 항상 접근 가능하게 한다.
+      child: SingleChildScrollView(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            for (final item in items) ...[
+              _RailButton(item: item),
+              if (item != items.last) const SizedBox(height: 4),
+            ],
           ],
-        ],
+        ),
       ),
     );
   }
 }
 
-/// 좌/우 레일 폭 — 아이콘 하나(44 터치 타겟) + 여백만 담는 최소 폭이다.
-const double kWorkspaceRailWidth = 56;
+/// 좌/우 레일 폭 — 아이콘 + 짧은 메뉴명 캡션(최대 2줄)을 한 열에 담을 수
+/// 있는 최소 폭이다(WO099 시절의 아이콘 전용 56px보다 넓다).
+const double kWorkspaceRailWidth = 74;
 
 class _RailButton extends StatelessWidget {
   const _RailButton({required this.item});
@@ -68,6 +78,11 @@ class _RailButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final color = !item.enabled
+        ? SpaceShiftColors.textSecondary.withValues(alpha: 0.35)
+        : item.selected
+        ? SpaceShiftColors.selectionAccent
+        : SpaceShiftColors.textSecondary;
     return Tooltip(
       message: item.tooltip,
       waitDuration: const Duration(milliseconds: 400),
@@ -80,9 +95,8 @@ class _RailButton extends StatelessWidget {
           onTap: item.onTap,
           borderRadius: BorderRadius.circular(12),
           child: Container(
-            width: 44,
-            height: 44,
-            alignment: Alignment.center,
+            width: double.infinity,
+            padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 2),
             decoration: BoxDecoration(
               borderRadius: BorderRadius.circular(12),
               border: Border.all(
@@ -92,14 +106,26 @@ class _RailButton extends StatelessWidget {
                 width: 1.5,
               ),
             ),
-            child: Icon(
-              item.icon,
-              size: 22,
-              color: !item.enabled
-                  ? SpaceShiftColors.textSecondary.withValues(alpha: 0.35)
-                  : item.selected
-                  ? SpaceShiftColors.selectionAccent
-                  : SpaceShiftColors.textSecondary,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(item.icon, size: 20, color: color),
+                const SizedBox(height: 3),
+                Text(
+                  item.tooltip,
+                  textAlign: TextAlign.center,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    fontSize: 9.5,
+                    height: 1.15,
+                    fontWeight: item.selected
+                        ? FontWeight.w700
+                        : FontWeight.w500,
+                    color: color,
+                  ),
+                ),
+              ],
             ),
           ),
         ),

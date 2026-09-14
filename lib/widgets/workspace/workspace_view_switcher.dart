@@ -27,16 +27,26 @@ class WorkspaceViewSwitcher extends StatelessWidget {
         borderRadius: BorderRadius.circular(12),
         border: Border.all(color: SpaceShiftColors.border),
       ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          for (final mode in WorkspaceViewMode.values)
-            _ViewTab(
-              label: mode.label,
-              selected: mode == selected,
-              onTap: () => onSelected(mode),
-            ),
-        ],
+      // FINAL PROFESSIONAL UI RESTRUCTURE WO §5 — 이 View 전환이 상단에서
+      // "가장 눈에 띄어야" 하므로 글자를 줄이거나 숨기지 않는다. 대신 좌/
+      // 우 레일이 넓어지고 상단 바에 Zoom%가 더해져 중앙에 남는 폭이
+      // 줄어든 상태에서도(특히 좁은 창/구조 확인 Sub Menu가 펼쳐져 있을
+      // 때) 실기에서 반복 관측된 RenderFlex overflow가 다시 나지 않도록,
+      // 정말 자리가 부족할 때만 전체 배지를 통째로 축소해 항상 화면
+      // 안에 담는다(글자만 잘리는 대신 3개 탭 비율은 그대로 유지된다).
+      child: FittedBox(
+        fit: BoxFit.scaleDown,
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            for (final mode in WorkspaceViewMode.values)
+              _ViewTab(
+                label: mode.label,
+                selected: mode == selected,
+                onTap: () => onSelected(mode),
+              ),
+          ],
+        ),
       ),
     );
   }

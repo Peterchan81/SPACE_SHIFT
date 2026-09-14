@@ -61,6 +61,7 @@ import 'package:ason_space/widgets/workspace/cad_floor_plan_overlay.dart';
 import 'package:ason_space/widgets/workspace/floor_plan_analysis_overlay.dart'
     show ContainFitTransform, FloorPlanAnalysisOverlay;
 import 'package:ason_space/widgets/workspace/work_tab.dart';
+import 'package:ason_space/widgets/workspace/workspace_canvas.dart';
 
 /// 실제 플랫폼 파일 선택창 대신, 미리 정해진 결과를 순서대로 반환하는
 /// 가짜 서비스. 취소를 흉내내려면 목록에 null을 넣으면 된다.
@@ -291,14 +292,76 @@ void main() {
   testWidgets('좌측 시작 방식 선택 3가지가 모두 보인다', (tester) async {
     await pumpScreen(tester);
 
-    // WO099 UI COMPACT MODE — 기본은 아이콘만 보이는 세로 레일이고
-    // 제목은 hover 시 tooltip으로만 뜬다(상시 노출 텍스트가 아니다).
-    // "평면도 업로드"만 pumpScreen이 미리 펼쳐 둬서 카드 자체의 상시
-    // 텍스트로도 보이지만, 다른 둘은 tooltip 존재로 확인한다.
-    expect(find.text('평면도 업로드'), findsOneWidget);
+    // FINAL PROFESSIONAL UI RESTRUCTURE WO §3/§10 — Supabase 스타일로
+    // 레일 항목마다 아이콘 아래 짧은 메뉴명이 항상 보인다(이전 WO099
+    // 시절엔 hover 시 tooltip으로만 떴다). "평면도 업로드"는 그 상시
+    // 레일 캡션 하나 + pumpScreen이 미리 펼쳐 둔 카드 자체의 제목까지
+    // 합쳐 2번 보인다 — 나머지 둘은 아직 펼치지 않았으니 tooltip 존재로
+    // 확인한다.
+    expect(find.text('평면도 업로드'), findsNWidgets(2));
     expect(find.byTooltip('직접 그리기'), findsOneWidget);
     expect(find.byTooltip('사진으로 변환'), findsOneWidget);
   });
+
+  testWidgets(
+    'FINAL PROFESSIONAL UI RESTRUCTURE WO §4 — 좌측 상단에 SPACE SHIFT 브랜드(심볼+텍스트)가 보인다',
+    (tester) async {
+      await pumpScreen(tester);
+
+      expect(find.byType(Image), findsWidgets);
+      expect(find.text('SPACE\nSHIFT'), findsOneWidget);
+    },
+  );
+
+  testWidgets(
+    'FINAL PROFESSIONAL UI RESTRUCTURE WO §3/§20 — "프로젝트" 클릭 시 Sub Menu가 열려 '
+    '현재 프로젝트 이름과 준비 중 항목을 보여주고, 다른 Main Menu를 클릭하면 닫힌다',
+    (tester) async {
+      await tester.pumpWidget(
+        const MaterialApp(home: FloorPlanWorkspaceScreen(projectName: '내 프로젝트')),
+      );
+      await tester.pump();
+
+      await tester.tap(find.byTooltip('프로젝트'));
+      await tester.pump();
+
+      expect(find.text('내 프로젝트'), findsOneWidget);
+      expect(find.text('프로젝트 목록'), findsOneWidget);
+      expect(find.text('새 프로젝트'), findsOneWidget);
+
+      await tester.tap(find.text('프로젝트 목록'));
+      await tester.pump();
+      expect(find.textContaining('준비 중입니다'), findsOneWidget);
+
+      // 다른 Main Menu("작업 목록")를 클릭하면 "프로젝트" Sub Menu는
+      // 닫히고 그 내용으로 교체된다.
+      await tester.tap(find.byTooltip('작업 목록'));
+      await tester.pump();
+      expect(find.text('내 프로젝트'), findsNothing);
+    },
+  );
+
+  testWidgets(
+    'FINAL PROFESSIONAL UI RESTRUCTURE WO §3/§20 — 좌측 Sub Menu가 열린 상태에서 중앙 '
+    'Workspace를 클릭하면 자동으로 닫힌다',
+    (tester) async {
+      await pumpScreen(tester);
+
+      // pumpScreen이 이미 "평면도 업로드" Sub Menu를 펼쳐 둔 상태다.
+      expect(find.text('평면도 업로드'), findsNWidgets(2));
+
+      // 중앙에 있을 수 있는 "파일 선택" 버튼 등 실제 인터랙티브 콘텐츠를
+      // 건드리지 않도록, 캔버스 좌상단 모서리 근처의 빈 자리를 탭한다.
+      await tester.tapAt(
+        tester.getTopLeft(find.byType(WorkspaceCanvas)) + const Offset(4, 4),
+      );
+      await tester.pump();
+
+      // Sub Menu가 닫혀 카드 제목("평면도 업로드")은 사라지고, 레일
+      // 캡션 하나만 남는다.
+      expect(find.text('평면도 업로드'), findsOneWidget);
+    },
+  );
 
   testWidgets('"직접 그리기"를 탭하면 준비중 안내만 보여주고 이 화면에 남는다', (tester) async {
     await pumpScreen(tester);

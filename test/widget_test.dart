@@ -249,7 +249,11 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.byType(FloorPlanWorkspaceScreen), findsOneWidget);
-    expect(find.text('평면도 업로드 작업실'), findsOneWidget);
+    // FINAL PROFESSIONAL UI RESTRUCTURE WO §1/§6 — 중앙 작업 화면을
+    // 최대로 확보하기 위해 정적인 "평면도 업로드 작업실" 타이틀만 있던
+    // 상단 AppBar를 없앴다. 화면을 식별하는 역할은 이제 좌측 상단
+    // 브랜드 영역(SPACE SHIFT 심볼+텍스트)이 대신한다.
+    expect(find.text('SPACE\nSHIFT'), findsOneWidget);
     // WO099 UI COMPACT MODE — 좌측 "시작 방식 선택"은 이제 세로 아이콘
     // 레일(기본 상태는 아이콘만, hover 시 tooltip)이다.
     expect(find.byTooltip('평면도 업로드'), findsOneWidget);
