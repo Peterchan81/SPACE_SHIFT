@@ -915,8 +915,8 @@ class _Cad3DReadinessPlaceholder extends StatelessWidget {
                   )
               else
                 const Text(
-                  '벽/바닥을 실제 3D geometry로 만듭니다. 문/창은 아직 벽에 반영되지 '
-                  '않습니다(다음 단계 예정).',
+                  '벽/바닥과 함께 확정된 문/창 위치도 벽에 반영되어 실제 3D '
+                  'geometry로 만들어집니다.',
                   textAlign: TextAlign.center,
                   style: TextStyle(
                     fontSize: 12,

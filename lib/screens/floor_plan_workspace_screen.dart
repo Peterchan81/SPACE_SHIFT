@@ -508,11 +508,17 @@ class _FloorPlanWorkspaceScreenState extends State<FloorPlanWorkspaceScreen> {
   /// CAD geometry(벽/공간/문·창) 선택 — 사용자 작업 선택과는 별개의
   /// 상태이므로, 하나가 선택되면 다른 하나는 비운다(WO 12번, 우측 패널이
   /// 둘 중 하나만 보여줄 수 있게).
+  ///
+  /// 선택 기반 Property System WO §6 — 이 CAD geometry가 이미
+  /// [_createWorkItemFromCad]로 사용자 작업이 된 적이 있으면([sourceCadId]
+  /// 연결 재사용), 매번 다시 "작업으로 추가"를 누르지 않아도 곧바로 실제
+  /// 편집 가능한 [WorkTab](사이즈/마감재/색상)이 보이도록 그 작업을 함께
+  /// 선택한다.
   void _onSelectCadObject(String? id) {
     setState(() {
       _selectedCadObjectId = id;
       _selected3DKind = null;
-      if (id != null) _selectedTaskId = null;
+      _selectedTaskId = id == null ? null : _existingTaskIdForCadId(id, null);
     });
   }
 
@@ -521,12 +527,33 @@ class _FloorPlanWorkspaceScreenState extends State<FloorPlanWorkspaceScreen> {
   /// 항상 원본 [CadWall.id]/[CadRoom.id]라 기존 [_selectedCadWall]/
   /// [_selectedCadRoom] getter를 그대로 재사용할 수 있다 —
   /// [identity.sourceKind]만 별도로 기억해 바닥/천장을 구분한다.
+  ///
+  /// 선택 기반 Property System WO §6 — [_onSelectCadObject]와 같은 이유로,
+  /// 이미 사용자 작업이 된 대상이면 그 작업을 함께 선택한다.
   void _onSelect3DObject(SpaceObjectIdentityV2? identity) {
     setState(() {
       _selectedCadObjectId = identity?.sourceId;
       _selected3DKind = identity?.sourceKind;
-      if (identity != null) _selectedTaskId = null;
+      _selectedTaskId = identity == null
+          ? null
+          : _existingTaskIdForCadId(identity.sourceId, identity.sourceKind);
     });
+  }
+
+  /// 이미 이 CAD geometry(또는 3D 대상)로부터 만들어진 사용자 작업이
+  /// 있으면 그 id를 돌려준다. 방(room) id 하나는 "바닥"과 "천장" 두
+  /// 작업으로 동시에 존재할 수 있어([_createWorkItemFromCad] 참고)
+  /// [kind]로 그 둘을 구분한다 — null(2D CAD 경로)이면 항상 "바닥" 쪽과
+  /// 매칭한다(그쪽 경로가 room을 작업으로 만들 때 쓰는 것과 같은 규칙).
+  int? _existingTaskIdForCadId(String cadId, SpaceElementKindV2? kind) {
+    final wantCeiling = kind == SpaceElementKindV2.ceiling;
+    for (final task in _tasks) {
+      if (task.sourceCadId != cadId) continue;
+      if (task.category == WorkspaceTaskCategory.ceiling && !wantCeiling) continue;
+      if (task.category == WorkspaceTaskCategory.floor && wantCeiling) continue;
+      return task.id;
+    }
+    return null;
   }
 
   void _mutateCad(CadFloorPlan Function(CadFloorPlan) mutator) {
@@ -787,11 +814,13 @@ class _FloorPlanWorkspaceScreenState extends State<FloorPlanWorkspaceScreen> {
         ),
       ],
     );
-    setState(() {
-      _selectedTaskId = nextId;
-      _selectedCadObjectId = null;
-      _selected3DKind = null;
-    });
+    // 선택 기반 Property System WO §5 — [_selectedCadObjectId]/
+    // [_selected3DKind]는 일부러 지우지 않는다. 이전에는 여기서 null로
+    // 비워, "작업으로 추가"를 누르는 순간 3D/2D 화면의 선택 강조
+    // ([_selected3DObjectId])가 사라지고 우측 패널만 바뀌는 문제가
+    // 있었다 — 선택 대상은 그대로 유지한 채 우측 패널만 [WorkTab]으로
+    // 바뀌어야 한다("선택된 대상은 사용자가 즉시 알아볼 수 있어야 한다").
+    setState(() => _selectedTaskId = nextId);
   }
 
   void _onDisplayModeChanged(FloorPlanDisplayMode mode) {
@@ -1218,6 +1247,33 @@ class _FloorPlanWorkspaceScreenState extends State<FloorPlanWorkspaceScreen> {
   WorkspaceTaskItem? get _selectedTask =>
       _tasks.where((task) => task.id == _selectedTaskId).firstOrNull;
 
+  /// 작업 목록/2D 캔버스 마커에서 사용자 작업을 선택할 때 쓰는 공용
+  /// 핸들러(선택 기반 Property System WO §6 "2D/3D 공통 Selection
+  /// Architecture"). 그 작업이 CAD geometry에서 만들어졌으면
+  /// ([WorkspaceTaskItem.sourceCadId]) [_selectedCadObjectId]/
+  /// [_selected3DKind]도 함께 되살려, 3D 화면에서도 같은 대상이 강조
+  /// 표시되고(이전에는 여기서 CAD 선택을 null로만 지워 3D 강조가 항상
+  /// 사라졌다) "재질/색상" 탭의 [_currentSelectionLabel] 같은 다른 소비자도
+  /// 계속 동작하게 한다 — 새 selection 상태를 만들지 않고 기존
+  /// [sourceCadId] 연결만 재사용한다.
+  void _selectTask(int? id) {
+    final task = id == null
+        ? null
+        : _tasks.where((t) => t.id == id).firstOrNull;
+    setState(() {
+      _selectedTaskId = id;
+      _selectedCadObjectId = task?.sourceCadId;
+      _selected3DKind = switch (task?.category) {
+        WorkspaceTaskCategory.ceiling => SpaceElementKindV2.ceiling,
+        WorkspaceTaskCategory.wall => SpaceElementKindV2.wall,
+        WorkspaceTaskCategory.floor => SpaceElementKindV2.floor,
+        WorkspaceTaskCategory.door ||
+        WorkspaceTaskCategory.window => SpaceElementKindV2.opening,
+        null => null,
+      };
+    });
+  }
+
   _WorkspaceSnapshot get _currentSnapshot => (tasks: List.of(_tasks), drawings: List.of(_drawings));
 
   void _mutate(
@@ -1606,10 +1662,7 @@ class _FloorPlanWorkspaceScreenState extends State<FloorPlanWorkspaceScreen> {
         child = WorkspaceTaskList(
           tasks: _tasks,
           selectedId: _selectedTaskId,
-          onSelect: (id) => setState(() {
-            _selectedTaskId = id;
-            _selectedCadObjectId = null;
-          }),
+          onSelect: _selectTask,
           onToggleVisible: (id) => _mutate(
             (tasks) => [
               for (final t in tasks)
@@ -1796,10 +1849,7 @@ class _FloorPlanWorkspaceScreenState extends State<FloorPlanWorkspaceScreen> {
           child: WorkspaceCanvas(
             tasks: _tasks,
             selectedId: _selectedTaskId,
-            onSelect: (id) => setState(() {
-              _selectedTaskId = id;
-              _selectedCadObjectId = null;
-            }),
+            onSelect: _selectTask,
             viewMode: _viewMode,
             floorPlanFile: _floorPlanFile,
             analysisResult: _analysisResult,
@@ -1865,14 +1915,26 @@ class _FloorPlanWorkspaceScreenState extends State<FloorPlanWorkspaceScreen> {
       );
       return [...tasks, copy];
     });
-    setState(() => _selectedTaskId = _tasks.last.id);
+    setState(() {
+      _selectedTaskId = _tasks.last.id;
+      // 사본은 원본의 CAD geometry(sourceCadId)를 물려받지 않는 독립된
+      // 작업이므로(위 [copy] 생성자 호출 참고), 원본을 가리키던 3D/2D CAD
+      // 선택도 함께 지워 사본을 선택했는데 원본 벽/바닥이 강조 표시되는
+      // 불일치를 막는다.
+      _selectedCadObjectId = null;
+      _selected3DKind = null;
+    });
   }
 
   void _deleteSelected() {
     final id = _selectedTaskId;
     if (id == null) return;
     _mutate((tasks) => tasks.where((t) => t.id != id).toList());
-    setState(() => _selectedTaskId = null);
+    setState(() {
+      _selectedTaskId = null;
+      _selectedCadObjectId = null;
+      _selected3DKind = null;
+    });
   }
 
   Future<void> _showRenameDialog(WorkspaceTaskItem? task) async {

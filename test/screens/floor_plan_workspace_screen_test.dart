@@ -60,6 +60,7 @@ import 'package:ason_space/services/gpt_floorplan_iso_service.dart';
 import 'package:ason_space/widgets/workspace/cad_floor_plan_overlay.dart';
 import 'package:ason_space/widgets/workspace/floor_plan_analysis_overlay.dart'
     show ContainFitTransform, FloorPlanAnalysisOverlay;
+import 'package:ason_space/widgets/workspace/work_tab.dart';
 
 /// 실제 플랫폼 파일 선택창 대신, 미리 정해진 결과를 순서대로 반환하는
 /// 가짜 서비스. 취소를 흉내내려면 목록에 null을 넣으면 된다.
@@ -941,6 +942,55 @@ void main() {
     await tester.pumpAndSettle();
     expect(tester.widget<ElevatedButton>(generateButton).onPressed, isNull);
   });
+
+  testWidgets(
+    '선택 기반 Property System WO §5/§6 — 벽을 선택해 "작업으로 추가"하면 '
+    '선택 강조가 유지된 채 실제 편집 가능한 속성 패널(WorkTab)이 곧바로 보이고, '
+    '같은 벽을 다시 선택하면 매번 새 작업을 만들지 않고 곧바로 그 작업으로 이동한다',
+    (tester) async {
+      await pumpAnalyzed(tester);
+      await enterStructureEditing(tester, tool: '선택');
+
+      var overlay = tester.widget<CadFloorPlanOverlay>(find.byType(CadFloorPlanOverlay));
+      overlay.onSelect('wall-ext-1');
+      await tester.pumpAndSettle();
+
+      // 선택 직후에는 아직 사용자 작업이 아니라 "작업으로 추가" 안내다.
+      expect(find.text('선택된 도면 요소', skipOffstage: false), findsOneWidget);
+      expect(find.byType(WorkTab, skipOffstage: false), findsNothing);
+
+      final addButton = find.widgetWithText(
+        FilledButton,
+        '작업으로 추가',
+        skipOffstage: false,
+      );
+      await tester.ensureVisible(addButton);
+      await tester.pumpAndSettle();
+      await tester.tap(addButton);
+      await tester.pumpAndSettle();
+
+      // 작업으로 추가한 직후 실제 편집 가능한 속성 패널(WorkTab)이 곧바로
+      // 보이고, 캔버스의 선택 강조(overlay.selectedId)는 사라지지 않는다
+      // ("선택된 대상은 사용자가 즉시 알아볼 수 있어야 한다").
+      expect(find.byType(WorkTab, skipOffstage: false), findsOneWidget);
+      overlay = tester.widget<CadFloorPlanOverlay>(find.byType(CadFloorPlanOverlay));
+      expect(overlay.selectedId, 'wall-ext-1');
+
+      // 다른 벽으로 선택을 옮기면 그 벽은 아직 작업이 아니므로 다시
+      // 안내 화면으로 돌아간다.
+      overlay.onSelect('wall-int-1');
+      await tester.pumpAndSettle();
+      expect(find.byType(WorkTab, skipOffstage: false), findsNothing);
+
+      // 원래 벽을 다시 선택하면, 이미 그 벽에서 만든 작업이 있으므로
+      // "작업으로 추가"를 다시 누를 필요 없이 곧바로 같은 작업(WorkTab)
+      // 으로 돌아간다 — 매번 새 작업이 중복 생성되지 않는다.
+      overlay = tester.widget<CadFloorPlanOverlay>(find.byType(CadFloorPlanOverlay));
+      overlay.onSelect('wall-ext-1');
+      await tester.pumpAndSettle();
+      expect(find.byType(WorkTab, skipOffstage: false), findsOneWidget);
+    },
+  );
 
   testWidgets(
     '구조 확인/보정 중 치수 보정을 켜면 두 모드가 동시에 켜지지 않고 배타적으로 전환된다',
