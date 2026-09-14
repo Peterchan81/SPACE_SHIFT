@@ -12,7 +12,10 @@ import '../models/space_scene_v2.dart';
 import '../models/workspace_drawing_entity.dart';
 import '../models/workspace_task_item.dart';
 import '../models/workspace_viewport_transform.dart';
+import '../services/cad_editing_ops.dart';
+import '../services/cad_file_upload_service.dart';
 import '../services/dxf_export_service.dart';
+import '../services/dxf_import_service.dart';
 import '../services/e2e_dxf_exporter.dart';
 import '../services/floor_plan_analysis_service.dart';
 import '../services/floor_plan_upload_service.dart';
@@ -65,11 +68,17 @@ class FloorPlanWorkspaceScreen extends StatefulWidget {
     this.demoMode = false,
     this.uploadService = const FloorPlanUploadService(),
     this.analysisService = const FloorPlanAnalysisService(),
+    this.cadFileUploadService = const CadFileUploadService(),
     this.floorPlanImageService,
     this.floorPlanIsoService,
   });
 
   final String projectName;
+
+  /// SS CAD TEST — CAD Editor WO §4. [FloorPlanUploadService]와 같은
+  /// 이유로 주입 지점을 둔다 — 테스트가 실제 플랫폼 파일 선택창 없이
+  /// 가짜 DXF 텍스트를 주입할 수 있게 한다.
+  final CadFileUploadService cadFileUploadService;
 
   /// MASTER UI 디자인 검수/미리보기용으로만 데모 마커 6개와 첫 항목 선택을
   /// 미리 채워 넣는다(WO 8/9번). 로그인/회원가입에서 진입하는 실사용
@@ -161,6 +170,11 @@ class _FloorPlanWorkspaceScreenState extends State<FloorPlanWorkspaceScreen> {
   CadFloorPlan? _cadFloorPlan;
   String? _selectedCadObjectId;
   final List<CadFloorPlan> _cadUndoStack = [];
+
+  /// SS CAD TEST — CAD Editor WO §4. 마지막 "CAD 파일 업로드" 시도의
+  /// 결과 메시지(성공/경고/실패 전부) — 화면 어딘가에 짧게 보여줄 수
+  /// 있게 보존한다. null이면 아직 시도한 적이 없다는 뜻이다.
+  String? _dxfImportMessage;
 
   /// V1 AI-IMAGE FLOW WO — GPT가 새로 그려준 "깨끗한 CAD 스타일 2D
   /// 평면도" 이미지 그 자체(좌표가 아니라 픽셀). 중앙 화면은 CAD
@@ -415,6 +429,72 @@ class _FloorPlanWorkspaceScreenState extends State<FloorPlanWorkspaceScreen> {
   void _undoCad() {
     if (_cadUndoStack.isEmpty) return;
     setState(() => _cadFloorPlan = _cadUndoStack.removeLast());
+  }
+
+  /// SS CAD TEST — CAD Editor WO §1. "AI 결과 4500mm → 사용자 4830mm
+  /// 입력 → 실제 MetricWall = 4830mm"를 그대로 구현한다 — 축척(scale)이
+  /// 아직 없으면 mm를 계산할 근거가 없으므로 아무 일도 하지 않는다
+  /// (임의 추정 금지, 기존 WO 9번 원칙과 동일).
+  void _onEditWallLength(double newLengthMm) {
+    final plan = _cadFloorPlan;
+    final wall = _selectedCadWall;
+    final scale = _scale;
+    if (plan == null || wall == null || scale == null) return;
+    final edited = wallWithLengthMm(plan, wall, newLengthMm, scale);
+    _mutateCad(
+      (p) => p.copyWithWalls([
+        for (final w in p.walls) if (w.id == wall.id) edited else w,
+      ]),
+    );
+  }
+
+  /// 선택된 문/창의 실제 폭(mm)을 사용자가 직접 확정한다.
+  void _onEditOpeningWidth(double newWidthMm) {
+    final plan = _cadFloorPlan;
+    final opening = _selectedCadOpening;
+    final scale = _scale;
+    if (plan == null || opening == null || scale == null) return;
+    final edited = openingWithWidthMm(plan, opening, newWidthMm, scale);
+    _mutateCad(
+      (p) => CadFloorPlan(
+        sourceWidthPx: p.sourceWidthPx,
+        sourceHeightPx: p.sourceHeightPx,
+        walls: p.walls,
+        openings: [for (final o in p.openings) if (o.id == opening.id) edited else o],
+        rooms: p.rooms,
+        warnings: p.warnings,
+        objectCandidates: p.objectCandidates,
+      ),
+    );
+  }
+
+  /// SS CAD TEST — CAD Editor WO §4. "CAD 파일 업로드" 버튼 핸들러 —
+  /// [FloorPlanUploadService]의 "① 평면도 업로드"와 같은 패턴: 파일을
+  /// 고르고, 성공하면 현재 편집 상태를 그 결과로 완전히 교체한다(undo
+  /// 스택도 새로 시작 — 방금 불러온 파일이 새 기준선이다).
+  Future<void> _onImportDxf() async {
+    final file = await widget.cadFileUploadService.pickCadFile();
+    if (file == null || !mounted) return;
+
+    final result = importDxf(file.content);
+    if (!result.success) {
+      setState(() => _dxfImportMessage = result.failureMessage);
+      return;
+    }
+
+    setState(() {
+      _cadFloorPlan = result.plan;
+      _scale = result.scale;
+      _scaleSamples = [];
+      _selectedCadObjectId = null;
+      _cadUndoStack.clear();
+      _analysisPhase = FloorPlanAnalysisPhase.completed;
+      _displayMode = FloorPlanDisplayMode.cad;
+      _dxfImportMessage = result.warnings.isEmpty
+          ? '"${file.fileName}"에서 벽 ${result.plan!.walls.length}개, 문/창 '
+                '${result.plan!.openings.length}개, 방 ${result.plan!.rooms.length}개를 불러왔습니다.'
+          : '"${file.fileName}" 불러옴 — ${result.warnings.join(' / ')}';
+    });
   }
 
   void _onWallEndpointChanged(String wallId, bool isStart, Point2 newPosition) {
@@ -1184,6 +1264,35 @@ class _FloorPlanWorkspaceScreenState extends State<FloorPlanWorkspaceScreen> {
     );
   }
 
+  /// SS CAD TEST — CAD Editor WO §4/§6. "① 평면도 업로드"와 나란히,
+  /// 항상(도면을 아직 안 올렸어도) 접근 가능한 "CAD 파일 업로드"
+  /// 버튼 — DXF를 가져와 그 자체를 새 편집 기준으로 삼는 별도 진입점
+  /// 이다(사진 업로드→AI 분석 경로와 서로 독립적).
+  Widget _buildCadUploadSection() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        OutlinedButton.icon(
+          onPressed: _onImportDxf,
+          icon: const Icon(Icons.upload_file_rounded, size: 18),
+          label: const Text('CAD 파일 업로드(DXF)'),
+          style: OutlinedButton.styleFrom(
+            minimumSize: const Size.fromHeight(44),
+            foregroundColor: SpaceShiftColors.textPrimary,
+            side: const BorderSide(color: SpaceShiftColors.border),
+          ),
+        ),
+        if (_dxfImportMessage != null) ...[
+          const SizedBox(height: 6),
+          Text(
+            _dxfImportMessage!,
+            style: const TextStyle(fontSize: 11.5, color: SpaceShiftColors.textSecondary, height: 1.35),
+          ),
+        ],
+      ],
+    );
+  }
+
   Widget _buildWideBody(WorkspaceTaskItem? task) {
     return Row(
       crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -1203,6 +1312,8 @@ class _FloorPlanWorkspaceScreenState extends State<FloorPlanWorkspaceScreen> {
                   ),
                 ),
               ),
+              const SizedBox(height: 12),
+              _buildCadUploadSection(),
               const SizedBox(height: 12),
               SettingsEntryButton(onTap: _openSettings),
             ],
@@ -1264,6 +1375,12 @@ class _FloorPlanWorkspaceScreenState extends State<FloorPlanWorkspaceScreen> {
             onUndoCad: _undoCad,
             onDeleteCad: _deleteSelectedCadObject,
             onCreateWorkItemFromCad: _createWorkItemFromCad,
+            // 치수 보정(축척 자체를 새로 잡는 흐름) 중에는 벽 길이 직접
+            // 입력 UI를 숨긴다 — 두 편집 입력이 동시에 떠 있으면 사용자가
+            // 헷갈리고, 위젯 트리에 TextField가 2개 생겨 "지금 어떤
+            // 길이를 바꾸는 중인지" 자체가 모호해진다.
+            onEditWallLengthMm: _calibrating ? null : _onEditWallLength,
+            onEditOpeningWidthMm: _calibrating ? null : _onEditOpeningWidth,
           ),
         ),
       ],
@@ -1281,6 +1398,8 @@ class _FloorPlanWorkspaceScreenState extends State<FloorPlanWorkspaceScreen> {
             floorPlanFile: _floorPlanFile,
             onPickFloorPlanFile: _pickFloorPlan,
           ),
+          const SizedBox(height: 12),
+          _buildCadUploadSection(),
           const SizedBox(height: 12),
           SettingsEntryButton(onTap: _openSettings),
           const SizedBox(height: 16),

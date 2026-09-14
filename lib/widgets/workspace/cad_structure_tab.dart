@@ -27,6 +27,8 @@ class CadStructureTab extends StatelessWidget {
     required this.onUndo,
     required this.onDelete,
     required this.onCreateWorkItem,
+    this.onEditWallLengthMm,
+    this.onEditOpeningWidthMm,
   });
 
   final CadWall? wall;
@@ -41,6 +43,16 @@ class CadStructureTab extends StatelessWidget {
   final VoidCallback onUndo;
   final VoidCallback onDelete;
   final VoidCallback onCreateWorkItem;
+
+  /// SS CAD TEST — CAD Editor WO. 선택된 벽의 실제 길이(mm)를 사용자가
+  /// 직접 입력해 확정한다 — "치수 보정"(축척 자체를 바꾸는 것)과는
+  /// 다르다: 이 값은 그 벽 하나의 geometry(끝점)만 바꾼다. scale이 아직
+  /// 없으면(축척 미확정) mm를 계산할 근거가 없으므로 null로 두어 입력
+  /// UI 자체를 숨긴다.
+  final void Function(double newLengthMm)? onEditWallLengthMm;
+
+  /// 선택된 문/창의 실제 폭(mm)을 사용자가 직접 입력해 확정한다.
+  final void Function(double newWidthMm)? onEditOpeningWidthMm;
 
   @override
   Widget build(BuildContext context) {
@@ -170,12 +182,31 @@ class CadStructureTab extends StatelessWidget {
           _Row('신뢰도', '${(wall.confidence * 100).round()}%'),
           _Row('출처', _sourceLabel(wall.source)),
           if (wall.edited) _Row('상태', '사용자 보정됨'),
+          if (onEditWallLengthMm != null)
+            if (scale != null)
+              _MmEditorRow(
+                label: '실제 길이 직접 입력(mm)',
+                initialValueMm: lengthMm,
+                onApply: onEditWallLengthMm!,
+              )
+            else
+              const Padding(
+                padding: EdgeInsets.only(top: 8),
+                child: Text(
+                  '길이를 직접 입력하려면 먼저 "치수 보정"으로 축척을 확정해야 합니다.',
+                  style: TextStyle(fontSize: 12, color: SpaceShiftColors.textSecondary),
+                ),
+              ),
         ],
       );
     }
 
     final opening = this.opening;
     if (opening != null) {
+      final diagonalPx = math.sqrt(
+        sourceWidthPx * sourceWidthPx + sourceHeightPx * sourceHeightPx,
+      );
+      final widthMm = scale == null ? null : opening.widthNormalized * diagonalPx * scale!.mmPerPixel;
       return Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -185,8 +216,15 @@ class CadStructureTab extends StatelessWidget {
             OpeningType.window => '창 후보',
             OpeningType.unknown => '개구부 후보',
           }),
+          _Row('폭', widthMm == null ? '미설정(축척 필요)' : '${widthMm.toStringAsFixed(0)}mm'),
           _Row('신뢰도', '${(opening.confidence * 100).round()}%'),
           const _Row('상태', '확인 필요'),
+          if (onEditOpeningWidthMm != null && scale != null)
+            _MmEditorRow(
+              label: '실제 폭 직접 입력(mm)',
+              initialValueMm: widthMm,
+              onApply: onEditOpeningWidthMm!,
+            ),
         ],
       );
     }
@@ -278,6 +316,85 @@ class _Row extends StatelessWidget {
               fontWeight: FontWeight.w600,
               color: SpaceShiftColors.textPrimary,
             ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// SS CAD TEST — CAD Editor WO. mm 값 하나를 입력받아 [onApply]로 넘기는
+/// 최소 입력줄 — 벽 길이/문·창 폭 편집에 공용으로 쓴다. 입력이 숫자가
+/// 아니거나 0 이하면 조용히 무시한다(임의 값을 지어내 적용하지 않는다).
+class _MmEditorRow extends StatefulWidget {
+  const _MmEditorRow({
+    required this.label,
+    required this.initialValueMm,
+    required this.onApply,
+  });
+
+  final String label;
+  final double? initialValueMm;
+  final void Function(double newValueMm) onApply;
+
+  @override
+  State<_MmEditorRow> createState() => _MmEditorRowState();
+}
+
+class _MmEditorRowState extends State<_MmEditorRow> {
+  late final TextEditingController _controller = TextEditingController(
+    text: widget.initialValueMm == null ? '' : widget.initialValueMm!.toStringAsFixed(0),
+  );
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  void _apply() {
+    final value = double.tryParse(_controller.text.trim());
+    if (value == null || value <= 0) return;
+    widget.onApply(value);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(top: 10),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            widget.label,
+            style: const TextStyle(fontSize: 12.5, color: SpaceShiftColors.textSecondary),
+          ),
+          const SizedBox(height: 6),
+          Row(
+            children: [
+              Expanded(
+                child: TextField(
+                  controller: _controller,
+                  keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                  decoration: const InputDecoration(
+                    isDense: true,
+                    suffixText: 'mm',
+                    border: OutlineInputBorder(),
+                    contentPadding: EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                  ),
+                  onSubmitted: (_) => _apply(),
+                ),
+              ),
+              const SizedBox(width: 8),
+              FilledButton(
+                onPressed: _apply,
+                style: FilledButton.styleFrom(
+                  backgroundColor: SpaceShiftColors.textPrimary,
+                  minimumSize: const Size(64, 40),
+                ),
+                child: const Text('적용'),
+              ),
+            ],
           ),
         ],
       ),

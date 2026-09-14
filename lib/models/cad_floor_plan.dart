@@ -155,6 +155,30 @@ class CadOpening {
   /// 자동으로 door/window로 단정하지 않는다(WO084 §C 절대 원칙).
   final bool reviewNeeded;
   final List<String> reviewReasons;
+
+  /// SS CAD TEST — CAD Editor WO. 사용자가 문/창을 이동하거나 폭을
+  /// 바꿀 때 쓴다([CadWall.copyWith]와 같은 패턴 — id/type은 바꾸지
+  /// 않는다, 정체성이 바뀌면 새 opening이다).
+  CadOpening copyWith({
+    Point2? center,
+    double? widthNormalized,
+    String? wallId,
+    CadElementSource? source,
+    bool? reviewNeeded,
+    List<String>? reviewReasons,
+  }) {
+    return CadOpening(
+      id: id,
+      type: type,
+      center: center ?? this.center,
+      widthNormalized: widthNormalized ?? this.widthNormalized,
+      confidence: confidence,
+      wallId: wallId ?? this.wallId,
+      source: source ?? this.source,
+      reviewNeeded: reviewNeeded ?? this.reviewNeeded,
+      reviewReasons: reviewReasons ?? this.reviewReasons,
+    );
+  }
 }
 
 /// 편집 가능한 CAD 공간(방) 후보.

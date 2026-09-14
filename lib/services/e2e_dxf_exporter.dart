@@ -24,9 +24,15 @@ class E2eDxfExporter {
   const E2eDxfExporter();
 
   DxfExportResult export(CadFloorPlan plan, {FloorPlanScale? scale}) {
-    final isScaled = scale != null && scale.source == ScaleSource.measured;
+    // SS CAD TEST — CAD Editor WO: 이 실측 신뢰도 판정은 [ScaleSourceX
+    // .isReliable]과 정확히 같은 기준이어야 한다(실측 직접 입력뿐 아니라
+    // DXF 재-import처럼 이미 mm 단위로 확정된 도면 치수도 신뢰할 수
+    // 있는 scale이다) — 이 조건이 measured만 인정하던 예전 버전은, DXF를
+    // 가져와 편집하고 다시 내보내면 mm 대신 정규화 좌표가 그대로 나가는
+    // 실제 버그였다(round-trip 테스트로 발견).
+    final isScaled = scale != null && scale.source.isReliable;
     final notice = isScaled
-        ? 'SCALED (measured): ${scale.referenceLengthMm.toStringAsFixed(0)}mm 실측 기준, mmPerPixel=${scale.mmPerPixel.toStringAsFixed(4)}'
+        ? 'SCALED (${scale.source.label}): ${scale.referenceLengthMm.toStringAsFixed(0)}mm 기준, mmPerPixel=${scale.mmPerPixel.toStringAsFixed(4)}'
         : 'UNSCALED / NORMALIZED POC — 실제 mm 단위가 아님. 테스트 전용 파일입니다.';
 
     // SS CAD TEST — mm 변환은 [CadFloorPlan.pointToMm](또는 그 위에 쌓인

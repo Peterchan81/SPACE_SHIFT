@@ -89,6 +89,8 @@ class UserWorkspacePanel extends StatefulWidget {
     this.onUndoCad,
     this.onDeleteCad,
     this.onCreateWorkItemFromCad,
+    this.onEditWallLengthMm,
+    this.onEditOpeningWidthMm,
   });
 
   final WorkspaceTaskItem? task;
@@ -133,6 +135,11 @@ class UserWorkspacePanel extends StatefulWidget {
   final VoidCallback? onUndoCad;
   final VoidCallback? onDeleteCad;
   final VoidCallback? onCreateWorkItemFromCad;
+
+  /// SS CAD TEST — CAD Editor WO §1. 선택된 벽/문·창의 실제 mm 값을
+  /// 사용자가 직접 입력해 확정한다.
+  final void Function(double newLengthMm)? onEditWallLengthMm;
+  final void Function(double newWidthMm)? onEditOpeningWidthMm;
 
   final WorkspaceSelectionTool selectedTool;
   final ValueChanged<WorkspaceSelectionTool> onToolSelected;
@@ -311,6 +318,8 @@ class _UserWorkspacePanelState extends State<UserWorkspacePanel> {
         onUndo: widget.onUndoCad ?? () {},
         onDelete: widget.onDeleteCad ?? () {},
         onCreateWorkItem: widget.onCreateWorkItemFromCad ?? () {},
+        onEditWallLengthMm: widget.onEditWallLengthMm,
+        onEditOpeningWidthMm: widget.onEditOpeningWidthMm,
       );
     }
     if (task == null) {
