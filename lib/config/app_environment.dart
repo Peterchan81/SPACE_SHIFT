@@ -30,6 +30,31 @@ AiProviderType parseAiProvider(String value) {
   }
 }
 
+/// SS CAD TEST — "GPT 구조 분석"이 OpenAI를 부르는 경로.
+///
+/// [supabase](기본값, production 경로): Flutter → Supabase Edge Function
+/// (`gpt-floorplan-understand`) → OpenAI — OpenAI key는 절대 앱에 들어오지
+/// 않는다. [direct](Windows 개발/검증 전용): Flutter → OpenAI 직접 호출 —
+/// Supabase 배포 상태와 무관하게 OpenAI 응답 자체를 검증하고 싶을 때만
+/// 쓴다. 배포용 빌드(APK 등)는 항상 기본값(supabase)이어야 한다.
+enum GptFloorplanProviderType { supabase, direct }
+
+/// 문자열을 [GptFloorplanProviderType]으로 안전하게 변환한다 — [parseAiProvider]
+/// 와 동일한 원칙: 대소문자 무시, 인식 못 하는 값은 항상 안전한 기본값
+/// ([GptFloorplanProviderType.supabase])으로 취급해, 오타나 설정 실수로
+/// 인해 뜻하지 않게 OpenAI 직접 호출(secret 필요) 경로가 켜지는 일이
+/// 없도록 한다.
+GptFloorplanProviderType parseGptFloorplanProvider(String value) {
+  switch (value.trim().toLowerCase()) {
+    case 'direct':
+      return GptFloorplanProviderType.direct;
+    case 'supabase':
+      return GptFloorplanProviderType.supabase;
+    default:
+      return GptFloorplanProviderType.supabase;
+  }
+}
+
 /// 앱의 실행 환경과 AI Provider 관련 설정을 한 곳에서 관리하는 유틸리티.
 ///
 /// 모든 값은 빌드 시점에 `--dart-define`으로 주입되는 컴파일 타임 상수다.
@@ -113,6 +138,35 @@ class AppEnvironment {
   /// geometry 3D(가능하면) 또는 준비 안내로 대체한다.
   static const String gptFloorPlanIsoEdgeFunctionUrl = String.fromEnvironment(
     'GPT_FLOORPLAN_ISO_EDGE_FUNCTION_URL',
+    defaultValue: '',
+  );
+
+  /// SS CAD TEST — Windows 개발/검증 전용 우회 경로. `--dart-define=
+  /// GPT_FLOORPLAN_PROVIDER=direct`를 지정하면 Supabase Edge Function을
+  /// 거치지 않고 앱이 OpenAI를 직접 호출한다([GptDirectOpenAiVisionService]).
+  /// 지정하지 않으면(기본값) 기존 `supabase` 경로를 그대로 쓴다 — 기존
+  /// 호환성/보안 모델(OpenAI key는 절대 앱에 넣지 않는다, §5)은 이
+  /// 기본값에서는 전혀 바뀌지 않는다. 인식하지 못하는 값은 안전하게
+  /// `supabase`로 취급한다([parseGptFloorplanProvider]와 동일한 원칙
+  /// — [parseAiProvider] 참고).
+  static const String _rawGptFloorplanProvider = String.fromEnvironment(
+    'GPT_FLOORPLAN_PROVIDER',
+    defaultValue: 'supabase',
+  );
+
+  static GptFloorplanProviderType get gptFloorplanProvider =>
+      parseGptFloorplanProvider(_rawGptFloorplanProvider);
+
+  /// SS CAD TEST — `GPT_FLOORPLAN_PROVIDER=direct`일 때만 쓰는 OpenAI API
+  /// key. **오직 Windows 개발 실행(`flutter run`)에서 `--dart-define`으로만
+  /// 전달한다** — 코드에 하드코딩하지 않고, Git에 올리지 않고, 로그/에러
+  /// 메시지에 출력하지 않고, `flutter build apk`/`appbundle` 등 배포용
+  /// 빌드 명령에는 절대 포함하지 않는다(그 경우 이 값은 항상 빈 문자열로
+  /// 컴파일되어 배포 바이너리에 key가 남지 않는다). 지정하지 않으면
+  /// [createVisionInterpretationService]가 안전하게
+  /// `UnavailableVisionInterpretationService`로 폴백한다.
+  static const String openAiApiKey = String.fromEnvironment(
+    'OPENAI_API_KEY',
     defaultValue: '',
   );
 

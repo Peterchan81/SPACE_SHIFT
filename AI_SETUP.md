@@ -85,6 +85,44 @@ flutter run -d windows \
 자체의 `OPENAI_API_KEY` 배포 방법은
 `supabase/functions/gpt-floorplan-understand/README.md`를 참고한다.
 
+## SS CAD TEST — "OpenAI 직접 호출" 개발/검증 전용 우회 경로
+
+기본 경로는 항상 `App → Supabase Edge Function → OpenAI`다
+(`GPT_FLOORPLAN_PROVIDER` 기본값 `supabase`). Supabase 배포 상태와 무관하게
+OpenAI 응답 자체를 검증하고 싶을 때만, **Windows 개발 실행에 한해** 아래처럼
+Supabase를 건너뛰고 OpenAI를 직접 호출할 수 있다:
+
+```bash
+flutter run -d windows ^
+  --dart-define=GPT_FLOORPLAN_PROVIDER=direct ^
+  --dart-define=OPENAI_API_KEY=<로컬에서만 쓰는 실제 키, 문서/커밋에 적지 않는다>
+```
+
+Supabase 경로(기존과 동일, provider를 명시하고 싶을 때):
+
+```bash
+flutter run -d windows ^
+  --dart-define=GPT_FLOORPLAN_PROVIDER=supabase ^
+  --dart-define=GPT_FLOORPLAN_EDGE_FUNCTION_URL=<Edge Function URL>
+```
+
+**반드시 지킨다:**
+- `OPENAI_API_KEY`는 `.dart` 파일에 하드코딩하지 않고, 어떤 커밋/문서에도
+  실제 값을 적지 않는다.
+- `flutter build apk`/`appbundle`/`ipa` 등 배포용 빌드 명령에는
+  `OPENAI_API_KEY`(그리고 `GPT_FLOORPLAN_PROVIDER=direct`)를 **절대**
+  포함하지 않는다 — 지정하지 않으면 컴파일 시점에 빈 문자열로 고정되어
+  배포 바이너리에 key가 남을 수 없다. 배포용 빌드는 항상 기본값
+  (`supabase`)이어야 한다.
+- `GPT_FLOORPLAN_PROVIDER`를 인식하지 못하는 값으로 잘못 지정해도
+  안전하게 `supabase`로 취급된다([parseGptFloorplanProvider]).
+
+direct 경로의 요청(OpenAI model/system prompt/JSON schema)과 응답 변환은
+`lib/services/gpt_floorplan_openai_contract.dart`에 Edge Function
+(`supabase/functions/gpt-floorplan-understand/index.ts`)과 동일하게
+미러링되어 있다 — 두 파일 중 하나만 고치면 두 경로의 결과가 갈라지므로,
+이 계약을 바꿀 때는 반드시 둘 다 함께 고친다.
+
 ## 동작
 
 - 앱은 원본 사진을 Base64 data URI와 선택 스타일로 Edge Function에 보낸다.

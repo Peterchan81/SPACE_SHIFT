@@ -6,6 +6,7 @@ import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 
 import 'package:ason_space/models/vision_understanding.dart';
+import 'package:ason_space/services/gpt_floorplan_direct_openai_vision_service.dart';
 import 'package:ason_space/services/gpt_floorplan_vision_service.dart';
 
 void main() {
@@ -139,6 +140,27 @@ void main() {
     test('urlOverride가 빈 문자열이면 여전히 안전한 기본값을 돌려준다', () {
       final service = createVisionInterpretationService(urlOverride: '');
       expect(service, isA<UnavailableVisionInterpretationService>());
+    });
+
+    test('SS CAD TEST — providerOverride: direct + apiKeyOverride가 있으면 GptDirectOpenAiVisionService를 만든다', () {
+      final service = createVisionInterpretationService(
+        providerOverride: 'direct',
+        apiKeyOverride: 'sk-fake-local-only',
+      );
+      expect(service, isA<GptDirectOpenAiVisionService>());
+      expect((service as GptDirectOpenAiVisionService).apiKey, 'sk-fake-local-only');
+    });
+
+    test('SS CAD TEST — providerOverride: direct 인데 apiKeyOverride가 없으면 안전한 기본값을 돌려준다', () {
+      final service = createVisionInterpretationService(providerOverride: 'direct', apiKeyOverride: '');
+      expect(service, isA<UnavailableVisionInterpretationService>());
+    });
+
+    test('SS CAD TEST — providerOverride를 안 주면 기존과 동일하게 supabase 경로(urlOverride)를 쓴다', () {
+      final service = createVisionInterpretationService(
+        urlOverride: 'https://project.supabase.co/functions/v1/gpt-floorplan-understand',
+      );
+      expect(service, isA<GptFloorplanEdgeFunctionVisionService>());
     });
   });
 }
