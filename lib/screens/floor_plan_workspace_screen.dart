@@ -71,6 +71,7 @@ class FloorPlanWorkspaceScreen extends StatefulWidget {
     this.cadFileUploadService = const CadFileUploadService(),
     this.floorPlanImageService,
     this.floorPlanIsoService,
+    this.visionConsolidationBuilder,
   });
 
   final String projectName;
@@ -100,6 +101,17 @@ class FloorPlanWorkspaceScreen extends StatefulWidget {
   /// dart-define 설정에 따라 안전한 기본값 또는 실제 Edge Function
   /// 구현을 고른다.
   final FloorPlanIsoImageGenerationService? floorPlanIsoService;
+
+  /// GPT CAD 핵심 이식 — "GPT 구조 분석 실행" 테스트 주입 지점.
+  /// [floorPlanImageService]/[floorPlanIsoService]와 같은 이유: 지정하지
+  /// 않으면(실사용 경로) [_createProductionVisionConsolidationBuilder]가
+  /// dart-define 설정에 따라 안전한 기본값
+  /// ([UnavailableVisionInterpretationService]) 또는 실제 Edge Function
+  /// 구현을 고른다. 실사용 경로에서 값을 매번 새로 만들면(기존 코드처럼
+  /// 인라인으로 생성) 테스트가 실패를 흉내낼 방법이 없어, 이 화면의
+  /// "GPT 구조 분석" 실패 경로 전체가 위젯 테스트로 한 번도 검증된 적이
+  /// 없었다 — 이번 실패 진단으로 드러난 실제 원인 중 하나.
+  final VisionGuidedSpatialModelBuilder? visionConsolidationBuilder;
 
   @override
   State<FloorPlanWorkspaceScreen> createState() =>
@@ -134,6 +146,13 @@ FloorPlanImageGenerationService _createProductionFloorPlanImageService() =>
 /// geometry 결과로 안전하게 폴백한다.
 FloorPlanIsoImageGenerationService _createProductionFloorPlanIsoService() =>
     createFloorPlanIsoImageService();
+
+/// [FloorPlanWorkspaceScreen.visionConsolidationBuilder]가 지정되지 않았을
+/// 때(실사용 경로)의 기본값 — [createVisionInterpretationService]가
+/// `--dart-define=GPT_FLOORPLAN_EDGE_FUNCTION_URL=...`이 없으면 안전하게
+/// [UnavailableVisionInterpretationService]를 고른다.
+VisionGuidedSpatialModelBuilder _createProductionVisionConsolidationBuilder() =>
+    VisionGuidedSpatialModelBuilder(visionService: createVisionInterpretationService());
 
 class _FloorPlanWorkspaceScreenState extends State<FloorPlanWorkspaceScreen> {
   WorkspaceStartMethod _startMethod = WorkspaceStartMethod.floorPlanUpload;
@@ -190,6 +209,11 @@ class _FloorPlanWorkspaceScreenState extends State<FloorPlanWorkspaceScreen> {
   /// (WO086)이 지금 실행 중인지. true인 동안 관련 버튼을 비활성화해
   /// 중복 실행을 막는다.
   bool _isRunningVisionConsolidation = false;
+
+  /// [CadWorkspaceState.hasStructuredCadDraft] 참고 — 이 값이 true인
+  /// 동안만 중앙 화면이 [_cadFloorPlan]을 CAD 초안으로 직접 그려서
+  /// 보여준다.
+  bool _hasStructuredCadDraft = false;
 
   bool _calibrating = false;
   String? _calibrationWallId;
@@ -255,6 +279,7 @@ class _FloorPlanWorkspaceScreenState extends State<FloorPlanWorkspaceScreen> {
       _cadUndoStack.clear();
       _generatedFloorPlanImageBytes = null;
       _isGeneratingFloorPlanImage = false;
+      _hasStructuredCadDraft = false;
       _displayMode = FloorPlanDisplayMode.cad;
       _debugOverlay = false;
       _calibrating = false;
@@ -279,6 +304,9 @@ class _FloorPlanWorkspaceScreenState extends State<FloorPlanWorkspaceScreen> {
 
   FloorPlanIsoImageGenerationService get _isoService =>
       widget.floorPlanIsoService ?? _createProductionFloorPlanIsoService();
+
+  VisionGuidedSpatialModelBuilder get _visionConsolidationBuilder =>
+      widget.visionConsolidationBuilder ?? _createProductionVisionConsolidationBuilder();
 
   /// "AI 평면도 생성" — V1 AI-IMAGE FLOW WO 방향 수정.
   ///
@@ -490,6 +518,7 @@ class _FloorPlanWorkspaceScreenState extends State<FloorPlanWorkspaceScreen> {
       _cadUndoStack.clear();
       _analysisPhase = FloorPlanAnalysisPhase.completed;
       _displayMode = FloorPlanDisplayMode.cad;
+      _hasStructuredCadDraft = true;
       _dxfImportMessage = result.warnings.isEmpty
           ? '"${file.fileName}"에서 벽 ${result.plan!.walls.length}개, 문/창 '
                 '${result.plan!.openings.length}개, 방 ${result.plan!.rooms.length}개를 불러왔습니다.'
@@ -915,12 +944,9 @@ class _FloorPlanWorkspaceScreenState extends State<FloorPlanWorkspaceScreen> {
 
     setState(() => _isRunningVisionConsolidation = true);
     try {
-      final builder = VisionGuidedSpatialModelBuilder(
-        visionService: createVisionInterpretationService(),
-      );
       final consolidated = await buildConsolidatedVisionCadFloorPlan(
         bytes,
-        buildOnce: builder.buildCad,
+        buildOnce: _visionConsolidationBuilder.buildCad,
       );
       if (!mounted) return;
       setState(() {
@@ -928,10 +954,16 @@ class _FloorPlanWorkspaceScreenState extends State<FloorPlanWorkspaceScreen> {
         _cadFloorPlan = consolidated;
         _selectedCadObjectId = null;
         _scale = resolveAutoScale(consolidated, _scale);
+        _hasStructuredCadDraft = true;
       });
-    } catch (_) {
-      // 원본 예외 내용은 노출하지 않는다(이 프로젝트의 기존 관례) —
-      // 화면은 이전 CAD 상태를 그대로 유지한다.
+    } catch (error) {
+      // 화면에는(이 프로젝트의 기존 관례대로) 원본 예외 내용을 노출하지
+      // 않고 이전 CAD 상태를 그대로 유지하지만, 개발자가 실패 원인을
+      // 진단할 수 있도록 로그에는 남긴다(다른 서비스의 실패 로깅과 동일한
+      // 패턴 — ai_generation_service.dart의 'AI 생성 실패: $error' 참고).
+      // 이 예외에는 Secret이 담기지 않는다 — OpenAI key는 Edge Function
+      // 안에만 있고 Flutter 앱에는 애초에 전달되지 않는다.
+      debugPrint('GPT 구조 분석 실패: $error');
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('GPT 구조 분석에 실패했습니다. 잠시 후 다시 시도해주세요.')),
@@ -968,6 +1000,7 @@ class _FloorPlanWorkspaceScreenState extends State<FloorPlanWorkspaceScreen> {
     ceilingHeightMm: _ceilingHeightMm,
     generatedFloorPlanImageBytes: _generatedFloorPlanImageBytes,
     isGeneratingFloorPlanImage: _isGeneratingFloorPlanImage,
+    hasStructuredCadDraft: _hasStructuredCadDraft,
   );
 
   CadWorkspaceCallbacks get _cadWorkspaceCallbacks => CadWorkspaceCallbacks(

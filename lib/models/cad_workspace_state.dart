@@ -37,6 +37,7 @@ class CadWorkspaceState {
     this.ceilingHeightMm,
     this.generatedFloorPlanImageBytes,
     this.isGeneratingFloorPlanImage = false,
+    this.hasStructuredCadDraft = false,
   });
 
   final CadFloorPlan? floorPlan;
@@ -53,6 +54,16 @@ class CadWorkspaceState {
 
   /// true인 동안 "AI 평면도 생성 중" 상태를 보여준다.
   final bool isGeneratingFloorPlanImage;
+
+  /// "GPT 구조 분석 실행" 또는 "CAD 파일 업로드(DXF)"가 최소 한 번
+  /// 성공했는지. true면 [floorPlan]이 실제로 사용자가 명시적으로 요청해
+  /// 얻은 구조화 CAD 결과이므로, (생성된 이미지/원본 사진 대신) 중앙
+  /// 화면에 CAD 초안으로 직접 그려서 보여준다 — 두 기능 모두 버튼을
+  /// 눌러도 화면이 원본/생성 이미지만 그대로 보여주던 문제를 고친다.
+  /// 기존 [floorPlan]의 "3D 아이소 생성에만 쓰이고 화면에 그려지지
+  /// 않는다"는 계약(baseline 픽셀 분석 엔진, "AI 평면도 생성" 1단계)은
+  /// 이 값이 false인 동안은 그대로 유지된다.
+  final bool hasStructuredCadDraft;
   final String? selectedObjectId;
   final FloorPlanDisplayMode displayMode;
   final bool debugOverlay;

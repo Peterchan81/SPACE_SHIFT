@@ -67,6 +67,24 @@ flutter run \
 포함해야 한다. `FAL_KEY`와 `SUPABASE_SERVICE_ROLE_KEY`는 어떤 Flutter
 명령에도 전달하지 않는다.
 
+## SS CAD TEST — "GPT 구조 분석 실행" 실사용 확인
+
+`GPT_FLOORPLAN_EDGE_FUNCTION_URL`을 지정하지 않고 실행하면(예: 그냥
+`flutter run -d windows`) "GPT 구조 분석 실행" 버튼은 **항상, 즉시**
+"GPT 구조 분석에 실패했습니다. 잠시 후 다시 시도해주세요."로 실패한다 —
+이것은 버그가 아니라 [UnavailableVisionInterpretationService]의 의도된
+안전한 기본값이지만, 실제 화면에서는 원인을 구분할 방법이 없다. 실제로
+GPT 구조 분석까지 확인하려면 반드시 아래 URL을 함께 지정해야 한다:
+
+```bash
+flutter run -d windows \
+  --dart-define=GPT_FLOORPLAN_EDGE_FUNCTION_URL=https://mljvgngjmrvoqjwvvyeg.supabase.co/functions/v1/gpt-floorplan-understand
+```
+
+이 URL도 Secret이 아니라 공개 Edge Function 엔드포인트다. Edge Function
+자체의 `OPENAI_API_KEY` 배포 방법은
+`supabase/functions/gpt-floorplan-understand/README.md`를 참고한다.
+
 ## 동작
 
 - 앱은 원본 사진을 Base64 data URI와 선택 스타일로 Edge Function에 보낸다.

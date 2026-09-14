@@ -35,6 +35,7 @@ class CadFloorPlanOverlay extends StatefulWidget {
     required this.onWallEndpointChanged,
     this.calibrating = false,
     this.onCalibrationDragEnd,
+    this.allowEndpointDrag = true,
   });
 
   final CadFloorPlan floorPlan;
@@ -56,6 +57,13 @@ class CadFloorPlanOverlay extends StatefulWidget {
   /// 두 점 사이 직선 거리로 폴백, WO 15번).
   final void Function(Point2 dragStart, Point2 dragEnd, String? nearestWallId)?
   onCalibrationDragEnd;
+
+  /// GPT 구조 분석/DXF import 결과를 (아직 완성되지 않은) 끝점 드래그
+  /// 없이 읽기 전용 CAD 초안으로만 보여줄 때 false로 둔다 — 벽 선택
+  /// 자체는 계속 되지만, 끝점 드래그 핸들은 그리지 않는다. 이 화면
+  /// 어디에서도 진짜 "치수 보정" 흐름과 섞이지 않게 하기 위한 값으로,
+  /// [calibrating]과는 독립적이다.
+  final bool allowEndpointDrag;
 
   @override
   State<CadFloorPlanOverlay> createState() => _CadFloorPlanOverlayState();
@@ -122,7 +130,7 @@ class _CadFloorPlanOverlayState extends State<CadFloorPlanOverlay> {
                 ),
               ),
             ),
-            if (selectedWall != null && !widget.calibrating) ...[
+            if (selectedWall != null && !widget.calibrating && widget.allowEndpointDrag) ...[
               _EndpointHandle(
                 screenPosition: transform.mapNormalized(selectedWall.start),
                 onDragDelta: (delta) => _moveEndpoint(

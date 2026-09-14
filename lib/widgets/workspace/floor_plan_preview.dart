@@ -147,7 +147,20 @@ class FloorPlanPreview extends StatelessWidget {
         cad.debugOverlay && cad.displayMode != FloorPlanDisplayMode.original && result != null;
     final showGeneratedImage =
         !showDebugOverlay && generatedImage != null && cad.displayMode != FloorPlanDisplayMode.original;
-    final showOriginal = !showDebugOverlay && !showGeneratedImage;
+    // GPT CAD 핵심 이식 — "GPT 구조 분석 실행"/"CAD 파일 업로드(DXF)"로
+    // 실제 구조화 CAD 결과를 얻었으면(hasStructuredCadDraft), 그 결과를
+    // 화면에 직접 그려서 보여준다. GPT가 새로 그려준 이미지가 이미
+    // 있으면(showGeneratedImage) 그 이미지를 그대로 우선한다 — 이 CAD
+    // 초안은 좌표 기반 대체 경로일 뿐, 두 결과를 동시에 겹쳐 그리지
+    // 않는다.
+    final showCadDraft =
+        !showDebugOverlay &&
+        !showGeneratedImage &&
+        cad.hasStructuredCadDraft &&
+        cad.floorPlan != null &&
+        cad.floorPlan!.walls.isNotEmpty &&
+        cad.displayMode != FloorPlanDisplayMode.original;
+    final showOriginal = !showDebugOverlay && !showGeneratedImage && !showCadDraft;
 
     return Stack(
       fit: StackFit.expand,
@@ -186,6 +199,21 @@ class FloorPlanPreview extends StatelessWidget {
               generatedImage,
               fit: BoxFit.contain,
               cacheWidth: 1600,
+            ),
+          )
+        else if (showCadDraft)
+          // GPT CAD 핵심 이식 — "GPT 구조 분석 실행"/DXF import 성공 뒤
+          // 실제 사용자가 확인할 수 있는 CAD 초안 화면. 끝점 드래그는
+          // 아직 이 모드에서 검증되지 않았으므로 끄고(allowEndpointDrag:
+          // false), 벽/문/창 선택(치수 보정과 무관한 기존 tap-select)만
+          // 그대로 켜 둔다.
+          Positioned.fill(
+            child: CadFloorPlanOverlay(
+              floorPlan: cad.floorPlan!,
+              selectedId: cad.selectedObjectId,
+              onSelect: cadCallbacks.onSelectObject,
+              onWallEndpointChanged: cadCallbacks.onWallEndpointChanged,
+              allowEndpointDrag: false,
             ),
           ),
         // V1 AI-IMAGE FLOW WO — "치수 보정"은 좌표 기반 CAD 결과를
