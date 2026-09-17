@@ -227,6 +227,52 @@ void main() {
     );
 
     test(
+      'hint의 along 위치 자체가 매칭된 reviewNeeded 벽의 감지된 extent 밖(그러나 '
+      'extentTolerancePx 이내)이어도 폭 0으로 무너지지 않고 그 벽 경계에 붙어 '
+      '유효한 interval을 만든다(실측 조사로 발견된 2차 버그 회귀 방지)',
+      () {
+        final unrelated = _seg(id: 'unrelated', x1: 0, y1: 200, x2: 100, y2: 200);
+        // reviewWallNearHint의 감지된 extent는 x:100~220이다.
+        final reviewWallNearHint = _seg(
+          id: 'review-wall-2',
+          x1: 100,
+          y1: 50,
+          x2: 220,
+          y2: 50,
+          category: PixelWallCategory.reviewNeeded,
+          noiseCategory: PixelWallNoiseCategory.trueStructural,
+        );
+        // doorHint의 중심(along=70)은 이 extent(100~220) 밖이다 — 다만
+        // collinearity(같은 y=50)는 정확히 맞고, along 차이(30px)는
+        // extentTolerancePx(40)보다 작다.
+        final doorHint = _seg(
+          id: 'door-hint-outside-extent',
+          x1: 60,
+          y1: 50,
+          x2: 80,
+          y2: 50,
+          category: PixelWallCategory.reviewNeeded,
+          noiseCategory: PixelWallNoiseCategory.doorArc,
+        );
+        final systems = buildWallSystems(candidates: [unrelated], w: w, h: h);
+        final result = buildWallOpenings(
+          wallSystems: systems,
+          allCandidates: [unrelated, reviewWallNearHint, doorHint],
+          w: w,
+          h: h,
+        );
+
+        expect(result.unmatchedSemanticHints, isEmpty);
+        expect(result.openings, hasLength(1));
+        final opening = result.openings.single;
+        expect(opening.isValidInterval, isTrue);
+        expect(opening.startT, lessThan(opening.endT));
+        // extent 밖에서 온 hint이므로 매칭된 벽의 시작 경계(startT=0)에 붙어야 한다.
+        expect(opening.startT, 0.0);
+      },
+    );
+
+    test(
       'structural도 reviewNeeded도 근처에 전혀 없으면(진짜 벽 geometry가 없으면) '
       'opening을 지어내지 않고 unmatchedSemanticHints로 정직하게 남긴다',
       () {

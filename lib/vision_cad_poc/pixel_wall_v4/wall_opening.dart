@@ -77,6 +77,17 @@ WallSystem? matchParentWallSystem({
   required double crossPx,
   required double alongPx,
   required double candidateThicknessPx,
+  // CAD/DXF FIRST GOAL 인식 품질 개선 WO §2(계속) — collinearity(crossPx)
+  // 허용 오차는 그대로 두고, "그 벽의 extent 밖" 판정에만 별도로 더 넓은
+  // 오차를 쓸 수 있게 한다. 실제 실측도면에서 GPT가 지목한 문 위치가
+  // 진짜 그 벽 line 위(같은 축, 4~5px 이내)에 있는데도, run-length
+  // 검출이 얇고 흐릿한 손그림 선 끝을 몇십 px 짧게 잡아서(연필 끝이
+  // 흐려지는 지점) opening이 유효 extent 밖으로 밀려나는 사례가 확인됐다
+  // (§ 조사: pxwall-47 실제 벽, hint와 collinear 오차 4.7px, 다만 extent가
+  // 23.8px 부족해 실패). collinearity는 여전히 엄격하게 유지해(§5 "순수
+  // 최단거리로 아무 벽에나 붙이지 않는다") 다른 벽으로 잘못 붙는 위험을
+  // 늘리지 않는다 — null(기본값)이면 기존과 완전히 동일하게 동작한다.
+  double? extentTolerancePx,
 }) {
   WallSystem? best;
   var bestCrossDist = double.infinity;
@@ -84,8 +95,9 @@ WallSystem? matchParentWallSystem({
     if (system.orientation != orientation) continue; // 방향 다르면 제외(§5).
     final tolerance = _matchTolerance(system.thicknessPx, candidateThicknessPx);
     final crossDist = (crossPx - system.axisPx).abs();
-    if (crossDist > tolerance) continue; // collinear 아님 — 제외.
-    if (alongPx < system.startAlongPx - tolerance || alongPx > system.endAlongPx + tolerance) {
+    if (crossDist > tolerance) continue; // collinear 아님 — 제외(항상 엄격).
+    final extentTolerance = extentTolerancePx ?? tolerance;
+    if (alongPx < system.startAlongPx - extentTolerance || alongPx > system.endAlongPx + extentTolerance) {
       continue; // 이 벽의 extent 밖 — 제외.
     }
     if (crossDist < bestCrossDist) {
@@ -259,12 +271,20 @@ WallOpeningBuildResult buildWallOpenings({
     );
     var fromReviewPool = false;
     if (system == null) {
+      // extentTolerancePx: collinearity(같은 축, 몇 px 이내)는 그대로
+      // 엄격하게 유지하면서, "이 벽 line의 감지된 끝점"만 조금 더
+      // 넉넉하게 봐준다 — 얇고 흐릿한 손그림 선의 run-length 검출이
+      // 실제 끝보다 짧게 멈추는 경우를 보정한다(§ 위 문서 참고). 이
+      // 값(40px)은 실측 조사에서 필요했던 23.8px에 여유를 더한 것이며,
+      // collinearity 기준(보통 8px)과는 별개다 — "아무 벽에나 붙는"
+      // 위험은 늘리지 않는다.
       system = matchParentWallSystem(
         systems: reviewSystems,
         orientation: hint.orientation,
         crossPx: crossPx,
         alongPx: alongPx,
         candidateThicknessPx: thicknessPx,
+        extentTolerancePx: 40,
       );
       fromReviewPool = system != null;
     }
@@ -277,8 +297,19 @@ WallOpeningBuildResult buildWallOpenings({
         ? (hint.end.x - hint.start.x).abs() * w
         : (hint.end.y - hint.start.y).abs() * h;
     final halfWidthPx = math.max(hintLenPx / 2, _matchTolMinPx);
-    final alongStart = (alongPx - halfWidthPx).clamp(system.startAlongPx, system.endAlongPx);
-    final alongEnd = (alongPx + halfWidthPx).clamp(system.startAlongPx, system.endAlongPx);
+    // CAD/DXF FIRST GOAL 인식 품질 개선 WO §2(계속) — extentTolerancePx로
+    // "이 벽 extent 밖" 판정만 넉넉하게 봐줘도, hint의 위치 자체가 여전히
+    // system의 실제 감지된 extent [startAlongPx, endAlongPx] 밖에 있으면
+    // alongStart/alongEnd를 각각 독립적으로 clamp할 때 둘 다 같은 경계
+    // 값으로 무너져(둘 다 startAlongPx로 붙어버림) startT==endT인 폭 0
+    // interval이 되고, 그 결과가 다시 무효 처리되어 조용히
+    // unmatchedHints로 떨어지는 2차 버그가 있었다(실측 조사로 확인:
+    // pxwall-47을 부모로 찾고도 이 단계에서 다시 버려짐). 중심점을 먼저
+    // extent 안으로 clamp한 뒤 그 중심을 기준으로 폭을 두면, 최소
+    // halfWidthPx만큼은 항상 system extent 안에 남는다.
+    final clampedAlongPx = alongPx.clamp(system.startAlongPx, system.endAlongPx);
+    final alongStart = (clampedAlongPx - halfWidthPx).clamp(system.startAlongPx, system.endAlongPx);
+    final alongEnd = (clampedAlongPx + halfWidthPx).clamp(system.startAlongPx, system.endAlongPx);
     final startT = ((alongStart - system.startAlongPx) / system.lengthPx).clamp(0.0, 1.0);
     final endT = ((alongEnd - system.startAlongPx) / system.lengthPx).clamp(0.0, 1.0);
     if (startT >= endT) {
