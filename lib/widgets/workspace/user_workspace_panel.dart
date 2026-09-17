@@ -91,6 +91,8 @@ class UserWorkspacePanel extends StatefulWidget {
     this.onCreateWorkItemFromCad,
     this.onEditWallLengthMm,
     this.onEditOpeningWidthMm,
+    this.onAddDoorToWall,
+    this.onAddWindowToWall,
   });
 
   final WorkspaceTaskItem? task;
@@ -140,6 +142,11 @@ class UserWorkspacePanel extends StatefulWidget {
   /// 사용자가 직접 입력해 확정한다.
   final void Function(double newLengthMm)? onEditWallLengthMm;
   final void Function(double newWidthMm)? onEditOpeningWidthMm;
+
+  /// CAD/DXF FIRST GOAL FINAL LIVE E2E WO §8 — 선택된 벽에 AI가 놓친
+  /// 문/창을 사용자가 직접 추가한다([CadStructureTab] 문서 참고).
+  final VoidCallback? onAddDoorToWall;
+  final VoidCallback? onAddWindowToWall;
 
   final WorkspaceSelectionTool selectedTool;
   final ValueChanged<WorkspaceSelectionTool> onToolSelected;
@@ -320,6 +327,8 @@ class _UserWorkspacePanelState extends State<UserWorkspacePanel> {
         onCreateWorkItem: widget.onCreateWorkItemFromCad ?? () {},
         onEditWallLengthMm: widget.onEditWallLengthMm,
         onEditOpeningWidthMm: widget.onEditOpeningWidthMm,
+        onAddDoorToWall: widget.onAddDoorToWall,
+        onAddWindowToWall: widget.onAddWindowToWall,
       );
     }
     if (task == null) {

@@ -29,6 +29,8 @@ class CadStructureTab extends StatelessWidget {
     required this.onCreateWorkItem,
     this.onEditWallLengthMm,
     this.onEditOpeningWidthMm,
+    this.onAddDoorToWall,
+    this.onAddWindowToWall,
   });
 
   final CadWall? wall;
@@ -53,6 +55,19 @@ class CadStructureTab extends StatelessWidget {
 
   /// 선택된 문/창의 실제 폭(mm)을 사용자가 직접 입력해 확정한다.
   final void Function(double newWidthMm)? onEditOpeningWidthMm;
+
+  /// CAD/DXF FIRST GOAL FINAL LIVE E2E WO §8 — 실제 실측도면 LIVE
+  /// 검증에서 AI가 실제 문을 놓치는 경우(semantic 단계는 감지했으나
+  /// pixel 근거 부족으로 최종 CadFloorPlan에서 탈락하는 경우 포함)가
+  /// 확인됐고, 그때까지 이 화면에는 "이미 있는 문/창의 폭을 고치는"
+  /// 기능만 있고 "선택한 벽에 새 문/창을 추가"하는 기능이 전혀 없었다
+  /// — 즉 사용자가 놓친 문을 스스로 복구할 방법이 없었다. §8이 요구하는
+  /// 최소 기능만 추가한다: 선택된 벽에 기본 폭 문/창 하나를 만드는
+  /// 버튼(geometry는 [createOpeningOnWall], 새 판단 로직 없음). 벽이
+  /// 선택되지 않았거나 호출부가 콜백을 안 주면(narrow 레이아웃 등)
+  /// 버튼 자체를 숨긴다 — 새 대규모 CAD editor로 확대하지 않는다.
+  final VoidCallback? onAddDoorToWall;
+  final VoidCallback? onAddWindowToWall;
 
   @override
   Widget build(BuildContext context) {
@@ -111,6 +126,52 @@ class CadStructureTab extends StatelessWidget {
                   ),
                 ],
               ),
+              if (wall != null &&
+                  (onAddDoorToWall != null || onAddWindowToWall != null)) ...[
+                const SizedBox(height: 10),
+                const Text(
+                  '이 벽에 AI가 놓친 문/창이 있으면 기본 폭으로 추가한 뒤, 위 캔버스에서 '
+                  '위치를 옮기고 폭을 실제 치수로 고칠 수 있습니다.',
+                  style: TextStyle(
+                    fontSize: 12.5,
+                    color: SpaceShiftColors.textSecondary,
+                    height: 1.4,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Row(
+                  children: [
+                    if (onAddDoorToWall != null)
+                      Expanded(
+                        child: OutlinedButton.icon(
+                          onPressed: onAddDoorToWall,
+                          icon: const Icon(Icons.door_front_door_outlined, size: 18),
+                          label: const Text('문 추가'),
+                          style: OutlinedButton.styleFrom(
+                            minimumSize: const Size.fromHeight(44),
+                            foregroundColor: SpaceShiftColors.textPrimary,
+                            side: const BorderSide(color: SpaceShiftColors.border),
+                          ),
+                        ),
+                      ),
+                    if (onAddDoorToWall != null && onAddWindowToWall != null)
+                      const SizedBox(width: 10),
+                    if (onAddWindowToWall != null)
+                      Expanded(
+                        child: OutlinedButton.icon(
+                          onPressed: onAddWindowToWall,
+                          icon: const Icon(Icons.window_outlined, size: 18),
+                          label: const Text('창 추가'),
+                          style: OutlinedButton.styleFrom(
+                            minimumSize: const Size.fromHeight(44),
+                            foregroundColor: SpaceShiftColors.textPrimary,
+                            side: const BorderSide(color: SpaceShiftColors.border),
+                          ),
+                        ),
+                      ),
+                  ],
+                ),
+              ],
             ],
           ),
         ),

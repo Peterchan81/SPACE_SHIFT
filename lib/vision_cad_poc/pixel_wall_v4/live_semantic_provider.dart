@@ -12,7 +12,7 @@
 // [GptSemanticResponse](pixel_wall_v4 계약)는 서로 다른 스키마이므로,
 // [convertVisionUnderstandingToGptSemantic]이 결정론적으로 변환한다 —
 // 좌표/판단 로직은 추가하지 않고 순수 스키마 매핑만 한다.
-import 'dart:typed_data';
+import 'package:flutter/foundation.dart';
 
 import '../../models/vision_understanding.dart';
 import '../../services/vision_interpretation_service.dart';
@@ -30,6 +30,17 @@ class LiveSemanticProvider implements SemanticProvider {
       final understanding = await visionService.interpret(imageBytes);
       return SemanticProviderResult.success(convertVisionUnderstandingToGptSemantic(understanding));
     } catch (error) {
+      // CAD/DXF FIRST GOAL FINAL LIVE E2E WO — 이 catch가 error.runtimeType만
+      // 남기던 이전 버전은 실제 라이브 테스트에서 3회 연속 semantic 호출이
+      // 전부 unavailable로 조용히 폴백됐는데도 진짜 이유(스키마 불일치인지,
+      // OpenAI 응답 자체 문제인지)를 전혀 알 수 없게 만들었다. 사용자에게
+      // 보여주는 값(SemanticProviderResult.unavailable의 reason)은 여전히
+      // 안전한 요약 문구로 유지하되(§16 "죽으면 안 된다" 원칙, 원본 예외를
+      // 화면에 노출하지 않는다는 기존 관례), 개발 로그에는 실제 예외
+      // 메시지를 남겨 다음 실패를 재현 없이 진단할 수 있게 한다. 이
+      // 메시지에는 API key가 담기지 않는다 — VisionInterpretationService
+      // 구현체들은 key를 예외 메시지에 넣지 않는다(단위 테스트로 확인됨).
+      debugPrint('[LiveSemanticProvider] GPT 구조 분석(semantic) 호출 실패: $error');
       // §16 "죽으면 안 된다" — 원본 예외를 그대로 노출하지 않는다(이
       // 프로젝트의 기존 관례). 호출부(runPixelWallPipelineWithSemanticProvider)
       // 는 이 unavailable을 받아 geometry-only로 안전하게 계속 진행한다.

@@ -522,6 +522,30 @@ class _FloorPlanWorkspaceScreenState extends State<FloorPlanWorkspaceScreen> {
     );
   }
 
+  /// CAD/DXF FIRST GOAL FINAL LIVE E2E WO §8 — 실제 실측도면 LIVE
+  /// 검증에서 AI가 실제 문을 놓치는 경우가 확인됐고, 그때까지 이
+  /// 화면에는 "이미 있는 문/창의 폭을 고치는" 기능만 있었다. 선택된
+  /// 벽에 기본 폭 문/창 하나를 [createOpeningOnWall]로 만들어 추가한다
+  /// — 위치/폭은 사용자가 캔버스 드래그와 "실제 폭 직접 입력"으로 다시
+  /// 잡는다는 전제다(§8 "대규모 CAD editor로 확대하지 않는다").
+  void _onAddOpeningToSelectedWall(OpeningType type) {
+    final plan = _cadFloorPlan;
+    final wall = _selectedCadWall;
+    if (plan == null || wall == null) return;
+    final created = createOpeningOnWall(plan, wall, type: type, scale: _scale);
+    _mutateCad(
+      (p) => CadFloorPlan(
+        sourceWidthPx: p.sourceWidthPx,
+        sourceHeightPx: p.sourceHeightPx,
+        walls: p.walls,
+        openings: [...p.openings, created],
+        rooms: p.rooms,
+        warnings: p.warnings,
+        objectCandidates: p.objectCandidates,
+      ),
+    );
+  }
+
   /// SS CAD TEST — CAD Editor WO §4. "CAD 파일 업로드" 버튼 핸들러 —
   /// [FloorPlanUploadService]의 "① 평면도 업로드"와 같은 패턴: 파일을
   /// 고르고, 성공하면 현재 편집 상태를 그 결과로 완전히 교체한다(undo
@@ -1463,6 +1487,12 @@ class _FloorPlanWorkspaceScreenState extends State<FloorPlanWorkspaceScreen> {
             // 길이를 바꾸는 중인지" 자체가 모호해진다.
             onEditWallLengthMm: _calibrating ? null : _onEditWallLength,
             onEditOpeningWidthMm: _calibrating ? null : _onEditOpeningWidth,
+            onAddDoorToWall: _calibrating
+                ? null
+                : () => _onAddOpeningToSelectedWall(OpeningType.door),
+            onAddWindowToWall: _calibrating
+                ? null
+                : () => _onAddOpeningToSelectedWall(OpeningType.window),
           ),
         ),
       ],
