@@ -25,8 +25,9 @@ import '../services/gpt_floorplan_vision_service.dart';
 import '../services/space_scene_builder.dart';
 import '../services/space_scene_builder_v2.dart';
 import '../services/vision_consolidation.dart';
-import '../services/vision_guided_spatial_model_builder.dart';
 import '../theme/space_shift_colors.dart';
+import '../vision_cad_poc/pixel_wall_v4/live_semantic_provider.dart';
+import '../vision_cad_poc/pixel_wall_v4/pixel_wall_pipeline.dart';
 import '../widgets/workspace/ceiling_height_sheet.dart';
 import '../widgets/workspace/settings_entry_button.dart';
 import '../widgets/workspace/start_method_panel.dart';
@@ -71,7 +72,7 @@ class FloorPlanWorkspaceScreen extends StatefulWidget {
     this.cadFileUploadService = const CadFileUploadService(),
     this.floorPlanImageService,
     this.floorPlanIsoService,
-    this.visionConsolidationBuilder,
+    this.gptStructureAnalysis,
   });
 
   final String projectName;
@@ -104,14 +105,21 @@ class FloorPlanWorkspaceScreen extends StatefulWidget {
 
   /// GPT CAD 핵심 이식 — "GPT 구조 분석 실행" 테스트 주입 지점.
   /// [floorPlanImageService]/[floorPlanIsoService]와 같은 이유: 지정하지
-  /// 않으면(실사용 경로) [_createProductionVisionConsolidationBuilder]가
+  /// 않으면(실사용 경로) [_createProductionGptStructureAnalysis]가
   /// dart-define 설정에 따라 안전한 기본값
-  /// ([UnavailableVisionInterpretationService]) 또는 실제 Edge Function
-  /// 구현을 고른다. 실사용 경로에서 값을 매번 새로 만들면(기존 코드처럼
-  /// 인라인으로 생성) 테스트가 실패를 흉내낼 방법이 없어, 이 화면의
-  /// "GPT 구조 분석" 실패 경로 전체가 위젯 테스트로 한 번도 검증된 적이
-  /// 없었다 — 이번 실패 진단으로 드러난 실제 원인 중 하나.
-  final VisionGuidedSpatialModelBuilder? visionConsolidationBuilder;
+  /// ([UnavailableVisionInterpretationService]) 또는 실제 구현을 고른다.
+  /// 실사용 경로에서 값을 매번 새로 만들면(기존 코드처럼 인라인으로
+  /// 생성) 테스트가 실패를 흉내낼 방법이 없어, 이 화면의 "GPT 구조 분석"
+  /// 실패 경로 전체가 위젯 테스트로 한 번도 검증된 적이 없었다 — 이전
+  /// 실패 진단으로 드러난 실제 원인 중 하나.
+  ///
+  /// SS CAD TEST — WorkOrder(1차 CAD/DXF E2E): 실사용 구현이
+  /// [VisionGuidedSpatialModelBuilder](HintedGeometryExtractor 기반)에서
+  /// pixel_wall_v4 + [LiveSemanticProvider]로 바뀌었다("AI=의미,
+  /// SS=좌표검증" 원칙, §4/§5) — 이 필드 자체의 계약(이미지 바이트 →
+  /// [CadFloorPlan])은 그대로라 호출부([buildConsolidatedVisionCadFloorPlan]
+  /// 3회 통합 등)는 전혀 바뀌지 않았다.
+  final Future<CadFloorPlan> Function(Uint8List imageBytes)? gptStructureAnalysis;
 
   @override
   State<FloorPlanWorkspaceScreen> createState() =>
@@ -147,12 +155,27 @@ FloorPlanImageGenerationService _createProductionFloorPlanImageService() =>
 FloorPlanIsoImageGenerationService _createProductionFloorPlanIsoService() =>
     createFloorPlanIsoImageService();
 
-/// [FloorPlanWorkspaceScreen.visionConsolidationBuilder]가 지정되지 않았을
-/// 때(실사용 경로)의 기본값 — [createVisionInterpretationService]가
-/// `--dart-define=GPT_FLOORPLAN_EDGE_FUNCTION_URL=...`이 없으면 안전하게
-/// [UnavailableVisionInterpretationService]를 고른다.
-VisionGuidedSpatialModelBuilder _createProductionVisionConsolidationBuilder() =>
-    VisionGuidedSpatialModelBuilder(visionService: createVisionInterpretationService());
+/// [FloorPlanWorkspaceScreen.gptStructureAnalysis]가 지정되지 않았을 때
+/// (실사용 경로)의 기본값.
+///
+/// SS CAD TEST — WorkOrder(1차 CAD/DXF E2E) §4/§5: "AI는 의미 판별만,
+/// 좌표는 SS geometry가 truth"라는 원칙에 따라 pixel_wall_v4
+/// (`runPixelWallPipelineWithSemanticProvider` — 실제 벽선/교차점/외곽/
+/// 개구부는 픽셀 evidence로 SS가 직접 뽑고, AI는 [LiveSemanticProvider]로
+/// 그 의미(방 이름/문·창 종류)만 판별)로 CadFloorPlan을 만든다. AI 호출은
+/// [createVisionInterpretationService](기존 "GPT 구조 분석"이 쓰던 것과
+/// 정확히 같은 서비스)를 그대로 재사용하므로 새 API 연동을 추가하지
+/// 않았다 — `--dart-define=GPT_FLOORPLAN_EDGE_FUNCTION_URL=...`(또는
+/// `GPT_FLOORPLAN_PROVIDER=direct`)이 없으면 기존과 동일하게 안전한
+/// [UnavailableVisionInterpretationService]로 폴백해, semantic 없이
+/// geometry-only로 계속 진행한다(§16 "죽으면 안 된다").
+Future<CadFloorPlan> _createProductionGptStructureAnalysis(Uint8List imageBytes) async {
+  final pipelineResult = await runPixelWallPipelineWithSemanticProvider(
+    imageBytes: imageBytes,
+    provider: LiveSemanticProvider(createVisionInterpretationService()),
+  );
+  return buildCadFloorPlanFromSpatialModel(pipelineResult.model);
+}
 
 class _FloorPlanWorkspaceScreenState extends State<FloorPlanWorkspaceScreen> {
   WorkspaceStartMethod _startMethod = WorkspaceStartMethod.floorPlanUpload;
@@ -305,8 +328,8 @@ class _FloorPlanWorkspaceScreenState extends State<FloorPlanWorkspaceScreen> {
   FloorPlanIsoImageGenerationService get _isoService =>
       widget.floorPlanIsoService ?? _createProductionFloorPlanIsoService();
 
-  VisionGuidedSpatialModelBuilder get _visionConsolidationBuilder =>
-      widget.visionConsolidationBuilder ?? _createProductionVisionConsolidationBuilder();
+  Future<CadFloorPlan> Function(Uint8List) get _gptStructureAnalysis =>
+      widget.gptStructureAnalysis ?? _createProductionGptStructureAnalysis;
 
   /// "AI 평면도 생성" — V1 AI-IMAGE FLOW WO 방향 수정.
   ///
@@ -926,10 +949,10 @@ class _FloorPlanWorkspaceScreenState extends State<FloorPlanWorkspaceScreen> {
 
   /// GPT CAD 핵심 이식 — "GPT 구조 분석(3회 통합)" 버튼. 기존 GPT CAD
   /// 이미지 생성 흐름([_imageService])과 기존 픽셀 분석 엔진
-  /// ([widget.analysisService])은 전혀 건드리지 않는다 — 이미 완성돼
-  /// 있던 [VisionGuidedSpatialModelBuilder](gpt-floorplan-understand
-  /// 기반, R&D/대체 경로로 보존되어 있던 것)를 같은 원본 사진에 3번
-  /// 돌리고, [consolidateCadFloorPlans]로 통합한 결과를 [_cadFloorPlan]에
+  /// ([widget.analysisService])은 전혀 건드리지 않는다 —
+  /// [_gptStructureAnalysis](pixel_wall_v4 geometry + [LiveSemanticProvider]
+  /// 로 재사용하는 기존 GPT 구조 분석 결과, §4/§5)를 같은 원본 사진에
+  /// 3번 돌리고, [consolidateCadFloorPlans]로 통합한 결과를 [_cadFloorPlan]에
   /// 반영해 기존 "도면 보정"(벽 클릭→치수 보정) 흐름과 DXF 내보내기가
   /// 그대로 이 통합 결과를 쓰게 한다.
   ///
@@ -946,7 +969,7 @@ class _FloorPlanWorkspaceScreenState extends State<FloorPlanWorkspaceScreen> {
     try {
       final consolidated = await buildConsolidatedVisionCadFloorPlan(
         bytes,
-        buildOnce: _visionConsolidationBuilder.buildCad,
+        buildOnce: _gptStructureAnalysis,
       );
       if (!mounted) return;
       setState(() {

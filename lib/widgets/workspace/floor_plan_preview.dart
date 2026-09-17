@@ -204,16 +204,17 @@ class FloorPlanPreview extends StatelessWidget {
         else if (showCadDraft)
           // GPT CAD 핵심 이식 — "GPT 구조 분석 실행"/DXF import 성공 뒤
           // 실제 사용자가 확인할 수 있는 CAD 초안 화면. 끝점 드래그는
-          // 아직 이 모드에서 검증되지 않았으므로 끄고(allowEndpointDrag:
-          // false), 벽/문/창 선택(치수 보정과 무관한 기존 tap-select)만
-          // 그대로 켜 둔다.
+          // SS CAD TEST WorkOrder(1차 CAD/DXF E2E) §7에 따라 격리된
+          // 위젯 테스트(cad_floor_plan_overlay_endpoint_drag_test.dart)로
+          // 정확한 좌표 변환/undo 연동을 먼저 확인한 뒤 켰다 — AI 결과의
+          // 명백한 오차(벽 위치가 살짝 어긋남 등)를 사용자가 직접
+          // 고칠 수 있게 한다.
           Positioned.fill(
             child: CadFloorPlanOverlay(
               floorPlan: cad.floorPlan!,
               selectedId: cad.selectedObjectId,
               onSelect: cadCallbacks.onSelectObject,
               onWallEndpointChanged: cadCallbacks.onWallEndpointChanged,
-              allowEndpointDrag: false,
             ),
           ),
         // V1 AI-IMAGE FLOW WO — "치수 보정"은 좌표 기반 CAD 결과를
@@ -468,12 +469,20 @@ class _AnalysisActionBar extends StatelessWidget {
     required this.onRunVisionConsolidation,
     required this.canExportDxf,
     required this.onExportDxf,
+    this.cadFloorPlan,
+    this.cadScale,
   });
 
   final bool isRunningVisionConsolidation;
   final VoidCallback onRunVisionConsolidation;
   final bool canExportDxf;
   final VoidCallback onExportDxf;
+
+  /// SS CAD TEST WorkOrder(1차 CAD/DXF E2E) §9 — DXF 내보내기 전에 CAD
+  /// 상태(구조/실측 scale 적용 여부/확인 필요 요소/사용자 수정 요소)를
+  /// 보여주는 데만 쓴다 — 이 위젯이 값을 계산하거나 바꾸지 않는다.
+  final CadFloorPlan? cadFloorPlan;
+  final FloorPlanScale? cadScale;
 
   final FloorPlanAnalysisPhase phase;
   final FloorPlanAnalysisStep? step;
@@ -542,6 +551,8 @@ class _AnalysisActionBar extends StatelessWidget {
           onRunVisionConsolidation: onRunVisionConsolidation,
           canExportDxf: canExportDxf,
           onExportDxf: onExportDxf,
+          cadFloorPlan: cadFloorPlan,
+          cadScale: cadScale,
         ),
         FloorPlanAnalysisPhase.failed => Column(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -596,6 +607,8 @@ class _CompletedSummary extends StatelessWidget {
     required this.onRunVisionConsolidation,
     required this.canExportDxf,
     required this.onExportDxf,
+    this.cadFloorPlan,
+    this.cadScale,
   });
 
   final bool hasGeneratedImage;
@@ -604,6 +617,8 @@ class _CompletedSummary extends StatelessWidget {
   final VoidCallback onRunVisionConsolidation;
   final bool canExportDxf;
   final VoidCallback onExportDxf;
+  final CadFloorPlan? cadFloorPlan;
+  final FloorPlanScale? cadScale;
 
   @override
   Widget build(BuildContext context) {
@@ -688,6 +703,10 @@ class _CompletedSummary extends StatelessWidget {
             ),
           ),
         ),
+        if (cadFloorPlan != null) ...[
+          const SizedBox(height: 10),
+          _CadExportReadinessSummary(floorPlan: cadFloorPlan!, scale: cadScale),
+        ],
         const SizedBox(height: 8),
         SizedBox(
           width: double.infinity,
@@ -703,6 +722,79 @@ class _CompletedSummary extends StatelessWidget {
           ),
         ),
       ],
+    );
+  }
+}
+
+/// SS CAD TEST WorkOrder(1차 CAD/DXF E2E) §9 — "DXF 내보내기 전에 CAD
+/// 상태를 사용자에게 명확히 보여준다." 최소한 CAD 구조(벽/문/창/방
+/// 개수)/실측 scale 적용 여부/확인 필요한 요소 존재 여부/사용자 수정
+/// 요소를 구분해서 보여준다. 정확도를 모르는 상태에서 임의의 "N% 정확"
+/// 같은 숫자는 표시하지 않는다(§9 "정확도를 모르는 상태에서 임의의
+/// 숫자를 표시하지 않는다") — 오직 이미 모델에 있는 사실(개수, scale
+/// source)만 그대로 보여준다.
+class _CadExportReadinessSummary extends StatelessWidget {
+  const _CadExportReadinessSummary({required this.floorPlan, required this.scale});
+
+  final CadFloorPlan floorPlan;
+  final FloorPlanScale? scale;
+
+  @override
+  Widget build(BuildContext context) {
+    final reviewNeededCount =
+        floorPlan.walls.where((w) => w.reviewNeeded).length +
+        floorPlan.openings.where((o) => o.reviewNeeded).length +
+        floorPlan.rooms.where((r) => r.reviewNeeded).length;
+    final userEditedCount =
+        floorPlan.walls.where((w) => w.source == CadElementSource.userEdited).length +
+        floorPlan.openings.where((o) => o.source == CadElementSource.userEdited).length;
+    final isScaled = scale != null && scale!.source.isReliable;
+
+    return Container(
+      padding: const EdgeInsets.all(10),
+      decoration: BoxDecoration(
+        color: const Color(0xFFF7F8FA),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: SpaceShiftColors.border),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text(
+            'DXF 내보내기 전 CAD 상태',
+            style: TextStyle(fontSize: 11.5, fontWeight: FontWeight.w600, color: SpaceShiftColors.textPrimary),
+          ),
+          const SizedBox(height: 6),
+          Text(
+            '구조: 벽 ${floorPlan.walls.length}개 · 문/창 ${floorPlan.openings.length}개 · 방 ${floorPlan.rooms.length}개',
+            style: const TextStyle(fontSize: 11.5, color: SpaceShiftColors.textPrimary),
+          ),
+          const SizedBox(height: 3),
+          Text(
+            isScaled
+                ? '실측 축척 적용됨 (${scale!.source.label}) — DXF에 실제 mm 치수로 반영됩니다.'
+                : '실측 축척 미확정 — DXF는 정규화 좌표(UNSCALED)로 내보내집니다. 실제 mm 도면이 아닙니다.',
+            style: TextStyle(
+              fontSize: 11.5,
+              color: isScaled ? const Color(0xFF16803C) : const Color(0xFFB45309),
+            ),
+          ),
+          if (reviewNeededCount > 0) ...[
+            const SizedBox(height: 3),
+            Text(
+              '확인 필요 요소 $reviewNeededCount개 — 자동 검출 신뢰도가 낮아 사람이 다시 봐야 합니다.',
+              style: const TextStyle(fontSize: 11.5, color: Color(0xFFB45309)),
+            ),
+          ],
+          if (userEditedCount > 0) ...[
+            const SizedBox(height: 3),
+            Text(
+              '사용자가 직접 수정한 요소 $userEditedCount개 — 이후 재분석에도 덮어써지지 않습니다.',
+              style: const TextStyle(fontSize: 11.5, color: SpaceShiftColors.textSecondary),
+            ),
+          ],
+        ],
+      ),
     );
   }
 }
@@ -1076,6 +1168,8 @@ class FloorPlanStatusSection extends StatelessWidget {
           onRunVisionConsolidation: onRunVisionConsolidation,
           canExportDxf: canExportDxf,
           onExportDxf: onExportDxf,
+          cadFloorPlan: cad.floorPlan,
+          cadScale: cad.scale,
         ),
         if (analysisPhase == FloorPlanAnalysisPhase.completed) ...[
           const SizedBox(height: 16),

@@ -59,7 +59,20 @@ const _kWallInteriorLayer = 'SS-INTERIOR-WALL';
 const _kSpaceLayer = 'SS-SPACE';
 const _kDoorLayer = 'SS-DOOR';
 const _kWindowLayer = 'SS-WINDOW';
-const _kSupportedLayers = {_kWallExteriorLayer, _kWallInteriorLayer, _kSpaceLayer, _kDoorLayer, _kWindowLayer};
+// SS CAD TEST WorkOrder(1차 CAD/DXF E2E) §10/§11 — E2eDxfExporter가
+// OpeningType.unknown(AI 의미 판별 없이 pixel_wall_v4가 만든, 문/창 종류가
+// 아직 확정되지 않은 개구부)을 내보내는 레이어. 이 레이어가
+// _kSupportedLayers에 없으면 정상적으로 내보낸 파일도 재-import 시
+// "지원하지 않는 레이어"로 잘못 보고된다.
+const _kUnknownOpeningLayer = 'SS-UNKNOWN-OPENING';
+const _kSupportedLayers = {
+  _kWallExteriorLayer,
+  _kWallInteriorLayer,
+  _kSpaceLayer,
+  _kDoorLayer,
+  _kWindowLayer,
+  _kUnknownOpeningLayer,
+};
 
 class _RawLine {
   _RawLine(this.layer, this.x1, this.y1, this.x2, this.y2);
@@ -189,6 +202,7 @@ DxfImportResult importDxf(String dxfContent) {
   final spaceLines = <_RawLine>[];
   final doorLines = <_RawLine>[];
   final windowLines = <_RawLine>[];
+  final unknownOpeningLines = <_RawLine>[];
   for (final l in rawLines) {
     switch (l.layer) {
       case _kWallExteriorLayer:
@@ -200,6 +214,8 @@ DxfImportResult importDxf(String dxfContent) {
         doorLines.add(l);
       case _kWindowLayer:
         windowLines.add(l);
+      case _kUnknownOpeningLayer:
+        unknownOpeningLines.add(l);
     }
   }
 
@@ -280,6 +296,7 @@ DxfImportResult importDxf(String dxfContent) {
   final openings = [
     ...buildOpenings(doorLines, OpeningType.door, 0),
     ...buildOpenings(windowLines, OpeningType.window, doorLines.length),
+    ...buildOpenings(unknownOpeningLines, OpeningType.unknown, doorLines.length + windowLines.length),
   ];
 
   // 방(SS-SPACE) 폴리곤 재구성 — 같은 끝점을 공유하는 선분을 그리디하게

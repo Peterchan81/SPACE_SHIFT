@@ -224,6 +224,62 @@ void main() {
       expect(exteriorLines.single.lengthMm, closeTo(5200.0, 1e-6));
     });
   });
+
+  group('E. OpeningType.unknown(AI 의미 판별 없는 pixel_wall_v4 결과) -> Export -> Import', () {
+    // SS CAD TEST WorkOrder(1차 CAD/DXF E2E) §10 회귀 테스트 — 이 계층이
+    // 고쳐지기 전에는 door가 아닌 opening을 전부 'SS-WINDOW'로 내보내
+    // unknownOpening이 재-import 후 실제로 창(window)으로 둔갑했다(AI
+    // 결과를 거짓으로 확정하지 않는다는 프로젝트 전체 원칙 위반).
+    test('unknown 종류 opening이 SS-WINDOW로 거짓 표시되지 않고 그대로 unknown으로 왕복한다', () {
+      const sourceWidthPx = 1000;
+      const sourceHeightPx = 1000;
+      const wall = CadWall(id: 'w1', start: Point2(0.1, 0.1), end: Point2(0.9, 0.1), thicknessNormalized: 0.01, wallType: CadWallType.exterior, confidence: 1.0);
+      const unknownOpening = CadOpening(
+        id: 'opening-1',
+        type: OpeningType.unknown,
+        center: Point2(0.5, 0.1),
+        widthNormalized: 0.03,
+        confidence: 0.6,
+        wallId: 'w1',
+        reviewNeeded: true,
+      );
+      final plan = const CadFloorPlan(
+        sourceWidthPx: sourceWidthPx,
+        sourceHeightPx: sourceHeightPx,
+        walls: [wall],
+        openings: [unknownOpening],
+        rooms: [],
+        warnings: [],
+      );
+
+      final exported = _exporter.export(plan);
+      // 레이어 테이블(TABLES 섹션)은 SS-DOOR/SS-WINDOW를 항상 선언해 둔다
+      // (사용 여부와 무관하게, 다른 CAD 프로그램 호환용) — 그래서 파일
+      // 전체가 아니라 실제 LINE 엔티티(ENTITIES 섹션)가 어느 레이어에
+      // 있는지로만 검증한다.
+      final entitiesSection = exported.dxfContent.split('ENTITIES').last;
+      expect(
+        entitiesSection,
+        contains('SS-UNKNOWN-OPENING'),
+        reason: 'unknown opening은 SS-DOOR/SS-WINDOW가 아닌 별도 레이어로 내보내야 한다',
+      );
+      expect(
+        entitiesSection,
+        isNot(contains('SS-WINDOW')),
+        reason: '실제 창이 아닌데 SS-WINDOW 레이어의 LINE 엔티티가 생기면 안 된다',
+      );
+
+      final imported = importDxf(exported.dxfContent);
+      expect(imported.success, isTrue, reason: imported.failureMessage);
+      expect(imported.unsupportedLayerCount, 0, reason: '새 레이어를 importer가 인식하지 못하면 안 된다');
+      expect(imported.plan!.openings, hasLength(1));
+      expect(
+        imported.plan!.openings.single.type,
+        OpeningType.unknown,
+        reason: '문/창 종류가 확정되지 않은 상태 그대로 왕복해야 한다(거짓으로 window가 되면 안 된다)',
+      );
+    });
+  });
 }
 
 class _Line {

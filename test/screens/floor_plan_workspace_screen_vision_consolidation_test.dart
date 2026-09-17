@@ -7,30 +7,32 @@
 // 있는데, 이 실패 자체는 정상 동작이지만 그 원인이 무엇이든(설정 누락,
 // 네트워크 오류, 서버 오류) 화면에서 절대 구분할 수 없었고, 이 버튼의
 // "성공" 경로는 위젯 테스트로 단 한 번도 검증된 적이 없었다 — 실사용
-// 경로가 [VisionGuidedSpatialModelBuilder]를 [_onRunVisionConsolidation]
-// 안에서 직접 생성해, 테스트가 주입할 지점이 아예 없었기 때문이다.
+// 경로가 이 화면 안에서 직접 값을 생성해, 테스트가 주입할 지점이 아예
+// 없었기 때문이다.
 //
-// 이 파일은 그 주입 지점(FloorPlanWorkspaceScreen.visionConsolidationBuilder)
-// 을 사용해 두 경로를 모두 실제 화면(버튼 tap)으로 검증한다:
+// SS CAD TEST WorkOrder(1차 CAD/DXF E2E) §4/§5 — 실사용 구현이
+// VisionGuidedSpatialModelBuilder(HintedGeometryExtractor)에서
+// pixel_wall_v4 + LiveSemanticProvider("AI=의미, SS=좌표검증")로 바뀌었다.
+// 이 파일은 그 주입 지점(FloorPlanWorkspaceScreen.gptStructureAnalysis —
+// 이미지 바이트를 받아 CadFloorPlan을 돌려주는 함수 하나)을 사용해 두
+// 경로를 모두 실제 화면(버튼 tap)으로 검증한다:
 //   A. 실패해도 기존 안내 메시지 SnackBar는 그대로 보여야 한다(회귀 방지).
 //   B. 성공하면 실제로 CadFloorPlan이 채워져 "DXF 내보내기" 버튼이
 //      눌러지는 상태가 되어야 한다(이 버튼이 실제로 사용자에게 CAD
-//      결과를 만들어 주는지 최초로 검증).
-
-import 'dart:typed_data';
+//      결과를 만들어 주는지 검증).
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import 'package:ason_space/models/cad_floor_plan.dart';
 import 'package:ason_space/models/floor_plan_file.dart';
 import 'package:ason_space/models/floor_plan_geometry.dart';
-import 'package:ason_space/models/vision_understanding.dart';
 import 'package:ason_space/screens/floor_plan_workspace_screen.dart';
 import 'package:ason_space/services/floor_plan_analysis_service.dart';
 import 'package:ason_space/services/floor_plan_upload_service.dart';
 import 'package:ason_space/services/mock_vision_interpretation_service.dart';
-import 'package:ason_space/services/vision_guided_spatial_model_builder.dart';
-import 'package:ason_space/services/vision_interpretation_service.dart';
+import 'package:ason_space/vision_cad_poc/pixel_wall_v4/live_semantic_provider.dart';
+import 'package:ason_space/vision_cad_poc/pixel_wall_v4/pixel_wall_pipeline.dart';
 import 'package:ason_space/vision_cad_poc/sample_image2_fixture.dart';
 import 'package:ason_space/widgets/workspace/cad_floor_plan_overlay.dart';
 
@@ -81,20 +83,6 @@ class _ImmediateFloorPlanAnalysisService extends FloorPlanAnalysisService {
   }
 }
 
-/// GPT_FLOORPLAN_EDGE_FUNCTION_URL이 없을 때의 실제 운영 동작
-/// ([UnavailableVisionInterpretationService])과 같은 모양 — 네트워크
-/// 호출 없이 즉시 실패한다. 테스트에서는 원인을 구분하기 위해 별도
-/// 클래스로 만든다(실패 사유가 "설정 누락"이든 "네트워크 오류"든 화면
-/// 쪽 처리는 동일해야 한다는 것을 확인하기 위함).
-class _AlwaysFailingVisionService implements VisionInterpretationService {
-  const _AlwaysFailingVisionService();
-
-  @override
-  Future<VisionUnderstanding> interpret(Uint8List imageBytes) async {
-    throw Exception('GPT 평면도 분석 기능이 아직 설정되지 않았습니다.');
-  }
-}
-
 void main() {
   final imageBytes = buildImage2Png();
   final floorPlanFile = FloorPlanFile(
@@ -128,9 +116,9 @@ void main() {
           home: FloorPlanWorkspaceScreen(
             uploadService: _FakeFloorPlanUploadService(floorPlanFile),
             analysisService: const _ImmediateFloorPlanAnalysisService(),
-            visionConsolidationBuilder: const VisionGuidedSpatialModelBuilder(
-              visionService: _AlwaysFailingVisionService(),
-            ),
+            gptStructureAnalysis: (bytes) async {
+              throw Exception('GPT 평면도 분석 기능이 아직 설정되지 않았습니다.');
+            },
           ),
         ),
       );
@@ -173,9 +161,13 @@ void main() {
           home: FloorPlanWorkspaceScreen(
             uploadService: _FakeFloorPlanUploadService(floorPlanFile),
             analysisService: const _ImmediateFloorPlanAnalysisService(),
-            visionConsolidationBuilder: const VisionGuidedSpatialModelBuilder(
-              visionService: MockVisionInterpretationService(),
-            ),
+            gptStructureAnalysis: (bytes) async {
+              final pipelineResult = await runPixelWallPipelineWithSemanticProvider(
+                imageBytes: bytes,
+                provider: const LiveSemanticProvider(MockVisionInterpretationService()),
+              );
+              return buildCadFloorPlanFromSpatialModel(pipelineResult.model);
+            },
           ),
         ),
       );
@@ -201,9 +193,8 @@ void main() {
         tester.widget<CadFloorPlanOverlay>(find.byType(CadFloorPlanOverlay)).floorPlan.walls,
         isNotEmpty,
         reason:
-            'GPT 구조 분석 성공 -> 실제 GPT Vision 파이프라인(MockVisionInterpretationService + '
-            '실제 HintedGeometryExtractor/TopologyValidator)을 거친 CadFloorPlan이 화면에 반영되어야 '
-            '한다(이 화면에서 "GPT 구조 분석 실행"의 성공 경로가 위젯 테스트로 검증된 적이 이전에는 없었다)',
+            'GPT 구조 분석 성공 -> 실제 pixel_wall_v4 geometry + LiveSemanticProvider'
+            '(MockVisionInterpretationService)를 거친 CadFloorPlan이 화면에 반영되어야 한다',
       );
     },
   );

@@ -75,6 +75,7 @@ class E2eDxfExporter {
       ('SS-SPACE', 3),
       ('SS-DOOR', 2),
       ('SS-WINDOW', 6),
+      ('SS-UNKNOWN-OPENING', 8),
     ]) {
       buffer.writeln('0');
       buffer.writeln('LAYER');
@@ -151,7 +152,17 @@ class E2eDxfExporter {
         (centerXPx + uxPx * halfWidthPx) / plan.sourceWidthPx,
         (centerYPx + uyPx * halfWidthPx) / plan.sourceHeightPx,
       );
-      line(opening.type == OpeningType.door ? 'SS-DOOR' : 'SS-WINDOW', a, b);
+      // SS CAD TEST WorkOrder(1차 CAD/DXF E2E) §10 — "동일한 CadFloorPlan
+      // 데이터가 화면과 DXF 양쪽에서 쓰이도록" pixel_wall_v4가(AI 의미
+      // 판별 없이) 만드는 OpeningType.unknown을 SS-WINDOW로 거짓 표시하지
+      // 않는다 — 실제로 문/창 종류가 확정되지 않았다는 사실을 DXF
+      // 레이어에도 그대로 남긴다.
+      final layer = switch (opening.type) {
+        OpeningType.door => 'SS-DOOR',
+        OpeningType.window => 'SS-WINDOW',
+        OpeningType.unknown => 'SS-UNKNOWN-OPENING',
+      };
+      line(layer, a, b);
     }
 
     buffer.writeln('0');
