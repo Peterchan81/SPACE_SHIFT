@@ -23,6 +23,7 @@ import 'dart:typed_data';
 
 import '../models/cad_floor_plan.dart';
 import '../models/floor_plan_geometry.dart';
+import 'vision_interpretation_service.dart' show GptBillingExhaustedException;
 
 /// [buildOnce]([VisionGuidedSpatialModelBuilder.buildCad]를 실사용 경로가
 /// 그대로 넘긴다 — 테스트는 가짜 함수를 주입해 이 파일의 재시도/통합
@@ -49,6 +50,80 @@ Future<CadFloorPlan> buildConsolidatedVisionCadFloorPlan(
     throw lastError ?? StateError('모든 GPT 구조 분석 시도가 실패했습니다.');
   }
   return consolidateCadFloorPlans(results);
+}
+
+/// SS CAD TEST — API 호출 정책(비용 감사) WO §4/§5/§7. [buildConsolidatedVisionCadFloorPlan]
+/// 은 항상 [samples]번(기본 3) 무조건 호출한다 — 실사용 감사 결과 "GPT
+/// 구조 분석 실행" 버튼 1회가 항상 정확히 3회의 유료 OpenAI 호출로
+/// 이어지고 있었다. 이 함수는 같은 통합 알고리즘([consolidateCadFloorPlans],
+/// 새로 만들지 않음)을 재사용하되 호출 횟수를 "1회 기본 + 결과가
+/// 불충분할 때만 추가"로 바꾼다:
+///
+/// - 어떤 시도든 성공하고 [isResultSufficient]가 true면 그 즉시 멈춘다
+///   (추가 유료 호출 없음 — 정상적인 경우 실제 OpenAI 요청은 1회뿐이다).
+/// - 시도가 실패했거나 결과가 불충분하면(원본 벽이 하나도 없음/외곽이
+///   안 닫힘/벽 대부분이 reviewNeeded) [maxSamples]까지 추가로 시도해
+///   성공한 결과들만 통합한다 — 2번째 시도가 충분해지면 3번째는 걸지
+///   않는다("2/3회차는 무조건 채운다"가 아니다).
+/// - [GptBillingExhaustedException]은 몇 번째 시도든 즉시 그대로 다시
+///   던지고 멈춘다(§5 — 결제 문제는 재시도해도 100% 같은 이유로 다시
+///   실패하므로, 남은 시도를 소비하지 않는다).
+///
+/// [onAttempt]는 실제 유료 요청이 나갈 때마다(성공/실패와 무관하게) 한 번
+/// 호출되는 계측 콜백(§7) — 호출부가 `[AI CALL] ...` 형태로 로그를 남기는
+/// 데만 쓰고, 이 함수의 판단 로직에는 전혀 관여하지 않는다.
+Future<CadFloorPlan> runAdaptiveVisionConsolidation(
+  Uint8List imageBytes, {
+  required Future<CadFloorPlan> Function(Uint8List) buildOnce,
+  int maxSamples = 3,
+  bool Function(CadFloorPlan plan) isResultSufficient = isVisionResultSufficient,
+  void Function({required int attempt, required String reason, String? outcome})? onAttempt,
+}) async {
+  final results = <CadFloorPlan>[];
+  Object? lastError;
+
+  for (var attempt = 1; attempt <= maxSamples; attempt++) {
+    final reason = attempt == 1 ? 'initial' : 'low_confidence';
+    try {
+      final result = await buildOnce(imageBytes);
+      onAttempt?.call(attempt: attempt, reason: reason, outcome: 'success');
+      if (isResultSufficient(result)) {
+        // 이번 시도가 이미 충분히 좋다(1번째든 이후든) — 그 결과 하나만
+        // 그대로 쓰고 끝낸다. 앞서 쌓인(불충분했던) 결과와 억지로
+        // 통합하지 않는다 — consolidateCadFloorPlans는 "여러 번 비슷하게
+        // 나온 것"의 합의를 신뢰도로 바꾸는 알고리즘이라, 이미 불충분하다고
+        // 판단한(예: 벽 0개) 이전 시도와 섞으면 합의가 흐려져 오히려
+        // 결과가 더 나빠질 수 있다(실제로 테스트에서 재현됨).
+        return result;
+      }
+      results.add(result);
+    } on GptBillingExhaustedException {
+      onAttempt?.call(attempt: attempt, reason: reason, outcome: 'billing_exhausted');
+      rethrow;
+    } catch (error) {
+      lastError = error;
+      onAttempt?.call(attempt: attempt, reason: reason, outcome: 'failed');
+    }
+  }
+
+  if (results.isEmpty) {
+    throw lastError ?? StateError('모든 GPT 구조 분석 시도가 실패했습니다.');
+  }
+  return consolidateCadFloorPlans(results);
+}
+
+/// 1회 GPT 구조 분석 결과가 추가로 값비싼 재호출을 할 필요가 없을 만큼
+/// 충분히 좋은지 판단한다. 애매하면 추가 호출 쪽을 선택한다(보수적) —
+/// pixel_wall_v4의 geometry 자체는 픽셀 기반 결정론적 계산이라 재호출해도
+/// 안 바뀌지만, AI 의미 corroboration(문/창 종류, 방 라벨, false-positive
+/// 정리)은 호출마다 달라질 수 있어 이 부분 품질이 낮을 때만 재호출이
+/// 실제로 값이 있다.
+bool isVisionResultSufficient(CadFloorPlan plan) {
+  if (plan.walls.isEmpty) return false;
+  if (plan.warnings.any((w) => w.contains('FloorDomain INVALID'))) return false;
+  final reviewNeededRatio = plan.walls.where((w) => w.reviewNeeded).length / plan.walls.length;
+  if (reviewNeededRatio > 0.5) return false;
+  return true;
 }
 
 /// 두 벡터 사이 각도(도, 0~90 — 방향과 반대 방향을 같은 선으로 본다).

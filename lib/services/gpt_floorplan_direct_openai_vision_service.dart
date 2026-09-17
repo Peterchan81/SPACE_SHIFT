@@ -58,7 +58,9 @@ class GptDirectOpenAiVisionService implements VisionInterpretationService {
     }
 
     if (response.statusCode < 200 || response.statusCode >= 300) {
-      _debugPrintHttpFailure(response.statusCode);
+      final isBilling = _isBillingExhausted(response);
+      _debugPrintHttpFailure(response.statusCode, isBilling: isBilling);
+      if (isBilling) throw const GptBillingExhaustedException();
       throw Exception('GPT 평면도 분석 요청에 실패했습니다.');
     }
 
@@ -101,14 +103,34 @@ class GptDirectOpenAiVisionService implements VisionInterpretationService {
   /// 5.항목 요구사항 — 401/403/429/5xx를 개발 로그에서 구분한다. API
   /// key/Authorization 헤더 값은 여기 어디에도 넣지 않는다 — status 숫자만
   /// 남긴다.
-  void _debugPrintHttpFailure(int statusCode) {
+  void _debugPrintHttpFailure(int statusCode, {required bool isBilling}) {
     final category = switch (statusCode) {
       401 => '401 auth(키가 유효하지 않음)',
       403 => '403 access(권한 없음)',
-      429 => '429 rate/quota(요청 제한 또는 잔여 크레딧 소진)',
+      429 when isBilling => '429 billing(크레딧/쿼터 소진 — 재시도 안 함)',
+      429 => '429 rate/quota(일시적 요청 제한)',
       >= 500 => '$statusCode 5xx(OpenAI 서버 오류)',
       _ => '$statusCode',
     };
     debugPrint('[GPT direct] OpenAI 요청 실패: $category');
+  }
+
+  /// API 호출 정책(비용 감사) WO §5 — OpenAI 표준 에러 포맷
+  /// (`error.type`/`error.code`)에서 "요청 자체가 아니라 계정 잔액/쿼터
+  /// 문제"임을 명시적으로 판별한다. 이 판별에 실패해도(응답이 JSON이
+  /// 아니거나 예상과 다른 모양이어도) 예외를 던지지 않고 그냥 false로
+  /// 돌아간다 — 진단이 실패했다고 원래 오류 처리 흐름을 막지 않는다.
+  bool _isBillingExhausted(http.Response response) {
+    if (response.statusCode != 429) return false;
+    try {
+      final body = jsonDecode(utf8.decode(response.bodyBytes));
+      final error = body is Map ? body['error'] : null;
+      if (error is! Map) return false;
+      final type = error['type'];
+      final code = error['code'];
+      return type == 'insufficient_quota' || code == 'credit_balance_exhausted';
+    } catch (_) {
+      return false;
+    }
   }
 }

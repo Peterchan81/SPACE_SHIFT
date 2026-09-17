@@ -31,6 +31,7 @@ import 'package:ason_space/screens/floor_plan_workspace_screen.dart';
 import 'package:ason_space/services/floor_plan_analysis_service.dart';
 import 'package:ason_space/services/floor_plan_upload_service.dart';
 import 'package:ason_space/services/mock_vision_interpretation_service.dart';
+import 'package:ason_space/services/vision_interpretation_service.dart';
 import 'package:ason_space/vision_cad_poc/pixel_wall_v4/live_semantic_provider.dart';
 import 'package:ason_space/vision_cad_poc/pixel_wall_v4/pixel_wall_pipeline.dart';
 import 'package:ason_space/vision_cad_poc/sample_image2_fixture.dart';
@@ -149,19 +150,22 @@ void main() {
   );
 
   testWidgets(
-    'GPT 구조 분석이 성공하면 실제로 구조화된 CAD 결과가 생성되어 DXF 내보내기가 가능해진다',
+    'GPT 구조 분석이 성공하면 실제로 구조화된 CAD 결과가 생성되어 DXF 내보내기가 가능해진다 '
+    '-- API 호출 정책(비용 감사) WO: 1번째 결과가 충분히 좋으면 실제 AI 호출은 정확히 1회뿐이다',
     (tester) async {
       tester.view.physicalSize = const Size(1600, 1000);
       tester.view.devicePixelRatio = 1.0;
       addTearDown(tester.view.resetPhysicalSize);
       addTearDown(tester.view.resetDevicePixelRatio);
 
+      var aiCallCount = 0;
       await tester.pumpWidget(
         MaterialApp(
           home: FloorPlanWorkspaceScreen(
             uploadService: _FakeFloorPlanUploadService(floorPlanFile),
             analysisService: const _ImmediateFloorPlanAnalysisService(),
             gptStructureAnalysis: (bytes) async {
+              aiCallCount++;
               final pipelineResult = await runPixelWallPipelineWithSemanticProvider(
                 imageBytes: bytes,
                 provider: const LiveSemanticProvider(MockVisionInterpretationService()),
@@ -175,9 +179,6 @@ void main() {
       await uploadFloorPlanAndCompleteFirstAnalysis(tester);
 
       await tester.tap(find.text('GPT 구조 분석 실행'));
-      // 3회 통합 호출이 전부 끝날 때까지 실제로 await한다(가짜 timer가
-      // 아니라 buildConsolidatedVisionCadFloorPlan이 실제로 3번 실행되는
-      // 진짜 비동기 작업이다).
       await tester.pumpAndSettle(const Duration(milliseconds: 100));
 
       expect(
@@ -196,6 +197,94 @@ void main() {
             'GPT 구조 분석 성공 -> 실제 pixel_wall_v4 geometry + LiveSemanticProvider'
             '(MockVisionInterpretationService)를 거친 CadFloorPlan이 화면에 반영되어야 한다',
       );
+      expect(
+        aiCallCount,
+        1,
+        reason:
+            'API 호출 정책(비용 감사) WO §4 — 1번째 결과가 이미 충분히 좋으면(image2 fixture는 항상 그렇다) '
+            '무조건 3회 호출하던 기존 동작 대신 실제 AI 호출은 1회여야 한다',
+      );
+    },
+  );
+
+  testWidgets(
+    'API 호출 정책(비용 감사) WO §5 — GptBillingExhaustedException이면 1회 호출 후 즉시 멈추고, '
+    '재시도 유도 문구가 아닌 결제 확인 문구를 보여준다',
+    (tester) async {
+      tester.view.physicalSize = const Size(1600, 1000);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+
+      var aiCallCount = 0;
+      await tester.pumpWidget(
+        MaterialApp(
+          home: FloorPlanWorkspaceScreen(
+            uploadService: _FakeFloorPlanUploadService(floorPlanFile),
+            analysisService: const _ImmediateFloorPlanAnalysisService(),
+            gptStructureAnalysis: (bytes) async {
+              aiCallCount++;
+              throw const GptBillingExhaustedException();
+            },
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      await uploadFloorPlanAndCompleteFirstAnalysis(tester);
+
+      await tester.tap(find.text('GPT 구조 분석 실행'));
+      await tester.pumpAndSettle(const Duration(milliseconds: 100));
+
+      expect(aiCallCount, 1, reason: 'billing 오류는 재시도하지 않는다 — 같은 요청을 2번째로 다시 보내면 안 된다');
+      expect(
+        find.text('GPT 구조 분석에 실패했습니다. 잠시 후 다시 시도해주세요.'),
+        findsNothing,
+        reason: 'billing 문제는 "잠시 후 다시 시도"가 아니라 별도 문구를 보여줘야 한다',
+      );
+      expect(
+        find.textContaining('크레딧'),
+        findsOneWidget,
+        reason: '사용자에게 API 크레딧/결제 문제임을 명확히 보여줘야 한다',
+      );
+    },
+  );
+
+  testWidgets(
+    'API 호출 정책(비용 감사) WO §6 — "GPT 구조 분석 실행" 연속 탭은 두 번째 실행을 만들지 않는다',
+    (tester) async {
+      tester.view.physicalSize = const Size(1600, 1000);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+
+      var aiCallCount = 0;
+      await tester.pumpWidget(
+        MaterialApp(
+          home: FloorPlanWorkspaceScreen(
+            uploadService: _FakeFloorPlanUploadService(floorPlanFile),
+            analysisService: const _ImmediateFloorPlanAnalysisService(),
+            gptStructureAnalysis: (bytes) async {
+              aiCallCount++;
+              await Future<void>.delayed(const Duration(milliseconds: 50));
+              final pipelineResult = await runPixelWallPipelineWithSemanticProvider(
+                imageBytes: bytes,
+                provider: const LiveSemanticProvider(MockVisionInterpretationService()),
+              );
+              return buildCadFloorPlanFromSpatialModel(pipelineResult.model);
+            },
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      await uploadFloorPlanAndCompleteFirstAnalysis(tester);
+
+      // 버튼이 비활성화되기 전에 짧은 시간 안에 두 번 누른다(사용자가
+      // 실수로 연타하는 상황 재현).
+      await tester.tap(find.text('GPT 구조 분석 실행'));
+      await tester.tap(find.text('GPT 구조 분석 실행'), warnIfMissed: false);
+      await tester.pumpAndSettle(const Duration(milliseconds: 200));
+
+      expect(aiCallCount, 1, reason: '같은 이미지에 대해 동시에 두 번째 AI 요청이 나가면 안 된다');
     },
   );
 }

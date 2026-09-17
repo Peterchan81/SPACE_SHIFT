@@ -1,6 +1,6 @@
 import 'dart:convert';
-import 'dart:typed_data';
 
+import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 
 import '../config/app_environment.dart';
@@ -47,6 +47,16 @@ class GptFloorplanEdgeFunctionVisionService implements VisionInterpretationServi
     }
 
     if (response.statusCode < 200 || response.statusCode >= 300 || payload['success'] != true) {
+      // API 호출 정책(비용 감사) WO §5/§7 — Edge Function이 판별해 둔
+      // billingExhausted 플래그를 그대로 신뢰한다(§5: billing 오류는
+      // 재시도하지 않는다). GptDirectOpenAiVisionService와 동일한
+      // 카테고리 로그를 남긴다.
+      final isBilling = payload['billingExhausted'] == true;
+      debugPrint(
+        '[GPT supabase] OpenAI 요청 실패: HTTP ${response.statusCode}'
+        '${isBilling ? ' billing(크레딧/쿼터 소진 — 재시도 안 함)' : ''}',
+      );
+      if (isBilling) throw const GptBillingExhaustedException();
       throw Exception(payload['message'] ?? 'GPT 평면도 분석에 실패했습니다.');
     }
 

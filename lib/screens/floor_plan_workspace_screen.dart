@@ -2,6 +2,7 @@ import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 
+import '../config/app_environment.dart';
 import '../models/cad_floor_plan.dart';
 import '../models/cad_workspace_state.dart';
 import '../models/floor_plan_file.dart';
@@ -21,10 +22,12 @@ import '../services/floor_plan_analysis_service.dart';
 import '../services/floor_plan_upload_service.dart';
 import '../services/gpt_floorplan_image_service.dart';
 import '../services/gpt_floorplan_iso_service.dart';
+import '../services/gpt_floorplan_openai_contract.dart';
 import '../services/gpt_floorplan_vision_service.dart';
 import '../services/space_scene_builder.dart';
 import '../services/space_scene_builder_v2.dart';
 import '../services/vision_consolidation.dart';
+import '../services/vision_interpretation_service.dart';
 import '../theme/space_shift_colors.dart';
 import '../vision_cad_poc/pixel_wall_v4/live_semantic_provider.dart';
 import '../vision_cad_poc/pixel_wall_v4/pixel_wall_pipeline.dart';
@@ -965,11 +968,24 @@ class _FloorPlanWorkspaceScreenState extends State<FloorPlanWorkspaceScreen> {
     final bytes = file?.bytes;
     if (bytes == null || _isRunningVisionConsolidation) return;
 
+    // API 호출 정책(비용 감사) WO §7 — 이 버튼 1회 tap이 실제로 몇 번의
+    // 유료 OpenAI 요청으로 이어졌는지 개발 로그에서 그대로 추적할 수
+    // 있게, 매 tap마다 새 operation id를 만든다. API key는 여기 어디에도
+    // 없다.
+    final operationId = 'CAD_ANALYSIS_${DateTime.now().millisecondsSinceEpoch}';
+    final provider = AppEnvironment.gptFloorplanProvider.name;
+
     setState(() => _isRunningVisionConsolidation = true);
     try {
-      final consolidated = await buildConsolidatedVisionCadFloorPlan(
+      final consolidated = await runAdaptiveVisionConsolidation(
         bytes,
         buildOnce: _gptStructureAnalysis,
+        onAttempt: ({required attempt, required reason, outcome}) {
+          debugPrint(
+            '[AI CALL] operation=$operationId provider=$provider model=$kGptFloorplanOpenAiModel '
+            'attempt=$attempt request=$attempt reason=$reason outcome=${outcome ?? "pending"}',
+          );
+        },
       );
       if (!mounted) return;
       setState(() {
@@ -979,6 +995,16 @@ class _FloorPlanWorkspaceScreenState extends State<FloorPlanWorkspaceScreen> {
         _scale = resolveAutoScale(consolidated, _scale);
         _hasStructuredCadDraft = true;
       });
+    } on GptBillingExhaustedException {
+      // API 호출 정책(비용 감사) WO §5 — 결제 문제는 "잠시 후 다시
+      // 시도"가 아니라 사용자가 실제로 조치해야 하는 별도 상황이므로,
+      // 재시도를 유도하는 문구를 보여주지 않는다.
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('OpenAI API 크레딧이 소진되었습니다. 결제(billing) 확인 후 다시 시도해주세요.'),
+        ),
+      );
     } catch (error) {
       // 화면에는(이 프로젝트의 기존 관례대로) 원본 예외 내용을 노출하지
       // 않고 이전 CAD 상태를 그대로 유지하지만, 개발자가 실패 원인을

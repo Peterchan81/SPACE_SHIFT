@@ -13,6 +13,7 @@ import 'package:http/testing.dart';
 
 import 'package:ason_space/models/vision_understanding.dart';
 import 'package:ason_space/services/gpt_floorplan_direct_openai_vision_service.dart';
+import 'package:ason_space/services/vision_interpretation_service.dart';
 
 void main() {
   Uint8List fakeImage() => Uint8List.fromList([137, 80, 78, 71, 1, 2, 3, 4]);
@@ -100,6 +101,43 @@ void main() {
       final client = MockClient((_) async => http.Response('{"error":"rate_limited"}', 429));
       final service = GptDirectOpenAiVisionService(apiKey: fakeApiKey, client: client);
       expect(() => service.interpret(fakeImage()), throwsException);
+    });
+
+    test(
+      'API 호출 정책(비용 감사) WO §5 — 429 + error.type=insufficient_quota면 '
+      'GptBillingExhaustedException을 던진다(일반 429와 구분)',
+      () async {
+        final client = MockClient(
+          (_) async => http.Response(
+            jsonEncode({
+              'error': {
+                'type': 'insufficient_quota',
+                'code': 'credit_balance_exhausted',
+                'message': 'You have no credits remaining.',
+              },
+            }),
+            429,
+          ),
+        );
+        final service = GptDirectOpenAiVisionService(apiKey: fakeApiKey, client: client);
+        await expectLater(
+          service.interpret(fakeImage()),
+          throwsA(isA<GptBillingExhaustedException>()),
+        );
+      },
+    );
+
+    test('429인데 billing 오류가 아니면(일반 rate limit) GptBillingExhaustedException을 던지지 않는다', () async {
+      final client = MockClient(
+        (_) async => http.Response(jsonEncode({'error': {'type': 'rate_limit_exceeded'}}), 429),
+      );
+      final service = GptDirectOpenAiVisionService(apiKey: fakeApiKey, client: client);
+      try {
+        await service.interpret(fakeImage());
+        fail('should have thrown');
+      } catch (e) {
+        expect(e, isNot(isA<GptBillingExhaustedException>()));
+      }
     });
 
     test('5xx면 예외를 던진다(OpenAI 서버 오류)', () async {
