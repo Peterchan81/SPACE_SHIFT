@@ -93,6 +93,7 @@ class UserWorkspacePanel extends StatefulWidget {
     this.onEditOpeningWidthMm,
     this.onAddDoorToWall,
     this.onAddWindowToWall,
+    this.onAddWall,
   });
 
   final WorkspaceTaskItem? task;
@@ -147,6 +148,10 @@ class UserWorkspacePanel extends StatefulWidget {
   /// 문/창을 사용자가 직접 추가한다([CadStructureTab] 문서 참고).
   final VoidCallback? onAddDoorToWall;
   final VoidCallback? onAddWindowToWall;
+
+  /// CAD/DXF FIRST GOAL FINAL LIVE E2E WO — 특정 선택과 무관하게 새 벽
+  /// 하나를 만든다([_EmptySelectionNotice] 문서 참고).
+  final VoidCallback? onAddWall;
 
   final WorkspaceSelectionTool selectedTool;
   final ValueChanged<WorkspaceSelectionTool> onToolSelected;
@@ -339,6 +344,7 @@ class _UserWorkspacePanelState extends State<UserWorkspacePanel> {
       return _EmptySelectionNotice(
         canUndoCad: widget.canUndoCad,
         onUndoCad: widget.onUndoCad,
+        onAddWall: widget.onAddWall,
       );
     }
     return WorkTab(
@@ -468,10 +474,17 @@ class _PanelTabButton extends StatelessWidget {
 }
 
 class _EmptySelectionNotice extends StatelessWidget {
-  const _EmptySelectionNotice({this.canUndoCad = false, this.onUndoCad});
+  const _EmptySelectionNotice({this.canUndoCad = false, this.onUndoCad, this.onAddWall});
 
   final bool canUndoCad;
   final VoidCallback? onUndoCad;
+
+  /// CAD/DXF FIRST GOAL FINAL LIVE E2E WO — AI가 통째로 놓친 벽(그 근처에
+  /// pixel 증거 자체가 없어 "문 추가"로도 복구할 수 없는 경우, §8/§2
+  /// 인식 품질 조사에서 실제로 확인됨)을 사용자가 직접 추가할 방법이
+  /// 전혀 없었다. 새 벽을 만드는 것은 특정 벽/문·창 선택과 무관한 일반
+  /// 동작이라 선택이 비어 있을 때도(실행취소와 같은 자리) 보여준다.
+  final VoidCallback? onAddWall;
 
   @override
   Widget build(BuildContext context) {
@@ -496,6 +509,18 @@ class _EmptySelectionNotice extends StatelessWidget {
                 onPressed: onUndoCad,
                 icon: const Icon(Icons.undo_rounded, size: 18),
                 label: const Text('실행 취소'),
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: SpaceShiftColors.textPrimary,
+                  side: const BorderSide(color: SpaceShiftColors.border),
+                ),
+              ),
+            ],
+            if (onAddWall != null) ...[
+              const SizedBox(height: 16),
+              OutlinedButton.icon(
+                onPressed: onAddWall,
+                icon: const Icon(Icons.add_road_rounded, size: 18),
+                label: const Text('벽 추가'),
                 style: OutlinedButton.styleFrom(
                   foregroundColor: SpaceShiftColors.textPrimary,
                   side: const BorderSide(color: SpaceShiftColors.border),

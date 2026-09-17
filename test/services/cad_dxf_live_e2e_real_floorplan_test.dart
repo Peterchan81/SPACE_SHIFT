@@ -175,35 +175,78 @@ void main() {
       print('[USER EDIT] undo: ${undoPass ? "PASS" : "FAIL"} (beforeUndo != null: ${beforeUndo.walls.isNotEmpty})');
       expect(undoPass, isTrue);
 
-      // 3c) §8 — 실제 LIVE 분석은 semantic 단계에서 문 2개(o1/o2)를
-      // 감지했지만 최종 CadFloorPlan에는 0개만 남았다(위 doors=$doorCount
-      // 출력 참고, pixel 근거 부족으로 탈락). 이 화면은 기존까지 "이미
-      // 있는 문/창의 폭을 고치는" 기능만 있고 "새 문/창 추가" 기능이
-      // 전혀 없어 사용자가 이 누락을 복구할 방법이 없었다(§8 "복구
-      // 불가능하면 FINAL PASS 금지"). 오늘 추가한 최소 기능
-      // (_onAddOpeningToSelectedWall/createOpeningOnWall)이 실제로
-      // 이 real E2E의 CadFloorPlan 위에서 동작하는지 검증한다.
-      final hostWall = cad.walls.firstWhere((w) => !w.reviewNeeded, orElse: () => cad.walls.first);
-      final addedDoor = createOpeningOnWall(cad, hostWall, type: OpeningType.door, scale: null);
+      // 3c) 실전 워크플로 최종 검증 WO §1 — 자동 복원된 문(o1, 이번
+      // 인식 품질 개선으로 doors=0 -> 1이 됨)의 위치/폭이 실제로 말이
+      // 되는지 확인한다. o1의 실제 좌표(0.632,0.104)는 LIVE 응답
+      // fixture 자체의 값이다(육안 확인: 실측1.PNG 크롭 검증, §2 인식
+      // 품질 개선 커밋 참고) — 자동 복원된 opening이 그 근처(하나의
+      // 벽 두께+매칭 오차 이내)에 있어야 하고, 폭은 0보다 커야 한다.
+      expect(doorCount, 1, reason: '이번 인식 품질 개선 이후 자동 복원되는 문은 1개(o1)여야 한다');
+      final autoRecoveredDoor = cad.openings.firstWhere((o) => o.type == OpeningType.door);
+      const o1TrueX = 0.632, o1TrueY = 0.104;
+      final autoDoorDistNorm = ((autoRecoveredDoor.center.x - o1TrueX).abs() + (autoRecoveredDoor.center.y - o1TrueY).abs());
+      final autoDoorSane = autoDoorDistNorm < 0.15 && autoRecoveredDoor.widthNormalized > 0;
+      // ignore: avoid_print
+      print(
+        '[AUTO] 자동 복원된 문(o1) 위치=(${autoRecoveredDoor.center.x.toStringAsFixed(3)},'
+        '${autoRecoveredDoor.center.y.toStringAsFixed(3)}) widthNormalized=${autoRecoveredDoor.widthNormalized.toStringAsFixed(4)} '
+        'wallId=${autoRecoveredDoor.wallId} reviewNeeded=${autoRecoveredDoor.reviewNeeded} : '
+        '${autoDoorSane ? "PASS(위치/폭 정상)" : "FAIL"}',
+      );
+      expect(autoDoorSane, isTrue);
+
+      // 3d) 실전 워크플로 최종 검증 WO §2 — o2는 반경 150px 이내에 pixel
+      // 증거가 전혀 없음을 직접 이미지 크롭으로 확인했다(육안 확인: 완전한
+      // 빈 종이). "문 추가"만으로는 복구할 수 없다 — 호스트로 삼을 벽
+      // 자체가 없기 때문이다(e2e_dxf_exporter.dart는 opening.wallId가
+      // 실제 벽을 가리키지 않으면 그 문을 DXF에서 조용히 건너뛴다).
+      // 그래서 이번에 추가한 "벽 추가"(_onAddWall/createDefaultWall)로
+      // 새 벽을 만들고, 기존 끝점 드래그 기능(_onWallEndpointChanged와
+      // 동일한 로직)으로 o2의 실제 위치 근처로 옮긴 뒤, 그 위에 "문
+      // 추가"를 적용한다 — 실제 사용자가 화면에서 할 수 있는 것과
+      // 정확히 같은 순서다.
+      final newWall = createDefaultWall(cad, isExterior: false);
+      mutate((p) => p.copyWithWalls([...p.walls, newWall]));
+      const o2X = 0.854, o2Y = 0.192;
+      final repositioned = newWall.copyWith(
+        start: const Point2(o2X, o2Y - 0.05),
+        end: const Point2(o2X, o2Y + 0.05),
+        edited: true,
+        source: CadElementSource.userEdited,
+      );
+      mutate(
+        (p) => p.copyWithWalls([
+          for (final w in p.walls) if (w.id == newWall.id) repositioned else w,
+        ]),
+      );
+      final wallForO2 = cad.walls.firstWhere((w) => w.id == newWall.id);
+      final addWallPass = wallForO2.source == CadElementSource.userEdited &&
+          (wallForO2.start.x - o2X).abs() < 1e-9;
+      // ignore: avoid_print
+      print(
+        '[USER EDIT] §2 누락 벽 추가(Add Wall) + 위치 이동: ${addWallPass ? "PASS" : "FAIL"} '
+        '(새 벽을 o2 실제 위치 근처(${o2X.toStringAsFixed(3)},${o2Y.toStringAsFixed(3)})로 이동)',
+      );
+      expect(addWallPass, isTrue);
+
+      final secondDoor = createOpeningOnWall(cad, wallForO2, type: OpeningType.door, scale: null);
       mutate((p) => CadFloorPlan(
         sourceWidthPx: p.sourceWidthPx,
         sourceHeightPx: p.sourceHeightPx,
         walls: p.walls,
-        openings: [...p.openings, addedDoor],
+        openings: [...p.openings, secondDoor],
         rooms: p.rooms,
         warnings: p.warnings,
         objectCandidates: p.objectCandidates,
       ));
-      final addDoorPass = cad.openings.any(
-        (o) => o.id == addedDoor.id && o.type == OpeningType.door && o.source == CadElementSource.userCreated,
-      );
+      final doorCountAfterUserRecovery = cad.openings.where((o) => o.type == OpeningType.door).length;
+      final o2RecoveryPass = doorCountAfterUserRecovery == 2;
       // ignore: avoid_print
       print(
-        '[USER EDIT] §8 누락 문 복구(Add Door): ${addDoorPass ? "PASS" : "FAIL"} '
-        '(AI가 실제로 감지한 semantic 문=2개, 최종 CadFloorPlan 생존=$doorCount개 -> '
-        '사용자가 이 화면에서 직접 ${cad.openings.length}개로 보강 가능함을 확인)',
+        '[USER EDIT] §2 누락 문(o2) 복구(Add Door on new wall): ${o2RecoveryPass ? "PASS" : "FAIL"} '
+        '(최종 문 개수=$doorCountAfterUserRecovery/2 — 실제 문 2개 모두 CAD에 존재)',
       );
-      expect(addDoorPass, isTrue);
+      expect(o2RecoveryPass, isTrue);
 
       // ===== 4) 실제 치수 Calibration(§9) =====
       // 실제 실측도면에는 "3700"/"5200"/"4700"/"8300" 등 손글씨 mm
@@ -265,6 +308,43 @@ void main() {
       );
       expect(dimensionEditPass, isTrue);
 
+      // ===== 5b) 두 문의 실제 폭(mm) 확정 — openingWithWidthMm(§1 사용자
+      // 보정 난이도 검증: calibration 이후에는 문 폭도 실제 mm로 직접
+      // 입력할 수 있어야 한다) =====
+      const door1WidthMm = 900.0; // 표준 여닫이문
+      const door2WidthMm = 800.0;
+      final doorsBeforeWidthEdit = cad.openings.where((o) => o.type == OpeningType.door).toList();
+      var widthEdited = cad;
+      for (final entry in doorsBeforeWidthEdit.indexed) {
+        final (i, door) = entry;
+        final targetMm = i == 0 ? door1WidthMm : door2WidthMm;
+        final edited = openingWithWidthMm(widthEdited, door, targetMm, scale);
+        widthEdited = CadFloorPlan(
+          sourceWidthPx: widthEdited.sourceWidthPx,
+          sourceHeightPx: widthEdited.sourceHeightPx,
+          walls: widthEdited.walls,
+          openings: [for (final o in widthEdited.openings) if (o.id == door.id) edited else o],
+          rooms: widthEdited.rooms,
+          warnings: widthEdited.warnings,
+          objectCandidates: widthEdited.objectCandidates,
+        );
+      }
+      mutate((_) => widthEdited);
+      final doorWidthsAfterEdit = cad.openings
+          .where((o) => o.type == OpeningType.door)
+          .map((o) => o.widthNormalized * cad.diagonalPx * scale.mmPerPixel)
+          .toList();
+      final doorWidthEditPass = doorWidthsAfterEdit.length == 2 &&
+          (doorWidthsAfterEdit[0] - door1WidthMm).abs() < 1.0 &&
+          (doorWidthsAfterEdit[1] - door2WidthMm).abs() < 1.0;
+      // ignore: avoid_print
+      print(
+        '[USER EDIT] 두 문 실제 폭 확정: ${doorWidthsAfterEdit.map((w) => w.toStringAsFixed(0)).toList()}mm '
+        '(목표 ${door1WidthMm.toStringAsFixed(0)}/${door2WidthMm.toStringAsFixed(0)}mm): '
+        '${doorWidthEditPass ? "PASS" : "FAIL"}',
+      );
+      expect(doorWidthEditPass, isTrue);
+
       // ===== 6) DXF 실제 Export(§11) =====
       final exportResult = const E2eDxfExporter().export(cad, scale: scale);
       File(kDxfOutPath).writeAsStringSync(exportResult.dxfContent);
@@ -294,15 +374,34 @@ void main() {
       print(
         '[DXF ROUND-TRIP] walls: ${cad.walls.length} -> ${reimported.walls.length}, '
         'openings: ${cad.openings.length} -> ${reimported.openings.length} '
-        '(doors $doorCount->$reimportedDoorCount+1추가분, windows $windowCount->$reimportedWindowCount, '
+        '(doors ->$reimportedDoorCount(목표 2), windows ->$reimportedWindowCount, '
         'unknown $unknownCount->$reimportedUnknownCount) '
         'warnings=${importResult.warnings} unsupportedEntities=${importResult.unsupportedEntityCount} '
         'unsupportedLayers=${importResult.unsupportedLayerCount}',
       );
       expect(reimported.walls.length, cad.walls.length, reason: '벽 개수는 round-trip 후 보존되어야 한다');
       expect(reimported.openings.length, cad.openings.length, reason: '개구부 개수는 round-trip 후 보존되어야 한다');
-      expect(reimportedDoorCount, doorCount + 1, reason: '방금 추가한 문 1개가 round-trip 후에도 문으로 보존되어야 한다');
+      expect(reimportedDoorCount, 2, reason: '실제 문 2개(자동 복원 1개 + 사용자 보정 1개) 모두 round-trip 후에도 문으로 보존되어야 한다');
       expect(reimportedUnknownCount, unknownCount, reason: 'unknown 개구부 개수가 보존되어야 한다');
+
+      // 두 문의 실제 폭(mm)이 round-trip 후에도 보존되는지 확인(§8 "사용자
+      // 추가 문/수정 치수/scale이 모두 보존되는지 확인").
+      final reimportedDoorWidthsMm = reimported.openings
+          .where((o) => o.type == OpeningType.door)
+          .map((o) => o.widthNormalized * reimported.diagonalPx) // mmPerPixel=1.0인 DXF 재-import 좌표계
+          .toList()
+        ..sort();
+      final expectedWidths = [door1WidthMm, door2WidthMm]..sort();
+      final doorWidthsPreserved = reimportedDoorWidthsMm.length == 2 &&
+          (reimportedDoorWidthsMm[0] - expectedWidths[0]).abs() < 2.0 &&
+          (reimportedDoorWidthsMm[1] - expectedWidths[1]).abs() < 2.0;
+      // ignore: avoid_print
+      print(
+        '[DXF ROUND-TRIP] 문 폭 보존: ${reimportedDoorWidthsMm.map((w) => w.toStringAsFixed(0)).toList()}mm '
+        '(목표 ${expectedWidths.map((w) => w.toStringAsFixed(0)).toList()}mm): '
+        '${doorWidthsPreserved ? "PASS" : "FAIL"}',
+      );
+      expect(doorWidthsPreserved, isTrue);
 
       // 4200mm로 직접 수정한 벽 길이가 재-import 후에도 그대로인지 확인(§12).
       // DXF는 mm 좌표를 mmPerPixel=1.0으로 저장하므로(재-import 시 새

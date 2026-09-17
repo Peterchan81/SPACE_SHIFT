@@ -546,6 +546,22 @@ class _FloorPlanWorkspaceScreenState extends State<FloorPlanWorkspaceScreen> {
     );
   }
 
+  /// CAD/DXF FIRST GOAL 실전 워크플로 최종 검증 WO — AI가 벽 자체를
+  /// 통째로 놓친 경우(그 근처에 pixel 증거가 전혀 없어 "문 추가"만으로는
+  /// 복구할 수 없음, 인식 품질 조사에서 실제로 확인됨) 사용자가 직접
+  /// 새 벽을 추가할 방법이 전혀 없었다 — DXF exporter는 opening의
+  /// wallId가 실제 벽을 가리키지 않으면 그 문/창을 조용히 건너뛰므로
+  /// (e2e_dxf_exporter.dart), 벽이 없으면 문도 최종 DXF에 못 들어간다.
+  /// 기존 [createDefaultWall] 순수 함수를 그대로 쓴다 — 위치는 캔버스
+  /// 중앙 기본값이고, 사용자가 끝점을 드래그(기존 기능)해 실제 위치로
+  /// 옮긴다는 전제다.
+  void _onAddWall() {
+    final plan = _cadFloorPlan;
+    if (plan == null) return;
+    final created = createDefaultWall(plan, isExterior: false);
+    _mutateCad((p) => p.copyWithWalls([...p.walls, created]));
+  }
+
   /// SS CAD TEST — CAD Editor WO §4. "CAD 파일 업로드" 버튼 핸들러 —
   /// [FloorPlanUploadService]의 "① 평면도 업로드"와 같은 패턴: 파일을
   /// 고르고, 성공하면 현재 편집 상태를 그 결과로 완전히 교체한다(undo
@@ -1493,6 +1509,7 @@ class _FloorPlanWorkspaceScreenState extends State<FloorPlanWorkspaceScreen> {
             onAddWindowToWall: _calibrating
                 ? null
                 : () => _onAddOpeningToSelectedWall(OpeningType.window),
+            onAddWall: _calibrating || _cadFloorPlan == null ? null : _onAddWall,
           ),
         ),
       ],
