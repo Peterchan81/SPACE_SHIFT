@@ -109,12 +109,24 @@ class GptSemanticResponse {
     this.openings = const [],
     this.furnitureRegions = const [],
     this.ambiguousRegions = const [],
+    this.floorDomainHint,
   });
 
   final List<GptSemanticSpace> spaces;
   final List<GptSemanticOpening> openings;
   final List<GptSemanticRegionNote> furnitureRegions;
   final List<GptSemanticRegionNote> ambiguousRegions;
+
+  /// CAD/DXF FIRST GOAL 인식 품질 개선 WO §1 — GPT가 "대략 도면 본체가
+  /// 여기 있다"고 짚어준 bounding box(§ pixel_wall_types.dart 문서의
+  /// "WHERE TO LOOK" 역할과 동일한 카테고리 — 최종 벽 좌표가 아니라 탐색
+  /// 영역 힌트). 실제 사진 한 장에 도면 본체 외에 여백/페이지 바인딩/
+  /// 무관한 보조 스케치가 함께 찍히는 경우, pixel 단계에서 이 영역을
+  /// 완전히 벗어난 candidate를 노이즈로 걸러내는 데만 쓴다(§ 아래
+  /// applyFloorDomainHeuristic) — 이 힌트 자체를 최종 CAD 좌표나 FloorDomain
+  /// 경계로 쓰지 않는다(원칙 3 유지). null이면(오래된 fixture 등) 기존과
+  /// 완전히 동일하게 동작한다(§16 안전한 기본값).
+  final GptApproxRegion? floorDomainHint;
 
   factory GptSemanticResponse.fromJson(Map<String, dynamic> json) {
     final spacesJson = json['spaces'];
@@ -124,6 +136,7 @@ class GptSemanticResponse {
     final openingsJson = json['openings'];
     final furnitureJson = json['furnitureRegions'];
     final ambiguousJson = json['ambiguousRegions'];
+    final floorDomainHintJson = json['floorDomainHint'];
     return GptSemanticResponse(
       spaces: [for (final s in spacesJson) GptSemanticSpace.fromJson(s as Map<String, dynamic>)],
       openings: openingsJson is List
@@ -135,6 +148,9 @@ class GptSemanticResponse {
       ambiguousRegions: ambiguousJson is List
           ? [for (final a in ambiguousJson) GptSemanticRegionNote.fromJson(a as Map<String, dynamic>)]
           : const [],
+      floorDomainHint: floorDomainHintJson is Map<String, dynamic>
+          ? GptApproxRegion.fromJson(floorDomainHintJson)
+          : null,
     );
   }
 }

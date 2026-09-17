@@ -65,7 +65,7 @@ void main() {
       expect(systems.single.gaps, hasLength(1));
       expect(systems.single.gaps.single.kind, GapKind.doorOpening);
 
-      final openings = buildWallOpenings(wallSystems: systems, allCandidates: [left, right, doorHint], w: w, h: h);
+      final openings = buildWallOpenings(wallSystems: systems, allCandidates: [left, right, doorHint], w: w, h: h).openings;
       expect(openings, hasLength(1));
       final opening = openings.single;
       expect(opening.kind, OpeningKind.door);
@@ -89,7 +89,7 @@ void main() {
         noiseCategory: PixelWallNoiseCategory.windowDetail,
       );
       final systems = buildWallSystems(candidates: [left, right], w: w, h: h);
-      final openings = buildWallOpenings(wallSystems: systems, allCandidates: [left, right, windowHint], w: w, h: h);
+      final openings = buildWallOpenings(wallSystems: systems, allCandidates: [left, right, windowHint], w: w, h: h).openings;
       expect(openings, hasLength(1));
       expect(openings.single.kind, OpeningKind.window);
       expect(openings.single.reviewNeeded, isFalse);
@@ -99,7 +99,7 @@ void main() {
       final left = _seg(id: 'left', x1: 0, y1: 50, x2: 100, y2: 50);
       final right = _seg(id: 'right', x1: 120, y1: 50, x2: 220, y2: 50);
       final systems = buildWallSystems(candidates: [left, right], w: w, h: h);
-      final openings = buildWallOpenings(wallSystems: systems, allCandidates: [left, right], w: w, h: h);
+      final openings = buildWallOpenings(wallSystems: systems, allCandidates: [left, right], w: w, h: h).openings;
       expect(openings, hasLength(1));
       expect(openings.single.kind, OpeningKind.unknownOpening);
       expect(openings.single.reviewNeeded, isTrue);
@@ -110,7 +110,7 @@ void main() {
       final right = _seg(id: 'right', x1: 102, y1: 50, x2: 200, y2: 50); // 2px gap, imageBreak 범위.
       final systems = buildWallSystems(candidates: [left, right], w: w, h: h);
       expect(systems.single.gaps.single.kind, GapKind.imageBreak);
-      final openings = buildWallOpenings(wallSystems: systems, allCandidates: [left, right], w: w, h: h);
+      final openings = buildWallOpenings(wallSystems: systems, allCandidates: [left, right], w: w, h: h).openings;
       expect(openings, isEmpty, reason: 'imageBreak gap은 Opening을 만들지 않는다(§7)');
     });
 
@@ -119,7 +119,7 @@ void main() {
       final right = _seg(id: 'right', x1: 200, y1: 50, x2: 300, y2: 50); // 100px gap, 문 범위(65px) 초과.
       final systems = buildWallSystems(candidates: [left, right], w: w, h: h);
       expect(systems.single.gaps.single.kind, GapKind.openPlan);
-      final openings = buildWallOpenings(wallSystems: systems, allCandidates: [left, right], w: w, h: h);
+      final openings = buildWallOpenings(wallSystems: systems, allCandidates: [left, right], w: w, h: h).openings;
       expect(openings, isEmpty);
     });
 
@@ -130,7 +130,7 @@ void main() {
       final systems = buildWallSystems(candidates: [a, b, c], w: w, h: h);
       expect(systems, hasLength(1));
       expect(systems.single.gaps, hasLength(2));
-      final openings = buildWallOpenings(wallSystems: systems, allCandidates: [a, b, c], w: w, h: h);
+      final openings = buildWallOpenings(wallSystems: systems, allCandidates: [a, b, c], w: w, h: h).openings;
       expect(openings, hasLength(2));
       expect(openings[0].parentWallId, systems.single.id);
       expect(openings[1].parentWallId, systems.single.id);
@@ -150,7 +150,7 @@ void main() {
         noiseCategory: PixelWallNoiseCategory.doorArc,
       );
       final systems = buildWallSystems(candidates: [left, right], w: w, h: h);
-      final opening = buildWallOpenings(wallSystems: systems, allCandidates: [left, right, doorHint], w: w, h: h).single;
+      final opening = buildWallOpenings(wallSystems: systems, allCandidates: [left, right, doorHint], w: w, h: h).openings.single;
       expect(opening.provenance, containsAll(<String>[systems.single.id, 'left-seg', 'right-seg', 'door-hint-1']));
     });
 
@@ -173,10 +173,87 @@ void main() {
       final left = segAt('l', 10, 400, 250, 400);
       final right = segAt('r', 270, 400, 500, 400);
       final systems = buildWallSystems(candidates: [left, right], w: altW, h: altH);
-      final openings = buildWallOpenings(wallSystems: systems, allCandidates: [left, right], w: altW, h: altH);
+      final openings = buildWallOpenings(wallSystems: systems, allCandidates: [left, right], w: altW, h: altH).openings;
       expect(openings, hasLength(1));
       expect(openings.single.isValidInterval, isTrue);
     });
+  });
+
+  group('buildWallOpenings — CAD/DXF FIRST GOAL 인식 품질 개선 WO §2 (reviewNeeded 교차 검증)', () {
+    test(
+      'pixel gap이 전혀 없어도(구조 벽 자체가 없어도) 근처에 reviewNeeded '
+      'candidate가 있으면 GPT hint와 교차 검증해 opening을 만든다 — '
+      'reviewNeeded=true, source=semanticAi로 정직하게 남긴다',
+      () {
+        // 이 doorHint 근처에는 confirmed structural wall이 전혀 없다 — 이
+        // reviewWallNearHint(trueStructural, 아직 구조 벽으로 확정되지 않음)
+        // 하나만 있다. 기존 로직이라면 semantic evidence가 조용히 버려졌다.
+        final unrelated = _seg(id: 'unrelated', x1: 0, y1: 200, x2: 100, y2: 200);
+        final reviewWallNearHint = _seg(
+          id: 'review-wall',
+          x1: 100,
+          y1: 50,
+          x2: 220,
+          y2: 50,
+          category: PixelWallCategory.reviewNeeded,
+          noiseCategory: PixelWallNoiseCategory.trueStructural,
+        );
+        final doorHint = _seg(
+          id: 'door-hint',
+          x1: 150,
+          y1: 50,
+          x2: 170,
+          y2: 50,
+          category: PixelWallCategory.reviewNeeded,
+          noiseCategory: PixelWallNoiseCategory.doorArc,
+        );
+        final systems = buildWallSystems(candidates: [unrelated], w: w, h: h);
+        final result = buildWallOpenings(
+          wallSystems: systems,
+          allCandidates: [unrelated, reviewWallNearHint, doorHint],
+          w: w,
+          h: h,
+        );
+
+        expect(result.unmatchedSemanticHints, isEmpty, reason: '실제로 근처에 pixel 증거가 있으므로 버려지면 안 된다');
+        expect(result.openings, hasLength(1));
+        final opening = result.openings.single;
+        expect(opening.kind, OpeningKind.door);
+        expect(opening.reviewNeeded, isTrue, reason: 'pixel gap 근거가 없으므로 항상 사람 확인이 필요하다');
+        expect(opening.source, OpeningEvidenceSource.semanticAi);
+        expect(result.extraWallSystems, hasLength(1));
+        expect(opening.parentWallId, result.extraWallSystems.single.id);
+      },
+    );
+
+    test(
+      'structural도 reviewNeeded도 근처에 전혀 없으면(진짜 벽 geometry가 없으면) '
+      'opening을 지어내지 않고 unmatchedSemanticHints로 정직하게 남긴다',
+      () {
+        final unrelated = _seg(id: 'unrelated', x1: 0, y1: 200, x2: 100, y2: 200);
+        final isolatedDoorHint = _seg(
+          id: 'isolated-door-hint',
+          x1: 150,
+          y1: 50,
+          x2: 170,
+          y2: 50,
+          category: PixelWallCategory.reviewNeeded,
+          noiseCategory: PixelWallNoiseCategory.doorArc,
+        );
+        final systems = buildWallSystems(candidates: [unrelated], w: w, h: h);
+        final result = buildWallOpenings(
+          wallSystems: systems,
+          allCandidates: [unrelated, isolatedDoorHint],
+          w: w,
+          h: h,
+        );
+
+        expect(result.openings, isEmpty, reason: '근거 없는 opening을 지어내면 안 된다(§3 원칙)');
+        expect(result.extraWallSystems, isEmpty);
+        expect(result.unmatchedSemanticHints, hasLength(1));
+        expect(result.unmatchedSemanticHints.single.id, 'isolated-door-hint');
+      },
+    );
   });
 
   group('matchParentWallSystem — §5 순수 최단거리 금지', () {

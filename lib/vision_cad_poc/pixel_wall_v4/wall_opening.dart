@@ -102,8 +102,9 @@ WallSystem? matchParentWallSystem({
 /// interval과 실제로 겹치면 종류를 door/window로 확정하고
 /// reviewNeeded=false로 내린다 — 겹치는 근거가 없으면 unknownOpening +
 /// reviewNeeded=true로 남긴다(정확히 미상인 편이 잘못 분류하는 것보다
-/// 낫다, §16).
-List<WallOpening> buildWallOpenings({
+/// 낫다, §16). pixel gap 자체가 없어도 GPT hint가 실제 wall system 근처에
+/// 있으면 reviewNeeded 상태로 만든다(아래 §2 인식 품질 개선 참고).
+WallOpeningBuildResult buildWallOpenings({
   required List<WallSystem> wallSystems,
   required List<PixelWallCandidate> allCandidates,
   required int w,
@@ -116,6 +117,12 @@ List<WallOpening> buildWallOpenings({
       : ((c.start.y + c.end.y) / 2) * h;
   double thicknessPxOf(PixelWallCandidate c) =>
       c.thicknessNormalized * (c.orientation == PixelWallOrientation.horizontal ? h : w);
+  double alongMinPxOf(PixelWallCandidate c) => c.orientation == PixelWallOrientation.horizontal
+      ? math.min(c.start.x, c.end.x) * w
+      : math.min(c.start.y, c.end.y) * h;
+  double alongMaxPxOf(PixelWallCandidate c) => c.orientation == PixelWallOrientation.horizontal
+      ? math.max(c.start.x, c.end.x) * w
+      : math.max(c.start.y, c.end.y) * h;
 
   // GPT 의미 ROI와 겹쳐 doorArc/windowDetail로 분류된, 이미 구조 벽에서는
   // 제외된 reviewNeeded candidate들 — 여기서는 버리지 않고 opening 종류를
@@ -180,7 +187,143 @@ List<WallOpening> buildWallOpenings({
       ));
     }
   }
-  return openings;
+
+  // CAD/DXF FIRST GOAL 인식 품질 개선 WO §2 — 실제 실측도면 LIVE 검증에서
+  // GPT semantic이 문을 감지했는데도(doorArc hint까지 만들어졌는데도)
+  // 최종 CadFloorPlan에는 0개만 남는 사례가 확인됐다. 원인: 위 루프는
+  // WallSystem 내부에 이미 존재하는 pixel gap(GapKind.doorOpening)의
+  // "종류"만 doorArc/windowDetail hint로 확정할 뿐, gap 자체가 없으면
+  // (예: 이 사진처럼 pixel 근거가 부실해 구조 벽이 조각조각 reviewNeeded로
+  // 빠지고 남은 structural segment가 끊김 없이 이어져 버린 경우) hint가
+  // 있어도 opening을 아예 만들지 않아 semantic evidence가 조용히
+  // 버려졌다. 여기서는 gap 매칭에 쓰이지 못한 hint를 대상으로
+  // matchParentWallSystem(§5, 기존 collinearity+extent 판정 재사용)으로
+  // 실제 근처 wall system을 찾아 opening을 만든다 — pixel gap 근거가
+  // 없으므로 항상 reviewNeeded=true로 남겨 사람 확인을 요구한다(§16 "정확히
+  // 미상인 편이 잘못 분류하는 것보다 낫다"와 동일한 정직성 원칙). 근처에
+  // 매칭되는 wall system이 전혀 없으면(진짜 벽 geometry 자체가 없음) 조용히
+  // 버리지 않고 unmatchedHints로 남긴다(§10 "절대 조용히 버리지 않는다").
+  // CAD/DXF FIRST GOAL 인식 품질 개선 WO §2(계속) — 위 1차 시도조차 실제
+  // 실측도면에서는 대부분 실패했다: hint 근처의 진짜 벽이 애초에
+  // `structural`(=wallSystems)로 확정되지 못하고 reviewNeeded(trueStructural/
+  // unknown)로 남는 경우가 많기 때문이다(§ pixel_wall_extractor.dart의
+  // structural 판정 기준이 낮은 품질 사진에서는 보수적으로 작동). 그렇다고
+  // reviewNeeded candidate를 무작정 신뢰해 구조 벽으로 승격하지는 않는다
+  // (§6 "이미 근거 충분한 것만 구조 벽" 원칙 유지) — 대신 "GPT가 독립적으로
+  // 여기 문/창이 있다고 지목한 지점 바로 옆에, 노이즈로 확정되지 않은
+  // (trueStructural/unknown) pixel 증거가 실제로 있다"는 두 증거의 교차
+  // 검증만 이 opening 하나에 한해 허용한다 — 그 reviewNeeded candidate
+  // 자체를 다른 곳에서 구조 벽으로 취급하지 않는다(startAlongPx/endAlongPx가
+  // 이 candidate 하나 길이로만 한정된 1-segment 임시 시스템이라 opening
+  // interval도 그 범위를 벗어날 수 없다).
+  WallSystem singleCandidateSystem(PixelWallCandidate c) {
+    final a0 = alongMinPxOf(c);
+    final a1 = alongMaxPxOf(c);
+    return WallSystem(
+      id: 'reviewwall-${c.id}',
+      orientation: c.orientation,
+      axisPx: crossPxOf(c),
+      isExterior: c.isExterior,
+      segments: [c],
+      gaps: const [],
+      startAlongPx: a0,
+      endAlongPx: a1,
+      thicknessPx: thicknessPxOf(c),
+    );
+  }
+
+  final reviewCandidatePool = allCandidates.where(
+    (c) =>
+        c.category == PixelWallCategory.reviewNeeded &&
+        (c.noiseCategory == PixelWallNoiseCategory.trueStructural || c.noiseCategory == PixelWallNoiseCategory.unknown),
+  );
+  final reviewSystems = [for (final c in reviewCandidatePool) singleCandidateSystem(c)];
+
+  final usedHintIds = {
+    for (final o in openings)
+      if (o.source == OpeningEvidenceSource.semanticAi) o.provenance.last,
+  };
+  final unmatchedHints = <PixelWallCandidate>[];
+  final extraWallSystems = <WallSystem>[];
+  for (final hint in semanticHints) {
+    if (usedHintIds.contains(hint.id)) continue;
+    final crossPx = crossPxOf(hint);
+    final alongPx = alongPxOf(hint);
+    final thicknessPx = thicknessPxOf(hint);
+    var system = matchParentWallSystem(
+      systems: wallSystems,
+      orientation: hint.orientation,
+      crossPx: crossPx,
+      alongPx: alongPx,
+      candidateThicknessPx: thicknessPx,
+    );
+    var fromReviewPool = false;
+    if (system == null) {
+      system = matchParentWallSystem(
+        systems: reviewSystems,
+        orientation: hint.orientation,
+        crossPx: crossPx,
+        alongPx: alongPx,
+        candidateThicknessPx: thicknessPx,
+      );
+      fromReviewPool = system != null;
+    }
+    if (system == null || system.lengthPx <= 0) {
+      unmatchedHints.add(hint);
+      continue;
+    }
+
+    final hintLenPx = hint.orientation == PixelWallOrientation.horizontal
+        ? (hint.end.x - hint.start.x).abs() * w
+        : (hint.end.y - hint.start.y).abs() * h;
+    final halfWidthPx = math.max(hintLenPx / 2, _matchTolMinPx);
+    final alongStart = (alongPx - halfWidthPx).clamp(system.startAlongPx, system.endAlongPx);
+    final alongEnd = (alongPx + halfWidthPx).clamp(system.startAlongPx, system.endAlongPx);
+    final startT = ((alongStart - system.startAlongPx) / system.lengthPx).clamp(0.0, 1.0);
+    final endT = ((alongEnd - system.startAlongPx) / system.lengthPx).clamp(0.0, 1.0);
+    if (startT >= endT) {
+      unmatchedHints.add(hint);
+      continue;
+    }
+
+    if (fromReviewPool) extraWallSystems.add(system);
+    openings.add(WallOpening(
+      id: 'opening-${counter++}',
+      kind: hint.noiseCategory == PixelWallNoiseCategory.doorArc ? OpeningKind.door : OpeningKind.window,
+      parentWallId: system.id,
+      startT: startT,
+      endT: endT,
+      confidence: hint.baseConfidence,
+      reviewNeeded: true,
+      source: OpeningEvidenceSource.semanticAi,
+      provenance: [system.id, hint.id],
+    ));
+  }
+
+  return WallOpeningBuildResult(
+    openings: openings,
+    unmatchedSemanticHints: unmatchedHints,
+    extraWallSystems: extraWallSystems,
+  );
+}
+
+/// [buildWallOpenings] 결과 — pixel gap 근거 유무와 무관하게 확정된
+/// [openings]와, GPT가 문/창이라고 짚었지만 근처에 매칭되는 wall system이
+/// 전혀 없어(진짜 벽 geometry 자체가 없어) opening으로 만들 수 없었던
+/// [unmatchedSemanticHints](§10 "절대 조용히 버리지 않는다" — 호출부가
+/// warning으로 노출한다). [extraWallSystems]는 reviewNeeded candidate
+/// 풀에서 GPT hint와의 교차 검증으로 새로 만들어진 1-segment 임시
+/// WallSystem — 호출부(pixel_wall_pipeline.dart)가 자신의 wallSystems
+/// 목록에 합쳐야 opening.parentWallId 조회가 성립한다.
+class WallOpeningBuildResult {
+  const WallOpeningBuildResult({
+    required this.openings,
+    required this.unmatchedSemanticHints,
+    this.extraWallSystems = const [],
+  });
+  final List<WallOpening> openings;
+  final List<PixelWallCandidate> unmatchedSemanticHints;
+  final List<WallSystem> extraWallSystems;
 }
 
 class RejectedOpening {

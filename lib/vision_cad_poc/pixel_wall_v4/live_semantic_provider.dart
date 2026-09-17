@@ -12,6 +12,8 @@
 // [GptSemanticResponse](pixel_wall_v4 계약)는 서로 다른 스키마이므로,
 // [convertVisionUnderstandingToGptSemantic]이 결정론적으로 변환한다 —
 // 좌표/판단 로직은 추가하지 않고 순수 스키마 매핑만 한다.
+import 'dart:math' as math;
+
 import 'package:flutter/foundation.dart';
 
 import '../../models/vision_understanding.dart';
@@ -98,5 +100,21 @@ GptSemanticResponse convertVisionUnderstandingToGptSemantic(VisionUnderstanding 
     // 데이터를 지어내지 않고 정직하게 비워 둔다.
     furnitureRegions: const [],
     ambiguousRegions: const [],
+    // CAD/DXF FIRST GOAL 인식 품질 개선 WO §1 — understanding.floorDomain은
+    // 지금까지 이 변환에서 완전히 버려졌다. 실제 실측도면 LIVE 검증에서
+    // 사진 한 장에 도면 본체 외에 여백/노트 바인딩/무관한 보조 스케치가
+    // 함께 찍혀 pixel 단계가 그것들까지 벽으로 오검출하는 문제가 확인됐다
+    // — GPT가 "대략 도면 본체는 여기"라고 짚어준 bounding box를 넘겨
+    // pixel_wall_v4가 그 영역을 완전히 벗어난 candidate만 노이즈로 걸러낼
+    // 수 있게 한다(WHERE TO LOOK 힌트, 최종 좌표 아님 — 원칙 3 유지).
+    floorDomainHint: switch (understanding.floorDomain.geometryHint?.allPoints) {
+      final points? when points.isNotEmpty => GptApproxRegion(
+        x0: points.map((p) => p.x).reduce(math.min),
+        y0: points.map((p) => p.y).reduce(math.min),
+        x1: points.map((p) => p.x).reduce(math.max),
+        y1: points.map((p) => p.y).reduce(math.max),
+      ),
+      _ => null,
+    },
   );
 }

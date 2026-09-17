@@ -116,6 +116,56 @@ PixelWallCandidate _classifyOne(
   return c;
 }
 
+/// CAD/DXF FIRST GOAL 인식 품질 개선 WO §1 — GPT가 짚어준 floorDomainHint
+/// (대략 "도면 본체는 여기" bounding box)를 [marginNormalized]만큼 넉넉히
+/// 넓힌 뒤, 그 영역을 완전히 벗어난 reviewNeeded candidate만
+/// [PixelWallNoiseCategory.outsideFloorDomainHint]로 분류한다. 실제
+/// 실측도면 LIVE 검증에서 사진 한 장에 도면 본체 외 여백/노트 바인딩/
+/// 무관한 보조 스케치가 함께 찍혀, 페이지 가장자리에 붙은 아주 긴 선(예:
+/// 노트 스프링/페이지 경계)이 구조 벽으로 오검출되는 사례가 확인됐다.
+///
+/// 안전장치: (1) hint가 없으면(semantic 없음/변환 실패) 아무 것도 하지
+/// 않는다(§16 안전한 기본값). (2) `structural` candidate는 절대 건드리지
+/// 않는다 — pixel 근거가 이미 확정된 것을 semantic ROI만으로 끌어내리지
+/// 않는다(§6 원칙). (3) 이미 text/furniture/fixture/doorArc/windowDetail로
+/// 확정된 candidate는 재분류하지 않는다(그 판단이 더 구체적인 근거임).
+/// (4) 넉넉한 margin(기본 5%)을 둬서 GPT hint의 근사 오차로 실제 벽을
+/// 잘못 배제하지 않게 한다.
+const double _kFloorDomainMargin = 0.05;
+
+List<PixelWallCandidate> applyFloorDomainHeuristic({
+  required List<PixelWallCandidate> candidates,
+  required GptSemanticResponse? semantic,
+  double marginNormalized = _kFloorDomainMargin,
+}) {
+  final hint = semantic?.floorDomainHint;
+  if (hint == null) return candidates;
+
+  final x0 = math.min(hint.x0, hint.x1) - marginNormalized;
+  final y0 = math.min(hint.y0, hint.y1) - marginNormalized;
+  final x1 = math.max(hint.x0, hint.x1) + marginNormalized;
+  final y1 = math.max(hint.y0, hint.y1) + marginNormalized;
+
+  bool entirelyOutside(PixelWallCandidate c) {
+    final cx0 = math.min(c.start.x, c.end.x);
+    final cx1 = math.max(c.start.x, c.end.x);
+    final cy0 = math.min(c.start.y, c.end.y);
+    final cy1 = math.max(c.start.y, c.end.y);
+    return cx1 < x0 || cx0 > x1 || cy1 < y0 || cy0 > y1;
+  }
+
+  return [
+    for (final c in candidates)
+      if (c.category != PixelWallCategory.reviewNeeded ||
+          c.noiseCategory != PixelWallNoiseCategory.trueStructural && c.noiseCategory != PixelWallNoiseCategory.unknown)
+        c
+      else if (entirelyOutside(c))
+        c.withNoiseCategory(PixelWallNoiseCategory.outsideFloorDomainHint)
+      else
+        c,
+  ];
+}
+
 /// pixel 해상도를 아는 파이프라인 쪽에서 두께/길이 기준 TEXT 판정을
 /// 마저 적용한다(정규화 좌표만으로는 종횡비 문제로 부정확할 수 있어
 /// 분리했다).

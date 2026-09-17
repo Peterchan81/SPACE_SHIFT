@@ -202,6 +202,7 @@ class _PixelWallsPainter extends CustomPainter {
         PixelWallNoiseCategory.doorArc => Colors.pink,
         PixelWallNoiseCategory.windowDetail => Colors.cyan,
         PixelWallNoiseCategory.unknown => Colors.purple,
+        PixelWallNoiseCategory.outsideFloorDomainHint => Colors.black26,
         PixelWallNoiseCategory.trueStructural => _tierColor(c.confidenceTier),
       };
       canvas.drawLine(

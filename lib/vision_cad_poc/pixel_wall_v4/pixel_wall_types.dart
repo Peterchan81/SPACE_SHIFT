@@ -33,6 +33,16 @@ enum PixelWallNoiseCategory {
   doorArc,
   windowDetail,
   unknown,
+
+  /// CAD/DXF FIRST GOAL 인식 품질 개선 WO §1 — GPT의 floorDomainHint(대략
+  /// "도면 본체는 여기" bounding box)를 완전히 벗어난 reviewNeeded
+  /// candidate. 실제 사진 한 장에 도면 본체 외 여백/노트 바인딩/무관한
+  /// 보조 스케치가 함께 찍힌 경우를 걸러내기 위함이다(§ pixel_wall_classifier
+  /// .applyFloorDomainHeuristic). structural candidate는 절대 이 카테고리로
+  /// 재분류하지 않는다(§6 "이미 근거 충분한 것은 재분류하지 않는다"와
+  /// 동일한 안전 원칙 — semantic ROI만으로 이미 확정된 구조 벽을 끌어
+  /// 내리지 않는다).
+  outsideFloorDomainHint,
 }
 
 /// run-length 검출로 얻은 [WallSegment] 한 개에 continuity/junction
