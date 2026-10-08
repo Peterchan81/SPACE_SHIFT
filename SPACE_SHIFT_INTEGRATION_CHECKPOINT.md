@@ -79,3 +79,66 @@ Commits on this branch: `c106665` (merge) and `6480a8d` (tool path fixes).
    - snapshot #0005;
    - bind #0005 to this branch.
 3. Real-screen checks listed under "Not verified yet".
+
+## PC2 HANDOFF (PC1 final save, 2026-10-08)
+
+PC1 stops development here. PC2 continues from GitHub.
+
+### Where to start
+
+| Item | Value |
+|---|---|
+| Repository | https://github.com/Peterchan81/SPACE_SHIFT |
+| Start branch | `nompass/integration-ui3d-cad` (HEAD = this checkpoint commit or newer) |
+| Merged sources (unchanged) | `nompass/session-cs-75` 44ee864 (UI/3D), `nompass/port-floorplan-cad-dxf` 9470d43 (CAD/DXF) |
+| GitHub `main` (old, unchanged) | bb48bc9 — do not use it as a base |
+| PC1 Flutter | 3.44.4 stable |
+| NOMPASS | `Peterchan81/NEW-NOMPASS` main 7f5b846, Control Plane dd5bc957 (runs on Cloudflare, independent of PC1) |
+
+### Recoverable on PC2 (from GitHub)
+
+- All integrated code and tests (796/796 on PC1), plus this checkpoint.
+- The 09-03 POC/envelope-first work: already part of the branch.
+- The 09-28 tool path fixes: commit 6480a8d.
+
+### PC1-only (not in GitHub, and PC2 must not assume it can reach it)
+
+- Original working copy `C:\ASON\SPACE SHIFT\SPACE SHIFT` (branch `nompass/session-cs-77` = 44ee864).
+  - 19 uncommitted files and `stash@{0}` (cs-70 MASTER #2 label fixes) are kept on purpose.
+  - Everything in them is already in this branch or superseded (see above), so PC2 does not need them.
+- Private backup `C:\ASON\LOCAL PRIVATE\SPACE-SHIFT-PC1-UNCOMMITTED-20261008`: patch, stash export, sha256 manifests.
+- Local test assets that are not in Git, such as `test/image3.png` for the POC tools, and the real floor-plan images used in earlier LIVE checks.
+- Local worktrees `SPACE_SHIFT_MERGE` (`nompass/integration-ui3d-cad-wip`, same content as 6480a8d) and `SPACE_SHIFT_BASELINE_CAD`.
+- Build outputs (Windows exe, debug APK) and the test/build logs.
+
+Do not upload secrets, tokens, the private backup, or a Supabase WorkOrder CSV to this public repository. If PC2 needs any of them, the user moves them through a private channel they approve.
+
+### BLOCKED (user action needed)
+
+1. **WorkOrder originals**: the user exports `work_orders` from the old NOMPASS Supabase project (mljvgngjmrvoqjwvvyeg) as CSV and saves it outside the repo.
+2. **GitHub App access**: the user adds `Peterchan81/SPACE_SHIFT` to installation 167195182 (`nompass-runner-664a16`). On 2026-10-08 `/runner/github-check` still lists only NEW-NOMPASS + nompass-runner-scratch.
+3. **NOMPASS #0005 repo binding**: this depends on 2. #0005 and #0005-02 are unchanged and unbound (`/project-repos` binds only #0006).
+
+### Not verified yet (no user permission needed)
+
+- Windows real-screen check of the integrated workspace.
+- Galaxy Tab install and manual operation.
+- 3D rotate/zoom/pan by hand.
+- A real DXF file opened in a CAD program.
+- A LIVE GPT call, which needs dart-defines or a key kept outside Git.
+
+### PC2 order of work
+
+1. RESET CONTINUE → check that the branch HEAD matches origin.
+2. Check the PC2 dev environment (Flutter, Android SDK) → `flutter pub get`, `flutter analyze`, `flutter test test`.
+3. Windows real screen: upload → 구조 확인/보정 → mm edits → 2D 공간 확정 → 3D; 실측도면 업로드 → DXF import/export.
+4. If possible: install on the Galaxy Tab and operate.
+5. Real DXF file round-trip in a CAD program.
+6. LIVE GPT check (the user provides the key/URL locally; never commit it).
+7. **[user]** Supabase WorkOrder CSV recovery.
+8. **[user]** GitHub App access for SPACE_SHIFT → confirm with `/runner/github-check`.
+9. Add SPACE_SHIFT to `RUNNER_REPO_ALLOWLIST` (`cloud/control-plane/wrangler.jsonc`) → deploy.
+10. Snapshot #0005 → bind it to `nompass/integration-ui3d-cad` (not main).
+11. Resume SPACE SHIFT development from NOMPASS #0005.
+
+Steps 1–6 do not depend on 7–8 and can go ahead while those wait.
