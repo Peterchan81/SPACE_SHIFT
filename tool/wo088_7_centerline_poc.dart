@@ -2,6 +2,8 @@
 // ignore_for_file: avoid_print
 
 import 'dart:io';
+import 'package:ason_space/vision_cad_poc/drafting_v1/real_image3_source.dart'
+    show spaceShiftWorkspacePath;
 import 'dart:math' as math;
 
 import 'package:image/image.dart' as img;
@@ -10,7 +12,7 @@ import 'package:ason_space/vision_cad_poc/centerline_v1/centerline_junction.dart
 import 'package:ason_space/vision_cad_poc/centerline_v1/centerline_model.dart';
 import 'package:ason_space/vision_cad_poc/drafting_v1/structural_layer.dart' show buildStructuralMask;
 
-const _imagePath = r'C:\ASON\SPACE_SHIFT\test\image4.PNG';
+final _imagePath = spaceShiftWorkspacePath('test/image4.PNG');
 
 void main() {
   final bytes = File(_imagePath).readAsBytesSync();
@@ -76,7 +78,7 @@ void main() {
   final original = img.decodeImage(bytes)!;
 
   // A. ORIGINAL (그대로 복사 저장 — 비교 편의용).
-  File(r'C:\ASON\SPACE_SHIFT\test\image4_wo7_A_original.png').writeAsBytesSync(img.encodePng(original));
+  File(spaceShiftWorkspacePath('test/image4_wo7_A_original.png')).writeAsBytesSync(img.encodePng(original));
 
   // B. SOLID / DASHED EVIDENCE.
   final imgB = img.Image.from(original);
@@ -89,7 +91,7 @@ void main() {
   for (final band in evidence.patternBands) {
     img.drawLine(imgB, x1: band.start.x.round(), y1: band.start.y.round(), x2: band.end.x.round(), y2: band.end.y.round(), color: img.ColorRgb8(0, 200, 0), thickness: 1);
   }
-  File(r'C:\ASON\SPACE_SHIFT\test\image4_wo7_B_solid_dashed.png').writeAsBytesSync(img.encodePng(imgB));
+  File(spaceShiftWorkspacePath('test/image4_wo7_B_solid_dashed.png')).writeAsBytesSync(img.encodePng(imgB));
 
   // C. WALL BOUNDARY ONLY(흰 배경).
   final imgC = img.Image(width: w, height: h);
@@ -102,7 +104,7 @@ void main() {
       img.drawLine(imgC, x1: bBand.start.x.round(), y1: bBand.start.y.round(), x2: bBand.end.x.round(), y2: bBand.end.y.round(), color: img.ColorRgb8(0, 0, 0), thickness: 1);
     }
   }
-  File(r'C:\ASON\SPACE_SHIFT\test\image4_wo7_C_wall_boundary_only.png').writeAsBytesSync(img.encodePng(imgC));
+  File(spaceShiftWorkspacePath('test/image4_wo7_C_wall_boundary_only.png')).writeAsBytesSync(img.encodePng(imgC));
 
   img.Color colorForCenterline(Centerline c) => c.reviewNeeded ? img.ColorRgb8(255, 140, 0) : img.ColorRgb8(220, 0, 40);
 
@@ -111,7 +113,7 @@ void main() {
   for (final c in centerlines) {
     img.drawLine(imgD, x1: c.start.x.round(), y1: c.start.y.round(), x2: c.end.x.round(), y2: c.end.y.round(), color: colorForCenterline(c), thickness: 2);
   }
-  File(r'C:\ASON\SPACE_SHIFT\test\image4_wo7_D_original_plus_centerline.png').writeAsBytesSync(img.encodePng(imgD));
+  File(spaceShiftWorkspacePath('test/image4_wo7_D_original_plus_centerline.png')).writeAsBytesSync(img.encodePng(imgD));
 
   // E. CENTERLINE ONLY(흰 배경).
   final imgE = img.Image(width: w, height: h);
@@ -119,7 +121,7 @@ void main() {
   for (final c in centerlines) {
     img.drawLine(imgE, x1: c.start.x.round(), y1: c.start.y.round(), x2: c.end.x.round(), y2: c.end.y.round(), color: colorForCenterline(c), thickness: 2);
   }
-  File(r'C:\ASON\SPACE_SHIFT\test\image4_wo7_E_centerline_only.png').writeAsBytesSync(img.encodePng(imgE));
+  File(spaceShiftWorkspacePath('test/image4_wo7_E_centerline_only.png')).writeAsBytesSync(img.encodePng(imgE));
 
   // F. CENTERLINE + JUNCTION.
   img.Color colorForJunction(JunctionKind k) => switch (k) {
@@ -138,7 +140,7 @@ void main() {
   for (final j in junctions) {
     img.fillCircle(imgF, x: j.point.x.round(), y: j.point.y.round(), radius: j.kind == JunctionKind.xJunction || j.kind == JunctionKind.tJunction ? 4 : 3, color: colorForJunction(j.kind));
   }
-  File(r'C:\ASON\SPACE_SHIFT\test\image4_wo7_F_centerline_junction.png').writeAsBytesSync(img.encodePng(imgF));
+  File(spaceShiftWorkspacePath('test/image4_wo7_F_centerline_junction.png')).writeAsBytesSync(img.encodePng(imgF));
 
   print('\n산출물 저장 완료:');
   print('  test/image4_wo7_A_original.png');

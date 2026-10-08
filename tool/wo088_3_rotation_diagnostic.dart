@@ -11,6 +11,8 @@
 // ignore_for_file: avoid_print
 
 import 'dart:io';
+import 'package:ason_space/vision_cad_poc/drafting_v1/real_image3_source.dart'
+    show spaceShiftWorkspacePath;
 import 'dart:math' as math;
 import 'dart:typed_data';
 
@@ -46,8 +48,8 @@ int otsuThreshold(List<int> histogram, int totalPixels) {
   return threshold;
 }
 
-const _imagePath = r'C:\ASON\SPACE_SHIFT\test\image3.png';
-const _maskOutPath = r'C:\ASON\SPACE_SHIFT\test\image3_rotation_mask_full.png';
+final _imagePath = spaceShiftWorkspacePath('test/image3.png');
+final _maskOutPath = spaceShiftWorkspacePath('test/image3_rotation_mask_full.png');
 const _probeMaxDim = 220; // matches _kRotationProbeMaxDimension in production.
 
 // ---- faithful reproduction of the production mask (steps 1-3 of the

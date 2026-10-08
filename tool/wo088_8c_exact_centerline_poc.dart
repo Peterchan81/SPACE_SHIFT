@@ -3,6 +3,8 @@
 // ignore_for_file: avoid_print
 
 import 'dart:io';
+import 'package:ason_space/vision_cad_poc/drafting_v1/real_image3_source.dart'
+    show spaceShiftWorkspacePath;
 import 'dart:math' as math;
 import 'dart:typed_data';
 
@@ -13,7 +15,7 @@ import 'package:ason_space/vision_cad_poc/centerline_v1/centerline_model.dart';
 import 'package:ason_space/vision_cad_poc/centerline_v1/exact_axis_fit.dart';
 import 'package:ason_space/vision_cad_poc/drafting_v1/structural_layer.dart' show buildStructuralMask;
 
-const _imagePath = r'C:\ASON\SPACE_SHIFT\test\image4.PNG';
+final _imagePath = spaceShiftWorkspacePath('test/image4.PNG');
 
 // §4 실측 발견: Image 4 파일 자체에 그림 전체를 둘러싸는 얇은(2~3px)
 // 거의 무채색(rgb≈41,41,40) 테두리 프레임이 존재한다(픽셀 probe로 확인,
@@ -146,7 +148,7 @@ void main() {
   print('\npixel-tilt(시작/끝 cross 값 불일치) centerline 수=$tiltedCount (0이어야 mathematical line)');
 
   // ---- 이미지 산출물 A~F ----
-  File(r'C:\ASON\SPACE_SHIFT\test\image4_wo8C_A_original.png').writeAsBytesSync(img.encodePng(original));
+  File(spaceShiftWorkspacePath('test/image4_wo8C_A_original.png')).writeAsBytesSync(img.encodePng(original));
 
   // B. WALL EVIDENCE.
   final imgB = img.Image(width: w, height: h);
@@ -154,7 +156,7 @@ void main() {
   for (var i = 0; i < w * h; i++) {
     if (wallMask[i] == 1) imgB.setPixelRgb(i % w, i ~/ w, 0, 0, 0);
   }
-  File(r'C:\ASON\SPACE_SHIFT\test\image4_wo8C_B_wall_evidence.png').writeAsBytesSync(img.encodePng(imgB));
+  File(spaceShiftWorkspacePath('test/image4_wo8C_B_wall_evidence.png')).writeAsBytesSync(img.encodePng(imgB));
 
   // C. CENTER AXIS SAMPLE — skeleton evidence가 가장 많은(=wobble이 잘
   // 드러나는) confident 가로벽 2개 + 세로벽 2개를 4배 확대한 패널로
@@ -222,7 +224,7 @@ void main() {
     img.compositeImage(imgC, p, dstX: panelPad, dstY: offsetY);
     offsetY += p.height + panelPad;
   }
-  File(r'C:\ASON\SPACE_SHIFT\test\image4_wo8C_C_center_axis_sample.png').writeAsBytesSync(img.encodePng(imgC));
+  File(spaceShiftWorkspacePath('test/image4_wo8C_C_center_axis_sample.png')).writeAsBytesSync(img.encodePng(imgC));
 
   img.Color colorForCenterline(Centerline c) => c.reviewNeeded ? img.ColorRgb8(255, 140, 0) : img.ColorRgb8(220, 0, 40);
 
@@ -231,7 +233,7 @@ void main() {
   for (final c in centerlines) {
     img.drawLine(imgD, x1: c.start.x.round(), y1: c.start.y.round(), x2: c.end.x.round(), y2: c.end.y.round(), color: colorForCenterline(c), thickness: 1);
   }
-  File(r'C:\ASON\SPACE_SHIFT\test\image4_wo8C_D_original_plus_centerline.png').writeAsBytesSync(img.encodePng(imgD));
+  File(spaceShiftWorkspacePath('test/image4_wo8C_D_original_plus_centerline.png')).writeAsBytesSync(img.encodePng(imgD));
 
   // E. CENTERLINE ONLY.
   final imgE = img.Image(width: w, height: h);
@@ -239,7 +241,7 @@ void main() {
   for (final c in centerlines) {
     img.drawLine(imgE, x1: c.start.x.round(), y1: c.start.y.round(), x2: c.end.x.round(), y2: c.end.y.round(), color: colorForCenterline(c), thickness: 1);
   }
-  File(r'C:\ASON\SPACE_SHIFT\test\image4_wo8C_E_centerline_only.png').writeAsBytesSync(img.encodePng(imgE));
+  File(spaceShiftWorkspacePath('test/image4_wo8C_E_centerline_only.png')).writeAsBytesSync(img.encodePng(imgE));
 
   // F. CENTERLINE + CORNER/JUNCTION.
   img.Color colorForJunction(JunctionKind k) => switch (k) {
@@ -258,7 +260,7 @@ void main() {
   for (final j in junctions) {
     img.fillCircle(imgF, x: j.point.x.round(), y: j.point.y.round(), radius: j.kind == JunctionKind.xJunction || j.kind == JunctionKind.tJunction ? 4 : 3, color: colorForJunction(j.kind));
   }
-  File(r'C:\ASON\SPACE_SHIFT\test\image4_wo8C_F_centerline_junction.png').writeAsBytesSync(img.encodePng(imgF));
+  File(spaceShiftWorkspacePath('test/image4_wo8C_F_centerline_junction.png')).writeAsBytesSync(img.encodePng(imgF));
 
   print('\n산출물 저장 완료:');
   print('  test/image4_wo8C_A_original.png');

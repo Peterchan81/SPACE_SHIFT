@@ -11,6 +11,8 @@
 // 실행해야 한다(WO102에서 이미 확인된 우회법).
 import 'dart:convert';
 import 'dart:io';
+import 'package:ason_space/vision_cad_poc/drafting_v1/real_image3_source.dart'
+    show spaceShiftWorkspacePath;
 
 import 'package:image/image.dart' as img;
 
@@ -19,7 +21,7 @@ import 'package:ason_space/services/gpt_floorplan_vision_service.dart';
 
 const _realImagePath = r'C:\Users\user\Desktop\스크린샷\평면도.PNG';
 const _edgeFunctionUrl = 'https://imaxmdtnknychqyphaaa.supabase.co/functions/v1/gpt-floorplan-understand';
-const _overlayOutPath = r'C:\ASON\SPACE_SHIFT\test\pc2_ai_structural_overlay.png';
+final _overlayOutPath = spaceShiftWorkspacePath('test/pc2_ai_structural_overlay.png');
 
 void main() async {
   final file = File(_realImagePath);
@@ -160,7 +162,7 @@ void main() async {
   print(_overlayOutPath);
 
   // 참고용 raw JSON도 남겨서 다음 세션이 실제 응답 모양을 그대로 볼 수 있게 한다.
-  File(r'C:\ASON\SPACE_SHIFT\test\pc2_ai_structural_result.json')
+  File(spaceShiftWorkspacePath('test/pc2_ai_structural_result.json'))
       .writeAsStringSync(const JsonEncoder.withIndent('  ').convert(understanding.toJson()));
   print('raw json written to test/pc2_ai_structural_result.json');
 }

@@ -3,6 +3,8 @@
 // ignore_for_file: avoid_print
 
 import 'dart:io';
+import 'package:ason_space/vision_cad_poc/drafting_v1/real_image3_source.dart'
+    show spaceShiftWorkspacePath;
 import 'dart:math' as math;
 
 import 'package:image/image.dart' as img;
@@ -12,7 +14,7 @@ import 'package:ason_space/vision_cad_poc/drafting_v1/line_confirmation.dart';
 import 'package:ason_space/vision_cad_poc/drafting_v1/pre_clean.dart';
 import 'package:ason_space/vision_cad_poc/drafting_v1/structural_layer.dart';
 
-const _imagePath = r'C:\ASON\SPACE_SHIFT\test\image3.png';
+final _imagePath = spaceShiftWorkspacePath('test/image3.png');
 const _wingX0 = 560, _wingY0 = 0, _wingX1 = 840, _wingY1 = 350;
 
 List<RawStructuralLine> _extractAll(dynamic mask, int w, int h, double minRunPx, double maxThicknessPx) {
@@ -104,7 +106,7 @@ void main() {
     final color = v.confirmed ? img.ColorRgb8(0, 90, 220) : img.ColorRgb8(220, 40, 40);
     img.drawLine(classificationImg, x1: v.line.start.x.round(), y1: v.line.start.y.round(), x2: v.line.end.x.round(), y2: v.line.end.y.round(), color: color, thickness: 2);
   }
-  File(r'C:\ASON\SPACE_SHIFT\test\image3_preclean_classification.png').writeAsBytesSync(img.encodePng(classificationImg));
+  File(spaceShiftWorkspacePath('test/image3_preclean_classification.png')).writeAsBytesSync(img.encodePng(classificationImg));
 
   // 4. CLEAN STRUCTURAL LAYER — confirmed line만 다시 raster화한 binary
   // mask(§ Layer 3 산출물 — line-level evidence로 확정된 것만 남긴 결과).
@@ -118,7 +120,7 @@ void main() {
       if (x >= 0 && y >= 0 && x < w && y < h) cleanLayerMask[y * w + x] = 1;
     }
   }
-  saveMask(r'C:\ASON\SPACE_SHIFT\test\image3_clean_structural_layer.png', cleanLayerMask);
+  saveMask(spaceShiftWorkspacePath('test/image3_clean_structural_layer.png'), cleanLayerMask);
 
   // 6. B — Clean Structural Overlay(원본 + 추출된 line, confirmed/suppressed 색 구분).
   final overlayB = img.Image.from(original);
@@ -126,7 +128,7 @@ void main() {
     final color = v.confirmed ? img.ColorRgb8(0, 90, 220) : img.ColorRgb8(160, 160, 160);
     img.drawLine(overlayB, x1: v.line.start.x.round(), y1: v.line.start.y.round(), x2: v.line.end.x.round(), y2: v.line.end.y.round(), color: color, thickness: v.confirmed ? 3 : 1);
   }
-  File(r'C:\ASON\SPACE_SHIFT\test\image3_clean_structural_overlay_B.png').writeAsBytesSync(img.encodePng(overlayB));
+  File(spaceShiftWorkspacePath('test/image3_clean_structural_overlay_B.png')).writeAsBytesSync(img.encodePng(overlayB));
 
   // 8. B — Clean Drafting Coordinate Overlay(원본 위).
   img.Color colorForWall(DraftWall wall) {
@@ -152,7 +154,7 @@ void main() {
   img.drawLine(draftOverlayB, x1: oxB, y1: oyB, x2: oxB + 70, y2: oyB, color: img.ColorRgb8(220, 0, 0), thickness: 3);
   img.drawLine(draftOverlayB, x1: oxB, y1: oyB, x2: oxB, y2: oyB - 70, color: img.ColorRgb8(0, 160, 0), thickness: 3);
   img.fillCircle(draftOverlayB, x: oxB, y: oyB, radius: 6, color: img.ColorRgb8(220, 0, 0));
-  File(r'C:\ASON\SPACE_SHIFT\test\image3_clean_drafting_overlay_B.png').writeAsBytesSync(img.encodePng(draftOverlayB));
+  File(spaceShiftWorkspacePath('test/image3_clean_drafting_overlay_B.png')).writeAsBytesSync(img.encodePng(draftOverlayB));
 
   // 9. B — CLEAN DRAFT ONLY(최종, 가장 중요) — confirmed walls만 실선,
   // 배경 최소화, Origin/코너 표시. reviewNeeded(있다면)는 별도 표시.
@@ -187,7 +189,7 @@ void main() {
   img.drawLine(draftOnly, x1: o.$1, y1: o.$2, x2: o.$1 + 60, y2: o.$2, color: img.ColorRgb8(220, 0, 0), thickness: 2);
   img.drawLine(draftOnly, x1: o.$1, y1: o.$2, x2: o.$1, y2: o.$2 - 60, color: img.ColorRgb8(0, 140, 0), thickness: 2);
   img.fillCircle(draftOnly, x: o.$1, y: o.$2, radius: 6, color: img.ColorRgb8(220, 0, 0));
-  File(r'C:\ASON\SPACE_SHIFT\test\image3_clean_draft_only_B.png').writeAsBytesSync(img.encodePng(draftOnly));
+  File(spaceShiftWorkspacePath('test/image3_clean_draft_only_B.png')).writeAsBytesSync(img.encodePng(draftOnly));
 
   print('\n산출물 저장 완료:');
   print('  test/image3_preclean_classification.png');

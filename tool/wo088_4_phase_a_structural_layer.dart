@@ -4,6 +4,8 @@
 // ignore_for_file: avoid_print
 
 import 'dart:io';
+import 'package:ason_space/vision_cad_poc/drafting_v1/real_image3_source.dart'
+    show spaceShiftWorkspacePath;
 import 'dart:math' as math;
 
 import 'package:image/image.dart' as img;
@@ -11,7 +13,7 @@ import 'package:image/image.dart' as img;
 import 'package:ason_space/vision_cad_poc/drafting_v1/drafting_model.dart';
 import 'package:ason_space/vision_cad_poc/drafting_v1/structural_layer.dart';
 
-const _imagePath = r'C:\ASON\SPACE_SHIFT\test\image3.png';
+final _imagePath = spaceShiftWorkspacePath('test/image3.png');
 
 void main() {
   final bytes = File(_imagePath).readAsBytesSync();
@@ -35,7 +37,7 @@ void main() {
       grayImg.setPixel(x, y, img.ColorRgb8(l, l, l));
     }
   }
-  File(r'C:\ASON\SPACE_SHIFT\test\image3_grayscale.png').writeAsBytesSync(img.encodePng(grayImg));
+  File(spaceShiftWorkspacePath('test/image3_grayscale.png')).writeAsBytesSync(img.encodePng(grayImg));
 
   // 산출물 2: structural mask(B) 시각화 — 비교를 위해 A도 함께 저장.
   void saveMask(String path, List<int> mask) {
@@ -49,8 +51,8 @@ void main() {
     File(path).writeAsBytesSync(img.encodePng(im));
   }
 
-  saveMask(r'C:\ASON\SPACE_SHIFT\test\image3_baseline_mask_A.png', result.baselineMask);
-  saveMask(r'C:\ASON\SPACE_SHIFT\test\image3_structural_mask.png', result.structuralMask);
+  saveMask(spaceShiftWorkspacePath('test/image3_baseline_mask_A.png'), result.baselineMask);
+  saveMask(spaceShiftWorkspacePath('test/image3_structural_mask.png'), result.structuralMask);
 
   // 산출물 3: 원본+구조선 overlay(선 추출은 아래에서 수행 후 그린다).
   final diagonal = math.sqrt(w * w + h * h);
@@ -99,14 +101,14 @@ void main() {
     final color = l.method == 'axisAligned' ? img.ColorRgb8(0, 90, 220) : img.ColorRgb8(200, 0, 160);
     img.drawLine(overlay, x1: l.start.x.round(), y1: l.start.y.round(), x2: l.end.x.round(), y2: l.end.y.round(), color: color, thickness: 2);
   }
-  File(r'C:\ASON\SPACE_SHIFT\test\image3_structural_line_overlay.png').writeAsBytesSync(img.encodePng(overlay));
+  File(spaceShiftWorkspacePath('test/image3_structural_line_overlay.png')).writeAsBytesSync(img.encodePng(overlay));
 
   // A/B 공정 비교용 — baseline mask(A)에도 같은 추출기를 적용한 overlay.
   final overlayA = img.Image.from(img.decodeImage(bytes)!);
   for (final l in axisLinesA) {
     img.drawLine(overlayA, x1: l.start.x.round(), y1: l.start.y.round(), x2: l.end.x.round(), y2: l.end.y.round(), color: img.ColorRgb8(220, 0, 0), thickness: 2);
   }
-  File(r'C:\ASON\SPACE_SHIFT\test\image3_baseline_line_overlay_A.png').writeAsBytesSync(img.encodePng(overlayA));
+  File(spaceShiftWorkspacePath('test/image3_baseline_line_overlay_A.png')).writeAsBytesSync(img.encodePng(overlayA));
 
   // ---- PHASE B: Drafting Coordinate Model ----
   final model = buildDraftingModel(allLines);
@@ -143,7 +145,7 @@ void main() {
   img.drawLine(draftOverlay, x1: ox, y1: oy, x2: ox + 70, y2: oy, color: img.ColorRgb8(220, 0, 0), thickness: 3);
   img.drawLine(draftOverlay, x1: ox, y1: oy, x2: ox, y2: oy - 70, color: img.ColorRgb8(0, 160, 0), thickness: 3);
   img.fillCircle(draftOverlay, x: ox, y: oy, radius: 6, color: img.ColorRgb8(220, 0, 0));
-  File(r'C:\ASON\SPACE_SHIFT\test\image3_drafting_coordinate_overlay.png').writeAsBytesSync(img.encodePng(draftOverlay));
+  File(spaceShiftWorkspacePath('test/image3_drafting_coordinate_overlay.png')).writeAsBytesSync(img.encodePng(draftOverlay));
 
   // 산출물 6: Coordinate Draft Only(순수 virtual 좌표, 원본 없음).
   var minX = 0.0, maxX = 0.0, minY = 0.0, maxY = 0.0;
@@ -177,7 +179,7 @@ void main() {
   img.drawLine(draftOnly, x1: o.$1, y1: o.$2, x2: o.$1 + 50, y2: o.$2, color: img.ColorRgb8(255, 90, 90), thickness: 2);
   img.drawLine(draftOnly, x1: o.$1, y1: o.$2, x2: o.$1, y2: o.$2 - 50, color: img.ColorRgb8(140, 255, 140), thickness: 2);
   img.fillCircle(draftOnly, x: o.$1, y: o.$2, radius: 5, color: img.ColorRgb8(255, 90, 90));
-  File(r'C:\ASON\SPACE_SHIFT\test\image3_drafting_coordinate_draft_only.png').writeAsBytesSync(img.encodePng(draftOnly));
+  File(spaceShiftWorkspacePath('test/image3_drafting_coordinate_draft_only.png')).writeAsBytesSync(img.encodePng(draftOnly));
 
   print('\n산출물 저장 완료:');
   print('  test/image3_grayscale.png');
