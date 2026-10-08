@@ -1,10 +1,12 @@
 import 'dart:convert';
-import 'dart:typed_data';
 
+import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 
 import '../config/app_environment.dart';
 import '../models/vision_understanding.dart';
+import 'gpt_floorplan_direct_openai_vision_service.dart';
+import 'gpt_floorplan_openai_contract.dart';
 import 'vision_interpretation_service.dart';
 
 /// GPT FLOORPLAN → STRUCTURED 2D → REAL 3D ISO FLOW WO §5 —
@@ -45,6 +47,16 @@ class GptFloorplanEdgeFunctionVisionService implements VisionInterpretationServi
     }
 
     if (response.statusCode < 200 || response.statusCode >= 300 || payload['success'] != true) {
+      // API 호출 정책(비용 감사) WO §5/§7 — Edge Function이 판별해 둔
+      // billingExhausted 플래그를 그대로 신뢰한다(§5: billing 오류는
+      // 재시도하지 않는다). GptDirectOpenAiVisionService와 동일한
+      // 카테고리 로그를 남긴다.
+      final isBilling = payload['billingExhausted'] == true;
+      debugPrint(
+        '[GPT supabase] OpenAI 요청 실패: HTTP ${response.statusCode}'
+        '${isBilling ? ' billing(크레딧/쿼터 소진 — 재시도 안 함)' : ''}',
+      );
+      if (isBilling) throw const GptBillingExhaustedException();
       throw Exception(payload['message'] ?? 'GPT 평면도 분석에 실패했습니다.');
     }
 
@@ -55,11 +67,7 @@ class GptFloorplanEdgeFunctionVisionService implements VisionInterpretationServi
     return VisionUnderstanding.fromJson(understanding);
   }
 
-  String _toDataUri(Uint8List bytes) {
-    final isPng = bytes.length >= 8 && bytes[0] == 137 && bytes[1] == 80 && bytes[2] == 78 && bytes[3] == 71;
-    final mimeType = isPng ? 'image/png' : 'image/jpeg';
-    return 'data:$mimeType;base64,${base64Encode(bytes)}';
-  }
+  String _toDataUri(Uint8List bytes) => toGptFloorplanImageDataUri(bytes);
 }
 
 /// §5/§18 — Edge Function URL이 아직 설정되지 않은(=OpenAI secret도 아직
@@ -83,11 +91,34 @@ class UnavailableVisionInterpretationService implements VisionInterpretationServ
 /// 돌려준다 — [createAiGenerationService](ai_generation_provider.dart)와
 /// 동일한 "URL이 없으면 안전하게 폴백" 팩토리 패턴.
 ///
+/// SS CAD TEST — [AppEnvironment.gptFloorplanProvider]가 `direct`
+/// (`--dart-define=GPT_FLOORPLAN_PROVIDER=direct`, Windows 개발/검증
+/// 전용)면 Supabase를 건너뛰고 [GptDirectOpenAiVisionService]를 돌려준다
+/// (그때도 `OPENAI_API_KEY`가 없으면 안전하게 Unavailable로 폴백한다 —
+/// key 없이 direct 모드가 조용히 잘못된 요청을 시도하지 않는다). 지정하지
+/// 않으면(기본값) 기존 `supabase` 경로만 그대로 동작한다 — 이 분기가
+/// 추가되기 전과 정확히 같다.
+///
 /// WO090 — [urlOverride]는 [ai_generation_provider.dart]의
 /// `edgeFunctionUrlOverride`와 동일한 이유로 존재한다: dart-define 없이도
 /// "URL이 실제로 설정된 경우" 분기를 테스트할 수 있게 한다. 지정하지
 /// 않으면(실사용 경로) [AppEnvironment.gptFloorPlanEdgeFunctionUrl]을 쓴다.
-VisionInterpretationService createVisionInterpretationService({String? urlOverride}) {
+/// [providerOverride]/[apiKeyOverride]도 같은 이유로 존재하는 테스트
+/// 주입 지점이다.
+VisionInterpretationService createVisionInterpretationService({
+  String? urlOverride,
+  String? providerOverride,
+  String? apiKeyOverride,
+}) {
+  final provider = providerOverride != null
+      ? parseGptFloorplanProvider(providerOverride)
+      : AppEnvironment.gptFloorplanProvider;
+  if (provider == GptFloorplanProviderType.direct) {
+    final apiKey = apiKeyOverride ?? AppEnvironment.openAiApiKey;
+    if (apiKey.isEmpty) return const UnavailableVisionInterpretationService();
+    return GptDirectOpenAiVisionService(apiKey: apiKey);
+  }
+
   final url = urlOverride ?? AppEnvironment.gptFloorPlanEdgeFunctionUrl;
   if (url.isEmpty) return const UnavailableVisionInterpretationService();
   return GptFloorplanEdgeFunctionVisionService(endpoint: Uri.parse(url));

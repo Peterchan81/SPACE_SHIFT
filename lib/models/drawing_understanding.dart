@@ -412,6 +412,16 @@ class ArchitecturalInterpretation {
   final List<String> warnings;
 }
 
+/// PC2 Envelope-first 실험 WO — [SSSpatialModelBuilder]가 어떤 해석
+/// 전략을 쓰든(공간 후보를 먼저 보는 space-first, 건물 외곽을 먼저 보는
+/// envelope-first) 같은 계약으로 주입할 수 있게 하는 공통 인터페이스.
+/// 기존 [ArchitecturalDrawingInterpreter](space-first)를 폐기하지 않고
+/// 새 [EnvelopeFirstInterpreter]와 나란히 두어 비교할 수 있게 한다(WO
+/// 지시 8번).
+abstract class DrawingInterpreter {
+  ArchitecturalInterpretation interpret(FloorPlanAnalysisResult input);
+}
+
 abstract class SemanticEvidenceProvider {
   const SemanticEvidenceProvider();
 

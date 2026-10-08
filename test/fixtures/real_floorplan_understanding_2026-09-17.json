@@ -1,0 +1,427 @@
+{
+  "floorDomain": {
+    "id": "floor-domain",
+    "type": "floorDomain",
+    "confidence": "medium",
+    "source": "vision",
+    "geometryHint": {
+      "kind": "polygon",
+      "points": [
+        {
+          "x": 0.089,
+          "y": 0.094
+        },
+        {
+          "x": 0.85,
+          "y": 0.094
+        },
+        {
+          "x": 0.85,
+          "y": 0.82
+        },
+        {
+          "x": 0.125,
+          "y": 0.82
+        },
+        {
+          "x": 0.089,
+          "y": 0.515
+        }
+      ]
+    },
+    "notes": []
+  },
+  "spaces": [
+    {
+      "id": "space1",
+      "type": "space",
+      "confidence": "high",
+      "source": "vision",
+      "geometryHint": {
+        "kind": "boundingBox",
+        "minX": 0.125,
+        "minY": 0.403,
+        "maxX": 0.478,
+        "maxY": 0.82
+      },
+      "notes": [],
+      "label": "거실",
+      "semanticType": "living",
+      "adjacentSpaceIds": [],
+      "containedObjectIds": []
+    },
+    {
+      "id": "space2",
+      "type": "space",
+      "confidence": "medium",
+      "source": "vision",
+      "geometryHint": {
+        "kind": "boundingBox",
+        "minX": 0.138,
+        "minY": 0.12,
+        "maxX": 0.372,
+        "maxY": 0.392
+      },
+      "notes": [],
+      "label": "다용도실",
+      "semanticType": "utility",
+      "adjacentSpaceIds": [],
+      "containedObjectIds": []
+    },
+    {
+      "id": "space3",
+      "type": "space",
+      "confidence": "high",
+      "source": "vision",
+      "geometryHint": {
+        "kind": "boundingBox",
+        "minX": 0.367,
+        "minY": 0.104,
+        "maxX": 0.654,
+        "maxY": 0.324
+      },
+      "notes": [],
+      "label": "방",
+      "semanticType": "bedroom",
+      "adjacentSpaceIds": [],
+      "containedObjectIds": []
+    },
+    {
+      "id": "space4",
+      "type": "space",
+      "confidence": "high",
+      "source": "vision",
+      "geometryHint": {
+        "kind": "boundingBox",
+        "minX": 0.67,
+        "minY": 0.12,
+        "maxX": 0.837,
+        "maxY": 0.304
+      },
+      "notes": [],
+      "label": "방",
+      "semanticType": "bedroom",
+      "adjacentSpaceIds": [],
+      "containedObjectIds": []
+    },
+    {
+      "id": "space5",
+      "type": "space",
+      "confidence": "medium",
+      "source": "vision",
+      "geometryHint": {
+        "kind": "boundingBox",
+        "minX": 0.652,
+        "minY": 0.299,
+        "maxX": 0.839,
+        "maxY": 0.417
+      },
+      "notes": [],
+      "label": "욕실",
+      "semanticType": "bathroom",
+      "adjacentSpaceIds": [],
+      "containedObjectIds": []
+    },
+    {
+      "id": "space6",
+      "type": "space",
+      "confidence": "medium",
+      "source": "vision",
+      "geometryHint": {
+        "kind": "boundingBox",
+        "minX": 0.48,
+        "minY": 0.443,
+        "maxX": 0.837,
+        "maxY": 0.513
+      },
+      "notes": [],
+      "label": "복도",
+      "semanticType": "corridor",
+      "adjacentSpaceIds": [],
+      "containedObjectIds": []
+    },
+    {
+      "id": "space7",
+      "type": "space",
+      "confidence": "low",
+      "source": "vision",
+      "geometryHint": {
+        "kind": "boundingBox",
+        "minX": 0.592,
+        "minY": 0.546,
+        "maxX": 0.839,
+        "maxY": 0.702
+      },
+      "notes": [],
+      "label": null,
+      "semanticType": "unknown",
+      "adjacentSpaceIds": [],
+      "containedObjectIds": []
+    }
+  ],
+  "boundaries": [
+    {
+      "id": "b1",
+      "type": "boundary",
+      "confidence": "high",
+      "source": "vision",
+      "geometryHint": {
+        "kind": "segment",
+        "start": {
+          "x": 0.089,
+          "y": 0.094
+        },
+        "end": {
+          "x": 0.85,
+          "y": 0.094
+        }
+      },
+      "notes": [],
+      "boundaryType": "exteriorWall",
+      "adjacentSpaceIds": []
+    },
+    {
+      "id": "b2",
+      "type": "boundary",
+      "confidence": "high",
+      "source": "vision",
+      "geometryHint": {
+        "kind": "segment",
+        "start": {
+          "x": 0.85,
+          "y": 0.094
+        },
+        "end": {
+          "x": 0.85,
+          "y": 0.82
+        }
+      },
+      "notes": [],
+      "boundaryType": "exteriorWall",
+      "adjacentSpaceIds": []
+    },
+    {
+      "id": "b3",
+      "type": "boundary",
+      "confidence": "medium",
+      "source": "vision",
+      "geometryHint": {
+        "kind": "segment",
+        "start": {
+          "x": 0.85,
+          "y": 0.82
+        },
+        "end": {
+          "x": 0.125,
+          "y": 0.82
+        }
+      },
+      "notes": [],
+      "boundaryType": "exteriorWall",
+      "adjacentSpaceIds": []
+    },
+    {
+      "id": "b4",
+      "type": "boundary",
+      "confidence": "medium",
+      "source": "vision",
+      "geometryHint": {
+        "kind": "segment",
+        "start": {
+          "x": 0.125,
+          "y": 0.82
+        },
+        "end": {
+          "x": 0.089,
+          "y": 0.515
+        }
+      },
+      "notes": [],
+      "boundaryType": "exteriorWall",
+      "adjacentSpaceIds": []
+    },
+    {
+      "id": "b5",
+      "type": "boundary",
+      "confidence": "medium",
+      "source": "vision",
+      "geometryHint": {
+        "kind": "segment",
+        "start": {
+          "x": 0.089,
+          "y": 0.515
+        },
+        "end": {
+          "x": 0.089,
+          "y": 0.094
+        }
+      },
+      "notes": [],
+      "boundaryType": "exteriorWall",
+      "adjacentSpaceIds": []
+    },
+    {
+      "id": "b6",
+      "type": "boundary",
+      "confidence": "high",
+      "source": "vision",
+      "geometryHint": {
+        "kind": "segment",
+        "start": {
+          "x": 0.125,
+          "y": 0.392
+        },
+        "end": {
+          "x": 0.478,
+          "y": 0.392
+        }
+      },
+      "notes": [],
+      "boundaryType": "interiorWall",
+      "adjacentSpaceIds": []
+    },
+    {
+      "id": "b7",
+      "type": "boundary",
+      "confidence": "high",
+      "source": "vision",
+      "geometryHint": {
+        "kind": "segment",
+        "start": {
+          "x": 0.125,
+          "y": 0.394
+        },
+        "end": {
+          "x": 0.125,
+          "y": 0.82
+        }
+      },
+      "notes": [],
+      "boundaryType": "interiorWall",
+      "adjacentSpaceIds": []
+    },
+    {
+      "id": "b8",
+      "type": "boundary",
+      "confidence": "high",
+      "source": "vision",
+      "geometryHint": {
+        "kind": "segment",
+        "start": {
+          "x": 0.138,
+          "y": 0.12
+        },
+        "end": {
+          "x": 0.138,
+          "y": 0.392
+        }
+      },
+      "notes": [],
+      "boundaryType": "interiorWall",
+      "adjacentSpaceIds": []
+    },
+    {
+      "id": "b9",
+      "type": "boundary",
+      "confidence": "medium",
+      "source": "vision",
+      "geometryHint": {
+        "kind": "segment",
+        "start": {
+          "x": 0.367,
+          "y": 0.12
+        },
+        "end": {
+          "x": 0.367,
+          "y": 0.298
+        }
+      },
+      "notes": [],
+      "boundaryType": "interiorWall",
+      "adjacentSpaceIds": []
+    },
+    {
+      "id": "b10",
+      "type": "boundary",
+      "confidence": "medium",
+      "source": "vision",
+      "geometryHint": {
+        "kind": "segment",
+        "start": {
+          "x": 0.67,
+          "y": 0.12
+        },
+        "end": {
+          "x": 0.67,
+          "y": 0.294
+        }
+      },
+      "notes": [],
+      "boundaryType": "interiorWall",
+      "adjacentSpaceIds": []
+    },
+    {
+      "id": "b11",
+      "type": "boundary",
+      "confidence": "low",
+      "source": "vision",
+      "geometryHint": {
+        "kind": "segment",
+        "start": {
+          "x": 0.592,
+          "y": 0.543
+        },
+        "end": {
+          "x": 0.592,
+          "y": 0.704
+        }
+      },
+      "notes": [],
+      "boundaryType": "interiorWall",
+      "adjacentSpaceIds": []
+    }
+  ],
+  "openings": [
+    {
+      "id": "o1",
+      "type": "opening",
+      "confidence": "high",
+      "source": "vision",
+      "geometryHint": {
+        "kind": "point",
+        "point": {
+          "x": 0.632,
+          "y": 0.104
+        }
+      },
+      "notes": [],
+      "openingType": "door",
+      "attachedBoundaryId": "b9",
+      "connectedSpaceIds": []
+    },
+    {
+      "id": "o2",
+      "type": "opening",
+      "confidence": "medium",
+      "source": "vision",
+      "geometryHint": {
+        "kind": "point",
+        "point": {
+          "x": 0.854,
+          "y": 0.192
+        }
+      },
+      "notes": [],
+      "openingType": "door",
+      "attachedBoundaryId": "b10",
+      "connectedSpaceIds": []
+    }
+  ],
+  "objects": [],
+  "structuralElements": [],
+  "dimensions": [],
+  "scaleConfirmed": false,
+  "notes": [
+    "Some spaces lack specific labels indicating their function."
+  ]
+}

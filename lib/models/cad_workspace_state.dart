@@ -3,6 +3,7 @@ import 'package:flutter/foundation.dart';
 import 'cad_floor_plan.dart';
 import 'floor_plan_geometry.dart';
 import 'space_scene_v2.dart' show SpaceObjectIdentityV2;
+import 'scale_calibration.dart';
 
 /// 중앙 캔버스가 평면도를 어떤 형태로 보여줄지 — CAD 변환 결과를
 /// 기본으로 우선 표시하고(WO 6번), 원본 이미지 또는 둘 다(비교)로
@@ -48,6 +49,7 @@ class CadWorkspaceState {
     this.calibrationEnd,
     this.calibrationPixelLength,
     this.scale,
+    this.scaleSamples = const [],
     this.ceilingHeightMm,
     this.generatedFloorPlanImageBytes,
     this.isGeneratingFloorPlanImage = false,
@@ -56,6 +58,7 @@ class CadWorkspaceState {
     this.cadEditTool = CadEditTool.select,
     this.pendingWallStart,
     this.confirmedFloorPlan,
+    this.hasStructuredCadDraft = false,
   });
 
   final CadFloorPlan? floorPlan;
@@ -72,6 +75,16 @@ class CadWorkspaceState {
 
   /// true인 동안 "AI 평면도 생성 중" 상태를 보여준다.
   final bool isGeneratingFloorPlanImage;
+
+  /// "GPT 구조 분석 실행" 또는 "CAD 파일 업로드(DXF)"가 최소 한 번
+  /// 성공했는지. true면 [floorPlan]이 실제로 사용자가 명시적으로 요청해
+  /// 얻은 구조화 CAD 결과이므로, (생성된 이미지/원본 사진 대신) 중앙
+  /// 화면에 CAD 초안으로 직접 그려서 보여준다 — 두 기능 모두 버튼을
+  /// 눌러도 화면이 원본/생성 이미지만 그대로 보여주던 문제를 고친다.
+  /// 기존 [floorPlan]의 "3D 아이소 생성에만 쓰이고 화면에 그려지지
+  /// 않는다"는 계약(baseline 픽셀 분석 엔진, "AI 평면도 생성" 1단계)은
+  /// 이 값이 false인 동안은 그대로 유지된다.
+  final bool hasStructuredCadDraft;
   final String? selectedObjectId;
 
   /// WO092 §5 — 실시간 3D(아이소/투시)에서 사용자가 탭해 선택한 벽/바닥/
@@ -106,6 +119,13 @@ class CadWorkspaceState {
   bool get hasCalibrationSelection => calibrationPixelLength != null;
 
   final FloorPlanScale? scale;
+
+  /// SS CAD TEST — 지금까지 사용자가 입력한 모든 실측 기준(벽별 1개씩,
+  /// 다시 재면 교체). [scale]은 이 목록의 중앙값으로 계산된 대표값이다
+  /// ([resolveScaleFromSamples] 참고). 2개 이상이면 화면이 "기준값 N개 ·
+  /// 편차 X%"를 보여줄 수 있다.
+  final List<ScaleReferenceSample> scaleSamples;
+
   final double? ceilingHeightMm;
 
   bool get hasGeometry => floorPlan != null;

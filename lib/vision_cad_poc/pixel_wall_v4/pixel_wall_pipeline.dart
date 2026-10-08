@@ -87,7 +87,8 @@ bool _isConfirmedNonWall(PixelWallCandidate c) {
       c.noiseCategory == PixelWallNoiseCategory.furniture ||
       c.noiseCategory == PixelWallNoiseCategory.fixture ||
       c.noiseCategory == PixelWallNoiseCategory.doorArc ||
-      c.noiseCategory == PixelWallNoiseCategory.windowDetail;
+      c.noiseCategory == PixelWallNoiseCategory.windowDetail ||
+      c.noiseCategory == PixelWallNoiseCategory.outsideFloorDomainHint;
 }
 
 double systemAlongPxOf(PixelWallCandidate c, PixelWallOrientation o, int w, int h) =>
@@ -105,6 +106,7 @@ PixelWallPipelineResult runPixelWallPipeline({
   // (가구/애매 영역/문·창 힌트)까지 결합해 reviewNeeded 후보를 세분화.
   var classified = classifyNoiseCategories(candidates: extraction.candidates, semantic: semantic);
   classified = applyTextHeuristic(candidates: classified, analysisWidthPx: w, analysisHeightPx: h);
+  classified = applyFloorDomainHeuristic(candidates: classified, semantic: semantic);
 
   // --- §6 FLOOR DOMAIN FIRST, PC2 PLANAR GRAPH INTEGRATION: 더 이상
   // 개별 candidate의 isExterior 태그로 endpoint-to-endpoint 체인을 걷지
@@ -216,16 +218,27 @@ PixelWallPipelineResult runPixelWallPipeline({
   // notConnected는 절대 Opening이 되지 않는다), GPT doorArc/windowDetail
   // 근거가 실제로 겹치면 종류를 확정한다(§5 순수 최단거리 매칭 금지 —
   // matchParentWallSystem이 collinearity+extent로만 판정).
-  final wallOpenings = buildWallOpenings(wallSystems: wallSystems, allCandidates: classified, w: w, h: h);
+  final wallOpeningResult = buildWallOpenings(wallSystems: wallSystems, allCandidates: classified, w: w, h: h);
+  // CAD/DXF FIRST GOAL 인식 품질 개선 WO §2 — extraWallSystems(reviewNeeded
+  // candidate 교차 검증으로 만들어진 1-segment 임시 시스템)는 opening의
+  // parentWallId 조회에만 쓴다 — wallEdges/PIXEL WALLS 진단 표시용
+  // wallSystems 목록 자체는 건드리지 않는다(그 목록은 여전히 순수
+  // structural 근거만 담아야 한다는 기존 의미를 유지한다).
+  final wallSystemsForOpenings = [...wallSystems, ...wallOpeningResult.extraWallSystems];
   final openingValidation = validateOpenings(
-    openings: wallOpenings,
-    validParentWallIds: {for (final s in wallSystems) s.id},
+    openings: wallOpeningResult.openings,
+    validParentWallIds: {for (final s in wallSystemsForOpenings) s.id},
   );
+  final unmatchedHintWarnings = [
+    for (final hint in wallOpeningResult.unmatchedSemanticHints)
+      'GPT가 문/창(${hint.noiseCategory == PixelWallNoiseCategory.doorArc ? "문" : "창"})을 감지했지만 '
+          '근처에 매칭되는 벽 geometry가 없어 배치하지 못했습니다(id=${hint.id}).',
+  ];
 
   final openings = <SSOpening>[
     for (final o in openingValidation.valid)
       () {
-        final system = wallSystems.firstWhere((s) => s.id == o.parentWallId);
+        final system = wallSystemsForOpenings.firstWhere((s) => s.id == o.parentWallId);
         final centerAlongPx = system.startAlongPx + (o.startT + o.endT) / 2 * system.lengthPx;
         final widthPx = (o.endT - o.startT) * system.lengthPx;
         // 이 opening과 가장 가까운 물리 SSWall segment(하위 호환 wallId).
@@ -278,6 +291,7 @@ PixelWallPipelineResult runPixelWallPipeline({
       // vs 전문가용 분리).
       if (!floorDomain.isValid) floorDomain.topology?.userMessage ?? 'FloorDomain INVALID: ${floorDomain.failureReason}',
       ...rejectedOpeningWarnings,
+      ...unmatchedHintWarnings,
     ],
     floorDomain: floorDomain.loop,
     wallEdges: wallEdges,

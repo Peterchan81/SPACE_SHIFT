@@ -6,6 +6,7 @@ import '../../models/cad_floor_plan.dart';
 import '../../models/cad_workspace_state.dart';
 import '../../models/floor_plan_file.dart';
 import '../../models/floor_plan_geometry.dart';
+import '../../models/scale_calibration.dart';
 import '../../models/space_scene.dart';
 import '../../models/space_scene_v2.dart';
 import '../../models/workspace_task_item.dart';
@@ -200,7 +201,20 @@ class FloorPlanPreview extends StatelessWidget {
         cad.debugOverlay && cad.displayMode != FloorPlanDisplayMode.original && result != null;
     final showGeneratedImage =
         !showDebugOverlay && generatedImage != null && cad.displayMode != FloorPlanDisplayMode.original;
-    final showOriginal = !showDebugOverlay && !showGeneratedImage;
+    // GPT CAD 핵심 이식 — "GPT 구조 분석 실행"/"CAD 파일 업로드(DXF)"로
+    // 실제 구조화 CAD 결과를 얻었으면(hasStructuredCadDraft), 그 결과를
+    // 화면에 직접 그려서 보여준다. GPT가 새로 그려준 이미지가 이미
+    // 있으면(showGeneratedImage) 그 이미지를 그대로 우선한다 — 이 CAD
+    // 초안은 좌표 기반 대체 경로일 뿐, 두 결과를 동시에 겹쳐 그리지
+    // 않는다.
+    final showCadDraft =
+        !showDebugOverlay &&
+        !showGeneratedImage &&
+        cad.hasStructuredCadDraft &&
+        cad.floorPlan != null &&
+        cad.floorPlan!.walls.isNotEmpty &&
+        cad.displayMode != FloorPlanDisplayMode.original;
+    final showOriginal = !showDebugOverlay && !showGeneratedImage && !showCadDraft;
 
     return Stack(
       fit: StackFit.expand,
@@ -239,6 +253,22 @@ class FloorPlanPreview extends StatelessWidget {
               generatedImage,
               fit: BoxFit.contain,
               cacheWidth: 1600,
+            ),
+          )
+        else if (showCadDraft)
+          // GPT CAD 핵심 이식 — "GPT 구조 분석 실행"/DXF import 성공 뒤
+          // 실제 사용자가 확인할 수 있는 CAD 초안 화면. 끝점 드래그는
+          // SS CAD TEST WorkOrder(1차 CAD/DXF E2E) §7에 따라 격리된
+          // 위젯 테스트(cad_floor_plan_overlay_endpoint_drag_test.dart)로
+          // 정확한 좌표 변환/undo 연동을 먼저 확인한 뒤 켰다 — AI 결과의
+          // 명백한 오차(벽 위치가 살짝 어긋남 등)를 사용자가 직접
+          // 고칠 수 있게 한다.
+          Positioned.fill(
+            child: CadFloorPlanOverlay(
+              floorPlan: cad.floorPlan!,
+              selectedId: cad.selectedObjectId,
+              onSelect: cadCallbacks.onSelectObject,
+              onWallEndpointChanged: cadCallbacks.onWallEndpointChanged,
             ),
           ),
         // V1 AI-IMAGE FLOW WO — "치수 보정"은 좌표 기반 CAD 결과를
@@ -507,7 +537,24 @@ class _AnalysisActionBar extends StatelessWidget {
     required this.failureMessage,
     required this.onStartAnalysis,
     required this.hasGeneratedImage,
+    required this.isRunningVisionConsolidation,
+    required this.onRunVisionConsolidation,
+    required this.canExportDxf,
+    required this.onExportDxf,
+    this.cadFloorPlan,
+    this.cadScale,
   });
+
+  final bool isRunningVisionConsolidation;
+  final VoidCallback onRunVisionConsolidation;
+  final bool canExportDxf;
+  final VoidCallback onExportDxf;
+
+  /// SS CAD TEST WorkOrder(1차 CAD/DXF E2E) §9 — DXF 내보내기 전에 CAD
+  /// 상태(구조/실측 scale 적용 여부/확인 필요 요소/사용자 수정 요소)를
+  /// 보여주는 데만 쓴다 — 이 위젯이 값을 계산하거나 바꾸지 않는다.
+  final CadFloorPlan? cadFloorPlan;
+  final FloorPlanScale? cadScale;
 
   final FloorPlanAnalysisPhase phase;
   final FloorPlanAnalysisStep? step;
@@ -572,6 +619,12 @@ class _AnalysisActionBar extends StatelessWidget {
         FloorPlanAnalysisPhase.completed => _CompletedSummary(
           hasGeneratedImage: hasGeneratedImage,
           onReanalyze: onStartAnalysis,
+          isRunningVisionConsolidation: isRunningVisionConsolidation,
+          onRunVisionConsolidation: onRunVisionConsolidation,
+          canExportDxf: canExportDxf,
+          onExportDxf: onExportDxf,
+          cadFloorPlan: cadFloorPlan,
+          cadScale: cadScale,
         ),
         FloorPlanAnalysisPhase.failed => Column(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -622,10 +675,22 @@ class _CompletedSummary extends StatelessWidget {
   const _CompletedSummary({
     required this.hasGeneratedImage,
     required this.onReanalyze,
+    required this.isRunningVisionConsolidation,
+    required this.onRunVisionConsolidation,
+    required this.canExportDxf,
+    required this.onExportDxf,
+    this.cadFloorPlan,
+    this.cadScale,
   });
 
   final bool hasGeneratedImage;
   final VoidCallback onReanalyze;
+  final bool isRunningVisionConsolidation;
+  final VoidCallback onRunVisionConsolidation;
+  final bool canExportDxf;
+  final VoidCallback onExportDxf;
+  final CadFloorPlan? cadFloorPlan;
+  final FloorPlanScale? cadScale;
 
   @override
   Widget build(BuildContext context) {
@@ -668,7 +733,140 @@ class _CompletedSummary extends StatelessWidget {
             ),
           ),
         ),
+        const Divider(height: 24, color: SpaceShiftColors.border),
+        // GPT CAD 핵심 이식 — 기존 GPT CAD 이미지 생성 흐름(위)과 완전히
+        // 별개로, 같은 원본 사진을 구조화된 walls/doors/windows/rooms로
+        // 이해한다(Floorplan-CAD-Test에서 검증된 다회 분석 통합, WO086).
+        Text(
+          'GPT 구조 분석(실측 가능)',
+          style: TextStyle(
+            fontSize: 12.5,
+            fontWeight: FontWeight.w600,
+            color: SpaceShiftColors.textPrimary,
+          ),
+        ),
+        const SizedBox(height: 4),
+        const Text(
+          '같은 사진을 3번 분석해 일치하는 벽/문/창/공간은 신뢰도를 높이고, '
+          '1회만 검출된 요소는 낮은 신뢰도로 표시합니다. 벽을 선택해 실측값을 '
+          '입력하면(치수 보정) 그 값은 다시 분석해도 덮어써지지 않습니다.',
+          style: TextStyle(
+            fontSize: 11.5,
+            color: SpaceShiftColors.textSecondary,
+            height: 1.4,
+          ),
+        ),
+        const SizedBox(height: 10),
+        SizedBox(
+          width: double.infinity,
+          child: FilledButton.icon(
+            onPressed: isRunningVisionConsolidation ? null : onRunVisionConsolidation,
+            icon: isRunningVisionConsolidation
+                ? const SizedBox(
+                    width: 16,
+                    height: 16,
+                    child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                  )
+                : const Icon(Icons.auto_fix_high_rounded, size: 18),
+            label: Text(isRunningVisionConsolidation ? '구조 분석 중(3회)...' : 'GPT 구조 분석 실행'),
+            style: FilledButton.styleFrom(
+              backgroundColor: SpaceShiftColors.textPrimary,
+              minimumSize: const Size.fromHeight(40),
+            ),
+          ),
+        ),
+        if (cadFloorPlan != null) ...[
+          const SizedBox(height: 10),
+          _CadExportReadinessSummary(floorPlan: cadFloorPlan!, scale: cadScale),
+        ],
+        const SizedBox(height: 8),
+        SizedBox(
+          width: double.infinity,
+          child: OutlinedButton.icon(
+            onPressed: canExportDxf ? onExportDxf : null,
+            icon: const Icon(Icons.file_download_outlined, size: 18),
+            label: const Text('DXF 내보내기'),
+            style: OutlinedButton.styleFrom(
+              minimumSize: const Size.fromHeight(40),
+              foregroundColor: SpaceShiftColors.textPrimary,
+              side: const BorderSide(color: SpaceShiftColors.border),
+            ),
+          ),
+        ),
       ],
+    );
+  }
+}
+
+/// SS CAD TEST WorkOrder(1차 CAD/DXF E2E) §9 — "DXF 내보내기 전에 CAD
+/// 상태를 사용자에게 명확히 보여준다." 최소한 CAD 구조(벽/문/창/방
+/// 개수)/실측 scale 적용 여부/확인 필요한 요소 존재 여부/사용자 수정
+/// 요소를 구분해서 보여준다. 정확도를 모르는 상태에서 임의의 "N% 정확"
+/// 같은 숫자는 표시하지 않는다(§9 "정확도를 모르는 상태에서 임의의
+/// 숫자를 표시하지 않는다") — 오직 이미 모델에 있는 사실(개수, scale
+/// source)만 그대로 보여준다.
+class _CadExportReadinessSummary extends StatelessWidget {
+  const _CadExportReadinessSummary({required this.floorPlan, required this.scale});
+
+  final CadFloorPlan floorPlan;
+  final FloorPlanScale? scale;
+
+  @override
+  Widget build(BuildContext context) {
+    final reviewNeededCount =
+        floorPlan.walls.where((w) => w.reviewNeeded).length +
+        floorPlan.openings.where((o) => o.reviewNeeded).length +
+        floorPlan.rooms.where((r) => r.reviewNeeded).length;
+    final userEditedCount =
+        floorPlan.walls.where((w) => w.source == CadElementSource.userEdited).length +
+        floorPlan.openings.where((o) => o.source == CadElementSource.userEdited).length;
+    final isScaled = scale != null && scale!.source.isReliable;
+
+    return Container(
+      padding: const EdgeInsets.all(10),
+      decoration: BoxDecoration(
+        color: const Color(0xFFF7F8FA),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: SpaceShiftColors.border),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text(
+            'DXF 내보내기 전 CAD 상태',
+            style: TextStyle(fontSize: 11.5, fontWeight: FontWeight.w600, color: SpaceShiftColors.textPrimary),
+          ),
+          const SizedBox(height: 6),
+          Text(
+            '구조: 벽 ${floorPlan.walls.length}개 · 문/창 ${floorPlan.openings.length}개 · 방 ${floorPlan.rooms.length}개',
+            style: const TextStyle(fontSize: 11.5, color: SpaceShiftColors.textPrimary),
+          ),
+          const SizedBox(height: 3),
+          Text(
+            isScaled
+                ? '실측 축척 적용됨 (${scale!.source.label}) — DXF에 실제 mm 치수로 반영됩니다.'
+                : '실측 축척 미확정 — DXF는 정규화 좌표(UNSCALED)로 내보내집니다. 실제 mm 도면이 아닙니다.',
+            style: TextStyle(
+              fontSize: 11.5,
+              color: isScaled ? const Color(0xFF16803C) : const Color(0xFFB45309),
+            ),
+          ),
+          if (reviewNeededCount > 0) ...[
+            const SizedBox(height: 3),
+            Text(
+              '확인 필요 요소 $reviewNeededCount개 — 자동 검출 신뢰도가 낮아 사람이 다시 봐야 합니다.',
+              style: const TextStyle(fontSize: 11.5, color: Color(0xFFB45309)),
+            ),
+          ],
+          if (userEditedCount > 0) ...[
+            const SizedBox(height: 3),
+            Text(
+              '사용자가 직접 수정한 요소 $userEditedCount개 — 이후 재분석에도 덮어써지지 않습니다.',
+              style: const TextStyle(fontSize: 11.5, color: SpaceShiftColors.textSecondary),
+            ),
+          ],
+        ],
+      ),
     );
   }
 }
@@ -1043,6 +1241,10 @@ class FloorPlanStatusSection extends StatelessWidget {
     required this.analysisStep,
     required this.analysisFailureMessage,
     required this.onReanalyze,
+    required this.isRunningVisionConsolidation,
+    required this.onRunVisionConsolidation,
+    required this.canExportDxf,
+    required this.onExportDxf,
     required this.cad,
     required this.cadCallbacks,
   });
@@ -1056,6 +1258,12 @@ class FloorPlanStatusSection extends StatelessWidget {
   /// 사용자가 CAD를 보정한 뒤 다시 분석해 그 보정 내용이 사라질 위험이
   /// 있을 때만 확인 절차를 적용하는 판단은 호출부(화면)가 한다.
   final VoidCallback onReanalyze;
+
+  /// GPT CAD 핵심 이식 — "GPT 구조 분석(3회 통합)"/"DXF 내보내기".
+  final bool isRunningVisionConsolidation;
+  final VoidCallback onRunVisionConsolidation;
+  final bool canExportDxf;
+  final VoidCallback onExportDxf;
 
   final CadWorkspaceState cad;
   final CadWorkspaceCallbacks cadCallbacks;
@@ -1085,6 +1293,12 @@ class FloorPlanStatusSection extends StatelessWidget {
           failureMessage: analysisFailureMessage,
           onStartAnalysis: onReanalyze,
           hasGeneratedImage: cad.generatedFloorPlanImageBytes != null,
+          isRunningVisionConsolidation: isRunningVisionConsolidation,
+          onRunVisionConsolidation: onRunVisionConsolidation,
+          canExportDxf: canExportDxf,
+          onExportDxf: onExportDxf,
+          cadFloorPlan: cad.floorPlan,
+          cadScale: cad.scale,
         ),
         if (analysisPhase == FloorPlanAnalysisPhase.completed) ...[
           const SizedBox(height: 16),
@@ -1163,6 +1377,10 @@ class _SpaceSummaryCard extends StatelessWidget {
             ),
           ],
         ),
+        if (cad.scaleSamples.length >= 2) ...[
+          const SizedBox(height: 6),
+          _ScaleSamplesSummary(samples: cad.scaleSamples),
+        ],
         if (cad.calibrating) ...[
           const SizedBox(height: 8),
           if (!cad.hasCalibrationSelection)
@@ -1255,6 +1473,33 @@ class _StructureEditingPanel extends StatelessWidget {
           ),
         ],
       ),
+    );
+  }
+}
+
+/// SS CAD TEST — 다중 실측 기준 WO. 실측 기준이 2개 이상 쌓였을 때만
+/// 보여준다(1개면 기존 화면과 완전히 동일하게 유지). 서로 크게 어긋나면
+/// (기본 8% 초과) 경고색으로 바꿔, GPT geometry가 부정확하거나 사용자가
+/// 서로 다른 벽을 잰 것일 수 있다는 신호를 숨기지 않는다.
+class _ScaleSamplesSummary extends StatelessWidget {
+  const _ScaleSamplesSummary({required this.samples});
+
+  final List<ScaleReferenceSample> samples;
+
+  @override
+  Widget build(BuildContext context) {
+    final result = resolveScaleFromSamples(samples);
+    final deviationPct = (result.maxDeviationRatio * 100).toStringAsFixed(1);
+    final color = result.hasConflict
+        ? Colors.orange.shade800
+        : SpaceShiftColors.textSecondary;
+    final text = result.hasConflict
+        ? '⚠ 기준값 ${samples.length}개 · 최대 편차 $deviationPct% — 서로 다른 '
+              '벽을 쟀는지 확인해주세요'
+        : '기준값 ${samples.length}개 · 최대 편차 $deviationPct%';
+    return Text(
+      text,
+      style: TextStyle(fontSize: 11, color: color, height: 1.3),
     );
   }
 }

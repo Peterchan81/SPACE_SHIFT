@@ -93,10 +93,13 @@ void main() {
     expect(exteriorWall.start, const Point2(0.1, 0.1));
     expect(exteriorWall.end, const Point2(0.9, 0.1));
     expect(exteriorWall.thicknessNormalized, 0.02);
-    // 원본 evidence confidence(0.75)가 아니라, 해석 계층이 실제 근거
-    // (다른 벽과의 접합점 + 검출된 방 경계 지지)로 재계산한 값이다 —
-    // 0.42(기본) + 0.2(접합점) + 0.2(경계 지지) = 0.82.
-    expect(exteriorWall.confidence, closeTo(0.82, 1e-9));
+    // PC2 Envelope-first 실험 WO — 기본 interpreter가 envelope-first로
+    // 바뀌었다. envelope-first는 벽이 실제로 재구성된 SPACE 경계와
+    // 매칭됐다는 사실 자체를 검증으로 보고, 원본 evidence confidence를
+    // 그대로 쓴다(별도 가중치 재계산 없음) — space-first의 "접합점/
+    // 경계 지지 가중합" 공식은 space-first 전용 회귀 테스트
+    // (architectural_drawing_interpreter_test.dart)에서 계속 검증한다.
+    expect(exteriorWall.confidence, closeTo(0.75, 1e-9));
     expect(exteriorWall.source, CadElementSource.analyzed);
     expect(exteriorWall.edited, isFalse);
 
@@ -368,10 +371,34 @@ void main() {
     );
 
     test('A — roomAreaM2는 정규화 면적×이미지 픽셀 면적×mmPerPixel²로 계산한다', () {
-      final cad = buildCadFloorPlan(_sampleAnalysisResult());
-      final room = cad.rooms.first;
+      // PC2 Envelope-first 실험 WO — 이 테스트는 roomAreaM2 "공식" 자체를
+      // 검증하는 것이 목적이라, buildCadFloorPlan(interpreter가 격자
+      // 재구성으로 areaNormalized를 다시 계산해 약간의 양자화 오차가
+      // 생김)을 거치지 않고 알려진 areaNormalized를 가진 CadRoom을
+      // 직접 만들어 공식만 독립적으로 확인한다.
+      const plan = CadFloorPlan(
+        sourceWidthPx: 800,
+        sourceHeightPx: 600,
+        walls: [],
+        openings: [],
+        rooms: [
+          CadRoom(
+            id: 'room-0',
+            polygon: [
+              Point2(0.1, 0.1),
+              Point2(0.5, 0.1),
+              Point2(0.5, 0.9),
+              Point2(0.1, 0.9),
+            ],
+            areaNormalized: 0.32,
+            confidence: 0.8,
+          ),
+        ],
+        warnings: [],
+      );
+      final room = plan.rooms.first;
 
-      final m2 = roomAreaM2(cad, room, scale);
+      final m2 = roomAreaM2(plan, room, scale);
       // areaPx2 = 0.32 * 800 * 600 = 153600. mm2 = 153600 * 2^2 = 614400.
       // m2 = 614400 / 1e6 = 0.6144.
       expect(m2, closeTo(0.6144, 1e-9));

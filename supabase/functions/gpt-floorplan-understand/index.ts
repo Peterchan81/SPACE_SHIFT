@@ -164,8 +164,8 @@ const SYSTEM_PROMPT =
   "boundaries you reported — never invent an id that isn't in your own " +
   "boundaries list.";
 
-function jsonError(message: string, status: number): Response {
-  return jsonResponse({ success: false, message }, status);
+function jsonError(message: string, status: number, billingExhausted = false): Response {
+  return jsonResponse({ success: false, message, billingExhausted }, status);
 }
 
 Deno.serve(async (req: Request) => {
@@ -226,8 +226,25 @@ Deno.serve(async (req: Request) => {
     }
 
     if (!openaiResponse.ok) {
-      console.error("OpenAI 요청 실패 상태:", openaiResponse.status);
-      return jsonError("GPT 평면도 분석 요청에 실패했습니다.", 502);
+      // API 호출 정책(비용 감사) WO §5 — "요청 자체는 정상이지만 계정에
+      // 남은 크레딧/쿼터가 없다"는 OpenAI의 명시적 응답(insufficient_quota/
+      // credit_balance_exhausted)만 골라 Flutter 쪽에 billingExhausted로
+      // 전달한다. 그래야 클라이언트가 이 경우를 "재시도해도 되는 일시적
+      // 오류"와 구분해, 같은 요청을 자동으로 다시 보내 유료 호출을
+      // 낭비하지 않을 수 있다. 이 판별에 실패해도(응답이 JSON이 아니거나
+      // 예상과 다른 모양) 기존과 동일하게 안전한 일반 실패로 처리한다 —
+      // OpenAI의 원본 에러 본문 자체는 클라이언트에 그대로 전달하지
+      // 않는다(secret이 아니어도 불필요한 내부 정보 노출을 최소화한다).
+      let billingExhausted = false;
+      try {
+        const openaiError = (await openaiResponse.clone().json())?.error;
+        billingExhausted =
+          openaiError?.type === "insufficient_quota" || openaiError?.code === "credit_balance_exhausted";
+      } catch (_error) {
+        billingExhausted = false;
+      }
+      console.error("OpenAI 요청 실패 상태:", openaiResponse.status, "billingExhausted:", billingExhausted);
+      return jsonError("GPT 평면도 분석 요청에 실패했습니다.", 502, billingExhausted);
     }
 
     const openaiPayload = await openaiResponse.json().catch(() => null);

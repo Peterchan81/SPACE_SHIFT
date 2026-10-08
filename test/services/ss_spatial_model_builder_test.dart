@@ -1,4 +1,13 @@
-// SSSpatialModelBuilder(evidence → 해석) 단위 테스트.
+// SSSpatialModelBuilder(evidence → 해석) 단위 테스트 — space-first
+// interpreter([ArchitecturalDrawingInterpreter]) 전용 회귀 스위트.
+//
+// PC2 Envelope-first 실험 WO — [SSSpatialModelBuilder]의 기본 interpreter가
+// envelope-first([EnvelopeFirstInterpreter])로 바뀌었다(다른 SPACE id
+// 규칙 — room evidence id를 그대로 쓰지 않고 `space-N`을 새로 부여한다).
+// 이 파일은 space-first를 폐기하지 않고 계속 검증하기 위해 명시적으로
+// 그 interpreter를 주입한다(WO 지시 8번 "기존 기능을 파괴하지 않고
+// 비교할 수 있어야 한다"). envelope-first 자체의 동등한 시나리오는
+// envelope_first_interpreter_test.dart에서 검증한다.
 //
 // PC2 재작업 WO — "닫힌 사각형을 찾는다"가 아니라 "사람이 사용/이동할
 // 수 있는 건축 공간인가?"를 판단하는 해석 계층. 검증 항목:
@@ -15,6 +24,7 @@ import 'package:flutter_test/flutter_test.dart';
 
 import 'package:ason_space/models/floor_plan_geometry.dart';
 import 'package:ason_space/models/ss_spatial_model.dart';
+import 'package:ason_space/services/architectural_drawing_interpreter.dart';
 import 'package:ason_space/services/ss_spatial_model_builder.dart';
 
 FloorPlanAnalysisDebugStats _stats({int rooms = 0, int openings = 0}) =>
@@ -32,7 +42,9 @@ FloorPlanAnalysisDebugStats _stats({int rooms = 0, int openings = 0}) =>
     );
 
 void main() {
-  const builder = SSSpatialModelBuilder();
+  const builder = SSSpatialModelBuilder(
+    interpreter: ArchitecturalDrawingInterpreter(),
+  );
 
   test('더 큰 공간 안에 완전히 둘러싸인 훨씬 작은 영역은 가구/설비 후보로 '
       '분류되고, 공간 목록에서는 제외된다', () {
@@ -122,10 +134,10 @@ void main() {
 
     final model = builder.build(result);
 
-    expect(
-      model.spaces.map((s) => s.id).toSet(),
-      {'room-outer', 'room-pantry'},
-    );
+    expect(model.spaces.map((s) => s.id).toSet(), {
+      'room-outer',
+      'room-pantry',
+    });
     expect(model.objects, isEmpty);
   });
 

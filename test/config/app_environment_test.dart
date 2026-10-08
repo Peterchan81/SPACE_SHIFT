@@ -62,5 +62,29 @@ void main() {
       expect(AppEnvironment.estimateEdgeFunctionUrl, isEmpty);
       expect(AppEnvironment.siteMeetingEdgeFunctionUrl, isEmpty);
     });
+
+    test('SS CAD TEST — dart-define을 지정하지 않으면 GPT Provider는 supabase, OpenAI key는 비어 있다', () {
+      expect(AppEnvironment.gptFloorplanProvider, GptFloorplanProviderType.supabase);
+      expect(AppEnvironment.openAiApiKey, isEmpty);
+    });
+  });
+
+  group('parseGptFloorplanProvider', () {
+    test('supabase/direct 문자열을 올바른 enum으로 변환한다', () {
+      expect(parseGptFloorplanProvider('supabase'), GptFloorplanProviderType.supabase);
+      expect(parseGptFloorplanProvider('direct'), GptFloorplanProviderType.direct);
+    });
+
+    test('대소문자/공백을 무시한다', () {
+      expect(parseGptFloorplanProvider('DIRECT'), GptFloorplanProviderType.direct);
+      expect(parseGptFloorplanProvider('  direct  '), GptFloorplanProviderType.direct);
+      expect(parseGptFloorplanProvider('Supabase'), GptFloorplanProviderType.supabase);
+    });
+
+    test('알 수 없는 값은 안전하게 supabase로 취급한다(오타로 direct/secret 경로가 실수로 켜지지 않는다)', () {
+      expect(parseGptFloorplanProvider('openai'), GptFloorplanProviderType.supabase);
+      expect(parseGptFloorplanProvider(''), GptFloorplanProviderType.supabase);
+      expect(parseGptFloorplanProvider('dirct'), GptFloorplanProviderType.supabase);
+    });
   });
 }

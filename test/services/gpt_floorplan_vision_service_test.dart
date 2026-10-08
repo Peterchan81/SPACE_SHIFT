@@ -6,7 +6,9 @@ import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 
 import 'package:ason_space/models/vision_understanding.dart';
+import 'package:ason_space/services/gpt_floorplan_direct_openai_vision_service.dart';
 import 'package:ason_space/services/gpt_floorplan_vision_service.dart';
+import 'package:ason_space/services/vision_interpretation_service.dart';
 
 void main() {
   Uint8List fakeImage() => Uint8List.fromList([137, 80, 78, 71, 1, 2, 3, 4]);
@@ -101,6 +103,54 @@ void main() {
       );
     });
 
+    test(
+      'API 호출 정책(비용 감사) WO §5 — Edge Function이 billingExhausted:true를 주면 '
+      'GptBillingExhaustedException을 던진다(재시도 판단에 쓸 수 있게 구분)',
+      () async {
+        final client = MockClient(
+          (_) async => http.Response(
+            jsonEncode({
+              'success': false,
+              'message': 'GPT 평면도 분석 요청에 실패했습니다.',
+              'billingExhausted': true,
+            }),
+            502,
+            headers: {'content-type': 'application/json'},
+          ),
+        );
+        final service = GptFloorplanEdgeFunctionVisionService(
+          endpoint: Uri.parse('https://project.supabase.co/functions/v1/gpt-floorplan-understand'),
+          client: client,
+        );
+
+        await expectLater(
+          service.interpret(fakeImage()),
+          throwsA(isA<GptBillingExhaustedException>()),
+        );
+      },
+    );
+
+    test('billingExhausted 필드가 없거나 false면 일반 Exception을 던진다(기존 동작 유지)', () async {
+      final client = MockClient(
+        (_) async => http.Response(
+          jsonEncode({'success': false, 'message': 'GPT 평면도 분석 요청에 실패했습니다.'}),
+          502,
+          headers: {'content-type': 'application/json'},
+        ),
+      );
+      final service = GptFloorplanEdgeFunctionVisionService(
+        endpoint: Uri.parse('https://project.supabase.co/functions/v1/gpt-floorplan-understand'),
+        client: client,
+      );
+
+      try {
+        await service.interpret(fakeImage());
+        fail('should have thrown');
+      } catch (e) {
+        expect(e, isNot(isA<GptBillingExhaustedException>()));
+      }
+    });
+
     test('응답 본문이 JSON이 아니면 안전하게 예외를 던진다', () async {
       final client = MockClient((_) async => http.Response('not json', 200));
       final service = GptFloorplanEdgeFunctionVisionService(
@@ -139,6 +189,27 @@ void main() {
     test('urlOverride가 빈 문자열이면 여전히 안전한 기본값을 돌려준다', () {
       final service = createVisionInterpretationService(urlOverride: '');
       expect(service, isA<UnavailableVisionInterpretationService>());
+    });
+
+    test('SS CAD TEST — providerOverride: direct + apiKeyOverride가 있으면 GptDirectOpenAiVisionService를 만든다', () {
+      final service = createVisionInterpretationService(
+        providerOverride: 'direct',
+        apiKeyOverride: 'sk-fake-local-only',
+      );
+      expect(service, isA<GptDirectOpenAiVisionService>());
+      expect((service as GptDirectOpenAiVisionService).apiKey, 'sk-fake-local-only');
+    });
+
+    test('SS CAD TEST — providerOverride: direct 인데 apiKeyOverride가 없으면 안전한 기본값을 돌려준다', () {
+      final service = createVisionInterpretationService(providerOverride: 'direct', apiKeyOverride: '');
+      expect(service, isA<UnavailableVisionInterpretationService>());
+    });
+
+    test('SS CAD TEST — providerOverride를 안 주면 기존과 동일하게 supabase 경로(urlOverride)를 쓴다', () {
+      final service = createVisionInterpretationService(
+        urlOverride: 'https://project.supabase.co/functions/v1/gpt-floorplan-understand',
+      );
+      expect(service, isA<GptFloorplanEdgeFunctionVisionService>());
     });
   });
 }

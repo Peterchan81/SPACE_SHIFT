@@ -74,6 +74,10 @@ class UserWorkspacePanel extends StatefulWidget {
     required this.analysisStep,
     required this.analysisFailureMessage,
     required this.onReanalyze,
+    required this.isRunningVisionConsolidation,
+    required this.onRunVisionConsolidation,
+    required this.canExportDxf,
+    required this.onExportDxf,
     required this.cad,
     required this.cadCallbacks,
     required this.selectedTool,
@@ -100,6 +104,11 @@ class UserWorkspacePanel extends StatefulWidget {
     this.onUndoCad,
     this.onDeleteCad,
     this.onCreateWorkItemFromCad,
+    this.onEditWallLengthMm,
+    this.onEditOpeningWidthMm,
+    this.onAddDoorToWall,
+    this.onAddWindowToWall,
+    this.onAddWall,
   });
 
   final WorkspaceTaskItem? task;
@@ -118,6 +127,16 @@ class UserWorkspacePanel extends StatefulWidget {
   final FloorPlanAnalysisStep? analysisStep;
   final String? analysisFailureMessage;
   final VoidCallback onReanalyze;
+
+  /// GPT CAD 핵심 이식 — "GPT 구조 분석(3회 통합)"이 지금 실행 중인지.
+  final bool isRunningVisionConsolidation;
+  final VoidCallback onRunVisionConsolidation;
+
+  /// GPT CAD 핵심 이식 — [cad]에 내보낼 CAD geometry가 있는지("DXF
+  /// 내보내기" 버튼 활성화 조건).
+  final bool canExportDxf;
+  final VoidCallback onExportDxf;
+
   final CadWorkspaceState cad;
   final CadWorkspaceCallbacks cadCallbacks;
 
@@ -141,6 +160,20 @@ class UserWorkspacePanel extends StatefulWidget {
   final VoidCallback? onUndoCad;
   final VoidCallback? onDeleteCad;
   final VoidCallback? onCreateWorkItemFromCad;
+
+  /// SS CAD TEST — CAD Editor WO §1. 선택된 벽/문·창의 실제 mm 값을
+  /// 사용자가 직접 입력해 확정한다.
+  final void Function(double newLengthMm)? onEditWallLengthMm;
+  final void Function(double newWidthMm)? onEditOpeningWidthMm;
+
+  /// CAD/DXF FIRST GOAL FINAL LIVE E2E WO §8 — 선택된 벽에 AI가 놓친
+  /// 문/창을 사용자가 직접 추가한다([CadStructureTab] 문서 참고).
+  final VoidCallback? onAddDoorToWall;
+  final VoidCallback? onAddWindowToWall;
+
+  /// CAD/DXF FIRST GOAL FINAL LIVE E2E WO — 특정 선택과 무관하게 새 벽
+  /// 하나를 만든다([_EmptySelectionNotice] 문서 참고).
+  final VoidCallback? onAddWall;
 
   final WorkspaceSelectionTool selectedTool;
   final ValueChanged<WorkspaceSelectionTool> onToolSelected;
@@ -277,6 +310,10 @@ class _UserWorkspacePanelState extends State<UserWorkspacePanel> {
                   analysisStep: widget.analysisStep,
                   analysisFailureMessage: widget.analysisFailureMessage,
                   onReanalyze: widget.onReanalyze,
+                  isRunningVisionConsolidation: widget.isRunningVisionConsolidation,
+                  onRunVisionConsolidation: widget.onRunVisionConsolidation,
+                  canExportDxf: widget.canExportDxf,
+                  onExportDxf: widget.onExportDxf,
                   cad: widget.cad,
                   cadCallbacks: widget.cadCallbacks,
                 )
@@ -362,6 +399,10 @@ class _UserWorkspacePanelState extends State<UserWorkspacePanel> {
         onUndo: widget.onUndoCad ?? () {},
         onDelete: widget.onDeleteCad ?? () {},
         onCreateWorkItem: widget.onCreateWorkItemFromCad ?? () {},
+        onEditWallLengthMm: widget.onEditWallLengthMm,
+        onEditOpeningWidthMm: widget.onEditOpeningWidthMm,
+        onAddDoorToWall: widget.onAddDoorToWall,
+        onAddWindowToWall: widget.onAddWindowToWall,
       );
     }
     if (task == null) {
@@ -372,6 +413,7 @@ class _UserWorkspacePanelState extends State<UserWorkspacePanel> {
       return _EmptySelectionNotice(
         canUndoCad: widget.canUndoCad,
         onUndoCad: widget.onUndoCad,
+        onAddWall: widget.onAddWall,
       );
     }
     return WorkTab(
@@ -471,10 +513,17 @@ class _StageNotice extends StatelessWidget {
 }
 
 class _EmptySelectionNotice extends StatelessWidget {
-  const _EmptySelectionNotice({this.canUndoCad = false, this.onUndoCad});
+  const _EmptySelectionNotice({this.canUndoCad = false, this.onUndoCad, this.onAddWall});
 
   final bool canUndoCad;
   final VoidCallback? onUndoCad;
+
+  /// CAD/DXF FIRST GOAL FINAL LIVE E2E WO — AI가 통째로 놓친 벽(그 근처에
+  /// pixel 증거 자체가 없어 "문 추가"로도 복구할 수 없는 경우, §8/§2
+  /// 인식 품질 조사에서 실제로 확인됨)을 사용자가 직접 추가할 방법이
+  /// 전혀 없었다. 새 벽을 만드는 것은 특정 벽/문·창 선택과 무관한 일반
+  /// 동작이라 선택이 비어 있을 때도(실행취소와 같은 자리) 보여준다.
+  final VoidCallback? onAddWall;
 
   @override
   Widget build(BuildContext context) {
@@ -499,6 +548,18 @@ class _EmptySelectionNotice extends StatelessWidget {
                 onPressed: onUndoCad,
                 icon: const Icon(Icons.undo_rounded, size: 18),
                 label: const Text('실행 취소'),
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: SpaceShiftColors.textPrimary,
+                  side: const BorderSide(color: SpaceShiftColors.border),
+                ),
+              ),
+            ],
+            if (onAddWall != null) ...[
+              const SizedBox(height: 16),
+              OutlinedButton.icon(
+                onPressed: onAddWall,
+                icon: const Icon(Icons.add_road_rounded, size: 18),
+                label: const Text('벽 추가'),
                 style: OutlinedButton.styleFrom(
                   foregroundColor: SpaceShiftColors.textPrimary,
                   side: const BorderSide(color: SpaceShiftColors.border),

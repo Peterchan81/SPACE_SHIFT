@@ -2,25 +2,36 @@ import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 
+import '../config/app_environment.dart';
 import '../models/cad_floor_plan.dart';
 import '../models/cad_workspace_state.dart';
 import '../models/floor_plan_file.dart';
 import '../models/floor_plan_geometry.dart';
+import '../models/scale_calibration.dart';
 import '../models/space_scene.dart';
 import '../models/space_scene_v2.dart';
 import '../models/workspace_drawing_entity.dart';
 import '../models/workspace_task_item.dart';
 import '../models/workspace_viewport_transform.dart';
 import '../services/ai_opening_bridge.dart';
+import '../services/cad_editing_ops.dart';
+import '../services/cad_file_upload_service.dart';
+import '../services/dxf_export_service.dart';
+import '../services/dxf_import_service.dart';
+import '../services/e2e_dxf_exporter.dart';
 import '../services/floor_plan_analysis_service.dart';
 import '../services/floor_plan_upload_service.dart';
 import '../services/gpt_floorplan_image_service.dart';
 import '../services/gpt_floorplan_iso_service.dart';
+import '../services/gpt_floorplan_openai_contract.dart';
 import '../services/gpt_floorplan_vision_service.dart';
 import '../services/space_scene_builder.dart';
 import '../services/space_scene_builder_v2.dart';
+import '../services/vision_consolidation.dart';
 import '../services/vision_interpretation_service.dart';
 import '../theme/space_shift_colors.dart';
+import '../vision_cad_poc/pixel_wall_v4/live_semantic_provider.dart';
+import '../vision_cad_poc/pixel_wall_v4/pixel_wall_pipeline.dart';
 import '../widgets/workspace/ceiling_height_sheet.dart';
 import '../widgets/workspace/floor_plan_upload_card.dart';
 import '../widgets/workspace/space_3d_view_gpu_v2.dart'
@@ -67,12 +78,19 @@ class FloorPlanWorkspaceScreen extends StatefulWidget {
     this.demoMode = false,
     this.uploadService = const FloorPlanUploadService(),
     this.analysisService = const FloorPlanAnalysisService(),
+    this.cadFileUploadService = const CadFileUploadService(),
     this.floorPlanImageService,
     this.floorPlanIsoService,
     this.visionOpeningService,
+    this.gptStructureAnalysis,
   });
 
   final String projectName;
+
+  /// SS CAD TEST — CAD Editor WO §4. [FloorPlanUploadService]와 같은
+  /// 이유로 주입 지점을 둔다 — 테스트가 실제 플랫폼 파일 선택창 없이
+  /// 가짜 DXF 텍스트를 주입할 수 있게 한다.
+  final CadFileUploadService cadFileUploadService;
 
   /// MASTER UI 디자인 검수/미리보기용으로만 데모 마커 6개와 첫 항목 선택을
   /// 미리 채워 넣는다(WO 8/9번). 로그인/회원가입에서 진입하는 실사용
@@ -100,6 +118,23 @@ class FloorPlanWorkspaceScreen extends StatefulWidget {
   /// 설정에 따라 안전한 기본값 또는 실제 Edge Function 구현을 고른다.
   /// [floorPlanImageService]/[floorPlanIsoService]와 같은 패턴이다.
   final VisionInterpretationService? visionOpeningService;
+  /// GPT CAD 핵심 이식 — "GPT 구조 분석 실행" 테스트 주입 지점.
+  /// [floorPlanImageService]/[floorPlanIsoService]와 같은 이유: 지정하지
+  /// 않으면(실사용 경로) [_createProductionGptStructureAnalysis]가
+  /// dart-define 설정에 따라 안전한 기본값
+  /// ([UnavailableVisionInterpretationService]) 또는 실제 구현을 고른다.
+  /// 실사용 경로에서 값을 매번 새로 만들면(기존 코드처럼 인라인으로
+  /// 생성) 테스트가 실패를 흉내낼 방법이 없어, 이 화면의 "GPT 구조 분석"
+  /// 실패 경로 전체가 위젯 테스트로 한 번도 검증된 적이 없었다 — 이전
+  /// 실패 진단으로 드러난 실제 원인 중 하나.
+  ///
+  /// SS CAD TEST — WorkOrder(1차 CAD/DXF E2E): 실사용 구현이
+  /// [VisionGuidedSpatialModelBuilder](HintedGeometryExtractor 기반)에서
+  /// pixel_wall_v4 + [LiveSemanticProvider]로 바뀌었다("AI=의미,
+  /// SS=좌표검증" 원칙, §4/§5) — 이 필드 자체의 계약(이미지 바이트 →
+  /// [CadFloorPlan])은 그대로라 호출부([buildConsolidatedVisionCadFloorPlan]
+  /// 3회 통합 등)는 전혀 바뀌지 않았다.
+  final Future<CadFloorPlan> Function(Uint8List imageBytes)? gptStructureAnalysis;
 
   @override
   State<FloorPlanWorkspaceScreen> createState() =>
@@ -168,6 +203,28 @@ enum _LeftRailItem {
   taskList,
   aiAssistant,
   settings,
+}
+
+/// [FloorPlanWorkspaceScreen.gptStructureAnalysis]가 지정되지 않았을 때
+/// (실사용 경로)의 기본값.
+///
+/// SS CAD TEST — WorkOrder(1차 CAD/DXF E2E) §4/§5: "AI는 의미 판별만,
+/// 좌표는 SS geometry가 truth"라는 원칙에 따라 pixel_wall_v4
+/// (`runPixelWallPipelineWithSemanticProvider` — 실제 벽선/교차점/외곽/
+/// 개구부는 픽셀 evidence로 SS가 직접 뽑고, AI는 [LiveSemanticProvider]로
+/// 그 의미(방 이름/문·창 종류)만 판별)로 CadFloorPlan을 만든다. AI 호출은
+/// [createVisionInterpretationService](기존 "GPT 구조 분석"이 쓰던 것과
+/// 정확히 같은 서비스)를 그대로 재사용하므로 새 API 연동을 추가하지
+/// 않았다 — `--dart-define=GPT_FLOORPLAN_EDGE_FUNCTION_URL=...`(또는
+/// `GPT_FLOORPLAN_PROVIDER=direct`)이 없으면 기존과 동일하게 안전한
+/// [UnavailableVisionInterpretationService]로 폴백해, semantic 없이
+/// geometry-only로 계속 진행한다(§16 "죽으면 안 된다").
+Future<CadFloorPlan> _createProductionGptStructureAnalysis(Uint8List imageBytes) async {
+  final pipelineResult = await runPixelWallPipelineWithSemanticProvider(
+    imageBytes: imageBytes,
+    provider: LiveSemanticProvider(createVisionInterpretationService()),
+  );
+  return buildCadFloorPlanFromSpatialModel(pipelineResult.model);
 }
 
 class _FloorPlanWorkspaceScreenState extends State<FloorPlanWorkspaceScreen> {
@@ -249,6 +306,10 @@ class _FloorPlanWorkspaceScreenState extends State<FloorPlanWorkspaceScreen> {
             : (_selectedCadWall != null ? 'wall:$id' : null),
     };
   }
+  /// SS CAD TEST — CAD Editor WO §4. 마지막 "CAD 파일 업로드" 시도의
+  /// 결과 메시지(성공/경고/실패 전부) — 화면 어딘가에 짧게 보여줄 수
+  /// 있게 보존한다. null이면 아직 시도한 적이 없다는 뜻이다.
+  String? _dxfImportMessage;
 
   /// V1 AI-IMAGE FLOW WO — GPT가 새로 그려준 "깨끗한 CAD 스타일 2D
   /// 평면도" 이미지 그 자체(좌표가 아니라 픽셀). 중앙 화면은 CAD
@@ -260,12 +321,28 @@ class _FloorPlanWorkspaceScreenState extends State<FloorPlanWorkspaceScreen> {
   FloorPlanDisplayMode _displayMode = FloorPlanDisplayMode.cad;
   bool _debugOverlay = false;
 
+  /// GPT CAD 핵심 이식 — Floorplan-CAD-Test에서 검증된 다회 분석 통합
+  /// (WO086)이 지금 실행 중인지. true인 동안 관련 버튼을 비활성화해
+  /// 중복 실행을 막는다.
+  bool _isRunningVisionConsolidation = false;
+
+  /// [CadWorkspaceState.hasStructuredCadDraft] 참고 — 이 값이 true인
+  /// 동안만 중앙 화면이 [_cadFloorPlan]을 CAD 초안으로 직접 그려서
+  /// 보여준다.
+  bool _hasStructuredCadDraft = false;
+
   bool _calibrating = false;
   String? _calibrationWallId;
   Point2? _calibrationStart;
   Point2? _calibrationEnd;
   double? _calibrationPixelLength;
   FloorPlanScale? _scale;
+
+  /// SS CAD TEST — 다중 실측 기준. 벽 하나만 재도 기존과 동일하게
+  /// 동작하지만(샘플 1개 → 그 값 그대로), 2~3개를 재면 중앙값으로
+  /// 대표 축척을 계산하고 서로 크게 어긋나면 conflict로 표시한다
+  /// ([scale_calibration.dart] 참고). GPT는 이 값에 전혀 관여하지 않는다.
+  List<ScaleReferenceSample> _scaleSamples = [];
   double? _ceilingHeightMm;
 
   /// 실제로 생성된 3D 공간 — [_onGenerate3D]가 성공했을 때만 채워진다.
@@ -332,8 +409,11 @@ class _FloorPlanWorkspaceScreenState extends State<FloorPlanWorkspaceScreen> {
       _cadFloorPlan = null;
       _selectedCadObjectId = null;
       _cadUndoStack.clear();
+      // draft가 통째로 바뀌었다 — 이전 "2D 공간 확정" 스냅샷이 3D에 남지 않게 지운다.
+      _confirmedFloorPlan = null;
       _generatedFloorPlanImageBytes = null;
       _isGeneratingFloorPlanImage = false;
+      _hasStructuredCadDraft = false;
       _displayMode = FloorPlanDisplayMode.cad;
       _debugOverlay = false;
       _calibrating = false;
@@ -342,6 +422,7 @@ class _FloorPlanWorkspaceScreenState extends State<FloorPlanWorkspaceScreen> {
       _calibrationEnd = null;
       _calibrationPixelLength = null;
       _scale = null;
+      _scaleSamples = [];
       _ceilingHeightMm = null;
       _spaceScene = null;
       _spaceSceneV2 = null;
@@ -360,6 +441,8 @@ class _FloorPlanWorkspaceScreenState extends State<FloorPlanWorkspaceScreen> {
 
   VisionInterpretationService get _visionOpeningService =>
       widget.visionOpeningService ?? _createProductionVisionOpeningService();
+  Future<CadFloorPlan> Function(Uint8List) get _gptStructureAnalysis =>
+      widget.gptStructureAnalysis ?? _createProductionGptStructureAnalysis;
 
   /// "AI 평면도 생성" — V1 AI-IMAGE FLOW WO 방향 수정.
   ///
@@ -462,6 +545,8 @@ class _FloorPlanWorkspaceScreenState extends State<FloorPlanWorkspaceScreen> {
       _cadFloorPlan = cadFloorPlan;
       _selectedCadObjectId = null;
       _cadUndoStack.clear();
+      // draft가 통째로 바뀌었다 — 이전 "2D 공간 확정" 스냅샷이 3D에 남지 않게 지운다.
+      _confirmedFloorPlan = null;
       // 2D 단순화 WO — 사용자가 이미 직접 보정한 축척은 절대 덮어쓰지
       // 않는다([resolveAutoScale] 참고). 처음 분석이라면 문 기준
       // 추정 또는(그마저 없으면) "알 수 없음" 임시 기준으로 자동
@@ -579,7 +664,120 @@ class _FloorPlanWorkspaceScreenState extends State<FloorPlanWorkspaceScreen> {
 
   void _undoCad() {
     if (_cadUndoStack.isEmpty) return;
-    setState(() => _cadFloorPlan = _cadUndoStack.removeLast());
+    setState(() {
+      _cadFloorPlan = _cadUndoStack.removeLast();
+      // 실행 취소도 draft를 바꾼다 — [_mutateCad]와 같은 이유로 이전 확정을 무효화한다.
+      _confirmedFloorPlan = null;
+    });
+  }
+
+  /// SS CAD TEST — CAD Editor WO §1. "AI 결과 4500mm → 사용자 4830mm
+  /// 입력 → 실제 MetricWall = 4830mm"를 그대로 구현한다 — 축척(scale)이
+  /// 아직 없으면 mm를 계산할 근거가 없으므로 아무 일도 하지 않는다
+  /// (임의 추정 금지, 기존 WO 9번 원칙과 동일).
+  void _onEditWallLength(double newLengthMm) {
+    final plan = _cadFloorPlan;
+    final wall = _selectedCadWall;
+    final scale = _scale;
+    if (plan == null || wall == null || scale == null) return;
+    final edited = wallWithLengthMm(plan, wall, newLengthMm, scale);
+    _mutateCad(
+      (p) => p.copyWithWalls([
+        for (final w in p.walls) if (w.id == wall.id) edited else w,
+      ]),
+    );
+  }
+
+  /// 선택된 문/창의 실제 폭(mm)을 사용자가 직접 확정한다.
+  void _onEditOpeningWidth(double newWidthMm) {
+    final plan = _cadFloorPlan;
+    final opening = _selectedCadOpening;
+    final scale = _scale;
+    if (plan == null || opening == null || scale == null) return;
+    final edited = openingWithWidthMm(plan, opening, newWidthMm, scale);
+    _mutateCad(
+      (p) => CadFloorPlan(
+        sourceWidthPx: p.sourceWidthPx,
+        sourceHeightPx: p.sourceHeightPx,
+        walls: p.walls,
+        openings: [for (final o in p.openings) if (o.id == opening.id) edited else o],
+        rooms: p.rooms,
+        warnings: p.warnings,
+        objectCandidates: p.objectCandidates,
+      ),
+    );
+  }
+
+  /// CAD/DXF FIRST GOAL FINAL LIVE E2E WO §8 — 실제 실측도면 LIVE
+  /// 검증에서 AI가 실제 문을 놓치는 경우가 확인됐고, 그때까지 이
+  /// 화면에는 "이미 있는 문/창의 폭을 고치는" 기능만 있었다. 선택된
+  /// 벽에 기본 폭 문/창 하나를 [createOpeningOnWall]로 만들어 추가한다
+  /// — 위치/폭은 사용자가 캔버스 드래그와 "실제 폭 직접 입력"으로 다시
+  /// 잡는다는 전제다(§8 "대규모 CAD editor로 확대하지 않는다").
+  void _onAddOpeningToSelectedWall(OpeningType type) {
+    final plan = _cadFloorPlan;
+    final wall = _selectedCadWall;
+    if (plan == null || wall == null) return;
+    final created = createOpeningOnWall(plan, wall, type: type, scale: _scale);
+    _mutateCad(
+      (p) => CadFloorPlan(
+        sourceWidthPx: p.sourceWidthPx,
+        sourceHeightPx: p.sourceHeightPx,
+        walls: p.walls,
+        openings: [...p.openings, created],
+        rooms: p.rooms,
+        warnings: p.warnings,
+        objectCandidates: p.objectCandidates,
+      ),
+    );
+  }
+
+  /// CAD/DXF FIRST GOAL 실전 워크플로 최종 검증 WO — AI가 벽 자체를
+  /// 통째로 놓친 경우(그 근처에 pixel 증거가 전혀 없어 "문 추가"만으로는
+  /// 복구할 수 없음, 인식 품질 조사에서 실제로 확인됨) 사용자가 직접
+  /// 새 벽을 추가할 방법이 전혀 없었다 — DXF exporter는 opening의
+  /// wallId가 실제 벽을 가리키지 않으면 그 문/창을 조용히 건너뛰므로
+  /// (e2e_dxf_exporter.dart), 벽이 없으면 문도 최종 DXF에 못 들어간다.
+  /// 기존 [createDefaultWall] 순수 함수를 그대로 쓴다 — 위치는 캔버스
+  /// 중앙 기본값이고, 사용자가 끝점을 드래그(기존 기능)해 실제 위치로
+  /// 옮긴다는 전제다.
+  void _onAddWall() {
+    final plan = _cadFloorPlan;
+    if (plan == null) return;
+    final created = createDefaultWall(plan, isExterior: false);
+    _mutateCad((p) => p.copyWithWalls([...p.walls, created]));
+  }
+
+  /// SS CAD TEST — CAD Editor WO §4. "CAD 파일 업로드" 버튼 핸들러 —
+  /// [FloorPlanUploadService]의 "① 평면도 업로드"와 같은 패턴: 파일을
+  /// 고르고, 성공하면 현재 편집 상태를 그 결과로 완전히 교체한다(undo
+  /// 스택도 새로 시작 — 방금 불러온 파일이 새 기준선이다).
+  Future<void> _onImportDxf() async {
+    final file = await widget.cadFileUploadService.pickCadFile();
+    if (file == null || !mounted) return;
+
+    final result = importDxf(file.content);
+    if (!result.success) {
+      setState(() => _dxfImportMessage = result.failureMessage);
+      return;
+    }
+
+    setState(() {
+      _cadFloorPlan = result.plan;
+      _scale = result.scale;
+      _scaleSamples = [];
+      _selectedCadObjectId = null;
+      _cadUndoStack.clear();
+      // 불러온 DXF가 새 draft다 — 이전 도면의 "2D 공간 확정" 스냅샷이 3D에 남지 않게 지운다.
+      _confirmedFloorPlan = null;
+      _analysisPhase = FloorPlanAnalysisPhase.completed;
+      _displayMode = FloorPlanDisplayMode.cad;
+      _hasStructuredCadDraft = true;
+      _dxfImportMessage = result.warnings.isEmpty
+          ? '"${file.fileName}"에서 벽 ${result.plan!.walls.length}개, 문/창 '
+                '${result.plan!.openings.length}개, 방 ${result.plan!.rooms.length}개를 불러왔습니다.'
+          : '"${file.fileName}" 불러옴 — ${result.warnings.join(' / ')}';
+    });
   }
 
   void _onWallEndpointChanged(String wallId, bool isStart, Point2 newPosition) {
@@ -907,6 +1105,12 @@ class _FloorPlanWorkspaceScreenState extends State<FloorPlanWorkspaceScreen> {
   /// 전체 면적·3D 크기가 전부 이 새 축척(measured)으로 다시 계산된다
   /// (같은 [_scale] 필드를 참조하는 모든 계산이 자동으로 갱신됨, WO
   /// 14번).
+  ///
+  /// SS CAD TEST — 다중 실측 기준 WO: 이번 측정을 [_scaleSamples]에
+  /// 추가(같은 벽을 다시 쟀으면 이전 값을 교체)하고, 전체 샘플의
+  /// 중앙값으로 대표 축척을 다시 계산한다. 샘플이 1개뿐이면
+  /// [resolveScaleFromSamples]가 그 값을 그대로 돌려주므로 기존 단일
+  /// 보정과 결과가 완전히 같다 — 이 확장으로 기존 동작을 바꾸지 않는다.
   void _onApplyCalibrationLength(double realMm) {
     final start = _calibrationStart;
     final end = _calibrationEnd;
@@ -917,9 +1121,21 @@ class _FloorPlanWorkspaceScreenState extends State<FloorPlanWorkspaceScreen> {
         pixelLength <= 0) {
       return;
     }
+    final wallId = _calibrationWallId;
+    final newSample = ScaleReferenceSample(
+      wallId: wallId,
+      pixelLength: pixelLength,
+      measuredMm: realMm,
+    );
     setState(() {
+      _scaleSamples = [
+        for (final s in _scaleSamples)
+          if (wallId == null || s.wallId != wallId) s,
+        newSample,
+      ];
+      final resolved = resolveScaleFromSamples(_scaleSamples);
       _scale = FloorPlanScale(
-        mmPerPixel: realMm / pixelLength,
+        mmPerPixel: resolved.mmPerPixel,
         referenceStart: start,
         referenceEnd: end,
         referenceLengthMm: realMm,
@@ -1146,6 +1362,92 @@ class _FloorPlanWorkspaceScreenState extends State<FloorPlanWorkspaceScreen> {
     await _startAnalysis();
   }
 
+  /// GPT CAD 핵심 이식 — "GPT 구조 분석(3회 통합)" 버튼. 기존 GPT CAD
+  /// 이미지 생성 흐름([_imageService])과 기존 픽셀 분석 엔진
+  /// ([widget.analysisService])은 전혀 건드리지 않는다 —
+  /// [_gptStructureAnalysis](pixel_wall_v4 geometry + [LiveSemanticProvider]
+  /// 로 재사용하는 기존 GPT 구조 분석 결과, §4/§5)를 같은 원본 사진에
+  /// 3번 돌리고, [consolidateCadFloorPlans]로 통합한 결과를 [_cadFloorPlan]에
+  /// 반영해 기존 "도면 보정"(벽 클릭→치수 보정) 흐름과 DXF 내보내기가
+  /// 그대로 이 통합 결과를 쓰게 한다.
+  ///
+  /// [_scale]은 [resolveAutoScale]을 그대로 재사용해 결정한다 — 사용자가
+  /// 이미 실측 보정을 마쳤다면([ScaleSource.measured]) 이 재분석으로
+  /// 절대 덮어쓰지 않는다(요구사항: "사용자 confirmed 치수는 AI가 절대
+  /// 덮어쓰지 않는다").
+  Future<void> _onRunVisionConsolidation() async {
+    final file = _floorPlanFile;
+    final bytes = file?.bytes;
+    if (bytes == null || _isRunningVisionConsolidation) return;
+
+    // API 호출 정책(비용 감사) WO §7 — 이 버튼 1회 tap이 실제로 몇 번의
+    // 유료 OpenAI 요청으로 이어졌는지 개발 로그에서 그대로 추적할 수
+    // 있게, 매 tap마다 새 operation id를 만든다. API key는 여기 어디에도
+    // 없다.
+    final operationId = 'CAD_ANALYSIS_${DateTime.now().millisecondsSinceEpoch}';
+    final provider = AppEnvironment.gptFloorplanProvider.name;
+
+    setState(() => _isRunningVisionConsolidation = true);
+    try {
+      final consolidated = await runAdaptiveVisionConsolidation(
+        bytes,
+        buildOnce: _gptStructureAnalysis,
+        onAttempt: ({required attempt, required reason, outcome}) {
+          debugPrint(
+            '[AI CALL] operation=$operationId provider=$provider model=$kGptFloorplanOpenAiModel '
+            'attempt=$attempt request=$attempt reason=$reason outcome=${outcome ?? "pending"}',
+          );
+        },
+      );
+      if (!mounted) return;
+      setState(() {
+        _cadUndoStack.add(_cadFloorPlan ?? consolidated);
+        _cadFloorPlan = consolidated;
+        _selectedCadObjectId = null;
+        // draft가 통째로 바뀌었다 — 이전 "2D 공간 확정" 스냅샷이 3D에 남지 않게 지운다.
+        _confirmedFloorPlan = null;
+        _scale = resolveAutoScale(consolidated, _scale);
+        _hasStructuredCadDraft = true;
+      });
+    } on GptBillingExhaustedException {
+      // API 호출 정책(비용 감사) WO §5 — 결제 문제는 "잠시 후 다시
+      // 시도"가 아니라 사용자가 실제로 조치해야 하는 별도 상황이므로,
+      // 재시도를 유도하는 문구를 보여주지 않는다.
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('OpenAI API 크레딧이 소진되었습니다. 결제(billing) 확인 후 다시 시도해주세요.'),
+        ),
+      );
+    } catch (error) {
+      // 화면에는(이 프로젝트의 기존 관례대로) 원본 예외 내용을 노출하지
+      // 않고 이전 CAD 상태를 그대로 유지하지만, 개발자가 실패 원인을
+      // 진단할 수 있도록 로그에는 남긴다(다른 서비스의 실패 로깅과 동일한
+      // 패턴 — ai_generation_service.dart의 'AI 생성 실패: $error' 참고).
+      // 이 예외에는 Secret이 담기지 않는다 — OpenAI key는 Edge Function
+      // 안에만 있고 Flutter 앱에는 애초에 전달되지 않는다.
+      debugPrint('GPT 구조 분석 실패: $error');
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('GPT 구조 분석에 실패했습니다. 잠시 후 다시 시도해주세요.')),
+      );
+    } finally {
+      if (mounted) setState(() => _isRunningVisionConsolidation = false);
+    }
+  }
+
+  /// GPT CAD 핵심 이식 — "DXF 내보내기" 버튼. 기존
+  /// [E2eDxfExporter](Canonical [CadFloorPlan]에서 직접 DXF를 만드는,
+  /// 이미 완성돼 있던 서비스)를 그대로 호출하고, 기존
+  /// [ResultImageService]와 같은 패턴의 [DxfExportService]로 공유한다 —
+  /// 새 저장/공유 메커니즘을 만들지 않는다.
+  Future<void> _onExportDxf() async {
+    final plan = _cadFloorPlan;
+    if (plan == null) return;
+    final result = const E2eDxfExporter().export(plan, scale: _scale);
+    await const DxfExportService().share(result.dxfContent);
+  }
+
   CadWorkspaceState get _cadWorkspaceState => CadWorkspaceState(
     floorPlan: _cadFloorPlan,
     selectedObjectId: _selectedCadObjectId,
@@ -1157,6 +1459,7 @@ class _FloorPlanWorkspaceScreenState extends State<FloorPlanWorkspaceScreen> {
     calibrationEnd: _calibrationEnd,
     calibrationPixelLength: _calibrationPixelLength,
     scale: _scale,
+    scaleSamples: _scaleSamples,
     ceilingHeightMm: _ceilingHeightMm,
     generatedFloorPlanImageBytes: _generatedFloorPlanImageBytes,
     isGeneratingFloorPlanImage: _isGeneratingFloorPlanImage,
@@ -1164,6 +1467,7 @@ class _FloorPlanWorkspaceScreenState extends State<FloorPlanWorkspaceScreen> {
     structureEditing: _structureEditing,
     cadEditTool: _cadEditTool,
     confirmedFloorPlan: _confirmedFloorPlan,
+    hasStructuredCadDraft: _hasStructuredCadDraft,
   );
 
   CadWorkspaceCallbacks get _cadWorkspaceCallbacks => CadWorkspaceCallbacks(
@@ -1467,6 +1771,7 @@ class _FloorPlanWorkspaceScreenState extends State<FloorPlanWorkspaceScreen> {
     switch (item) {
       case _LeftRailItem.project:
       case _LeftRailItem.upload:
+      case _LeftRailItem.measuredUpload:
       case _LeftRailItem.taskList:
         setState(() {
           _leftExpandedItem = _leftExpandedItem == item ? null : item;
@@ -1480,9 +1785,6 @@ class _FloorPlanWorkspaceScreenState extends State<FloorPlanWorkspaceScreen> {
       case _LeftRailItem.settings:
         setState(() => _leftExpandedItem = null);
         _openSettings();
-      case _LeftRailItem.measuredUpload:
-        setState(() => _leftExpandedItem = null);
-        _showNotReadySnackBar('실측도면 업로드');
       case _LeftRailItem.aiAssistant:
         setState(() => _leftExpandedItem = null);
         _showNotReadySnackBar('AI Assistant');
@@ -1604,6 +1906,41 @@ class _FloorPlanWorkspaceScreenState extends State<FloorPlanWorkspaceScreen> {
     );
   }
 
+  /// SS CAD TEST 통합 — "실측도면 업로드"(좌측 레일) 패널의 내용: DXF를 가져와 그 자체를 새 편집
+  /// 기준으로 삼는 진입점(사진 업로드 → AI 분석 경로와 독립적). 결과 메시지(성공/경고/실패)를 그대로 보여준다.
+  Widget _buildCadUploadSection() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        const Text('실측도면 업로드', style: TextStyle(fontSize: 15, fontWeight: FontWeight.w700, color: SpaceShiftColors.textPrimary)),
+        const SizedBox(height: 6),
+        const Text(
+          'CAD 파일(DXF)을 가져오면 벽·문·창이 실제 mm 치수 그대로 편집 가능한 2D 도면이 됩니다.',
+          style: TextStyle(fontSize: 12, color: SpaceShiftColors.textSecondary, height: 1.4),
+        ),
+        const SizedBox(height: 12),
+        OutlinedButton.icon(
+          key: const Key('cadDxfImportButton'),
+          onPressed: _onImportDxf,
+          icon: const Icon(Icons.upload_file_rounded, size: 18),
+          label: const Text('CAD 파일 업로드(DXF)'),
+          style: OutlinedButton.styleFrom(
+            minimumSize: const Size.fromHeight(44),
+            foregroundColor: SpaceShiftColors.textPrimary,
+            side: const BorderSide(color: SpaceShiftColors.border),
+          ),
+        ),
+        if (_dxfImportMessage != null) ...[
+          const SizedBox(height: 6),
+          Text(
+            _dxfImportMessage!,
+            style: const TextStyle(fontSize: 11.5, color: SpaceShiftColors.textSecondary, height: 1.35),
+          ),
+        ],
+      ],
+    );
+  }
+
   /// WO099 UI COMPACT MODE — 좌측 아이콘 레일 + (펼쳐졌을 때만) 그 옆
   /// 패널. 폭은 이 위젯 스스로 결정한다(접힘=[kWorkspaceRailWidth]만,
   /// 펼침=레일+패널) — 그래서 부모 [Row]는 그냥 자식으로 놓기만 하면
@@ -1644,7 +1981,7 @@ class _FloorPlanWorkspaceScreenState extends State<FloorPlanWorkspaceScreen> {
                       WorkspaceRailItem(
                         icon: Icons.straighten_rounded,
                         tooltip: '실측도면 업로드',
-                        enabled: false,
+                        selected: expanded == _LeftRailItem.measuredUpload,
                         onTap: () =>
                             _handleLeftRailTap(_LeftRailItem.measuredUpload),
                       ),
@@ -1719,6 +2056,8 @@ class _FloorPlanWorkspaceScreenState extends State<FloorPlanWorkspaceScreen> {
             onPickFile: _pickFloorPlan,
           ),
         );
+      case _LeftRailItem.measuredUpload:
+        child = SingleChildScrollView(child: _buildCadUploadSection());
       case _LeftRailItem.taskList:
         child = WorkspaceTaskList(
           tasks: _tasks,
@@ -1734,7 +2073,6 @@ class _FloorPlanWorkspaceScreenState extends State<FloorPlanWorkspaceScreen> {
       case _LeftRailItem.drawManually:
       case _LeftRailItem.photoConvert:
       case _LeftRailItem.settings:
-      case _LeftRailItem.measuredUpload:
       case _LeftRailItem.aiAssistant:
         // 이들은 _handleLeftRailTap에서 _leftExpandedItem을 항상 null로
         // 되돌리므로 이 분기에 실제로 도달하지 않는다.
@@ -1830,6 +2168,23 @@ class _FloorPlanWorkspaceScreenState extends State<FloorPlanWorkspaceScreen> {
           onUndoCad: _undoCad,
           onDeleteCad: _deleteSelectedCadObject,
           onCreateWorkItemFromCad: _createWorkItemFromCad,
+          // SS CAD TEST 통합 — GPT 구조 분석(다회 통합), DXF 내보내기, mm 정밀 편집. 치수 보정(축척을
+          // 새로 잡는 흐름) 중에는 길이 직접 입력을 숨긴다(두 편집 입력이 동시에 뜨지 않게).
+          isRunningVisionConsolidation: _isRunningVisionConsolidation,
+          onRunVisionConsolidation: _onRunVisionConsolidation,
+          canExportDxf: _cadFloorPlan != null,
+          onExportDxf: _onExportDxf,
+          onEditWallLengthMm: _calibrating ? null : _onEditWallLength,
+          onEditOpeningWidthMm: _calibrating ? null : _onEditOpeningWidth,
+          // 구조 확인/보정 중에는 캔버스 도구(벽 추가/문 추가/창 추가)가 유일한 "추가" 입구다 — 같은 기능의
+          // 버튼이 우측 패널에 한 벌 더 뜨지 않게 그동안은 숨긴다(편집기를 두 벌로 두지 않는다).
+          onAddDoorToWall: _calibrating || _structureEditing
+              ? null
+              : () => _onAddOpeningToSelectedWall(OpeningType.door),
+          onAddWindowToWall: _calibrating || _structureEditing
+              ? null
+              : () => _onAddOpeningToSelectedWall(OpeningType.window),
+          onAddWall: _calibrating || _structureEditing || _cadFloorPlan == null ? null : _onAddWall,
         ),
       ],
     );

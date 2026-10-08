@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import '../models/cad_floor_plan.dart';
 import '../models/floor_plan_geometry.dart';
 
@@ -22,18 +24,27 @@ class E2eDxfExporter {
   const E2eDxfExporter();
 
   DxfExportResult export(CadFloorPlan plan, {FloorPlanScale? scale}) {
-    final isScaled = scale != null && scale.source == ScaleSource.measured;
+    // SS CAD TEST — CAD Editor WO: 이 실측 신뢰도 판정은 [ScaleSourceX
+    // .isReliable]과 정확히 같은 기준이어야 한다(실측 직접 입력뿐 아니라
+    // DXF 재-import처럼 이미 mm 단위로 확정된 도면 치수도 신뢰할 수
+    // 있는 scale이다) — 이 조건이 measured만 인정하던 예전 버전은, DXF를
+    // 가져와 편집하고 다시 내보내면 mm 대신 정규화 좌표가 그대로 나가는
+    // 실제 버그였다(round-trip 테스트로 발견).
+    final isScaled = scale != null && scale.source.isReliable;
     final notice = isScaled
-        ? 'SCALED (measured): ${scale.referenceLengthMm.toStringAsFixed(0)}mm 실측 기준, mmPerPixel=${scale.mmPerPixel.toStringAsFixed(4)}'
+        ? 'SCALED (${scale.source.label}): ${scale.referenceLengthMm.toStringAsFixed(0)}mm 기준, mmPerPixel=${scale.mmPerPixel.toStringAsFixed(4)}'
         : 'UNSCALED / NORMALIZED POC — 실제 mm 단위가 아님. 테스트 전용 파일입니다.';
 
+    // SS CAD TEST — mm 변환은 [CadFloorPlan.pointToMm](또는 그 위에 쌓인
+    // metricWall/metricRoom)만 거친다: 벽/방/문·창 좌표가 전부 같은
+    // 실측 기준(다중 샘플 중앙값, [scale_calibration.dart])에서 나온다는
+    // 보장이 exporter 자체의 별도 계산으로 깨지지 않게 하기 위해서다.
     (double, double) toUnits(Point2 p) {
       if (!isScaled) return (p.x, p.y);
-      final mmX = p.x * plan.sourceWidthPx * scale.mmPerPixel;
-      final mmY = p.y * plan.sourceHeightPx * scale.mmPerPixel;
+      final mm = plan.pointToMm(p, scale);
       // DXF/CAD 관례상 Y축은 위로 갈수록 증가 — 이미지 좌표(Y 아래로
       // 증가)를 뒤집는다.
-      return (mmX, -mmY);
+      return (mm.xMm, -mm.yMm);
     }
 
     final buffer = StringBuffer();
@@ -62,6 +73,9 @@ class E2eDxfExporter {
       ('SS-EXTERIOR-WALL', 1),
       ('SS-INTERIOR-WALL', 5),
       ('SS-SPACE', 3),
+      ('SS-DOOR', 2),
+      ('SS-WINDOW', 6),
+      ('SS-UNKNOWN-OPENING', 8),
     ]) {
       buffer.writeln('0');
       buffer.writeln('LAYER');
@@ -111,6 +125,44 @@ class E2eDxfExporter {
         final b = room.polygon[(i + 1) % room.polygon.length];
         line('SS-SPACE', a, b);
       }
+    }
+
+    // GPT CAD 핵심 이식 — 문/창을 자신이 붙은 벽의 방향을 따라 그 벽 위의
+    // 짧은 구간(폭 widthNormalized)으로 그린다 — 벽처럼 실제 선분이라
+    // DXF 뷰어에서 별도 레이어로 켜고 끌 수 있다.
+    final wallById = {for (final wall in plan.walls) wall.id: wall};
+    final diagonalPx = plan.diagonalPx;
+    for (final opening in plan.openings) {
+      final wall = wallById[opening.wallId];
+      if (wall == null) continue;
+      final dxPx = (wall.end.x - wall.start.x) * plan.sourceWidthPx;
+      final dyPx = (wall.end.y - wall.start.y) * plan.sourceHeightPx;
+      final lenPx = math.sqrt(dxPx * dxPx + dyPx * dyPx);
+      if (lenPx <= 0) continue;
+      final uxPx = dxPx / lenPx;
+      final uyPx = dyPx / lenPx;
+      final halfWidthPx = (opening.widthNormalized * diagonalPx) / 2;
+      final centerXPx = opening.center.x * plan.sourceWidthPx;
+      final centerYPx = opening.center.y * plan.sourceHeightPx;
+      final a = Point2(
+        (centerXPx - uxPx * halfWidthPx) / plan.sourceWidthPx,
+        (centerYPx - uyPx * halfWidthPx) / plan.sourceHeightPx,
+      );
+      final b = Point2(
+        (centerXPx + uxPx * halfWidthPx) / plan.sourceWidthPx,
+        (centerYPx + uyPx * halfWidthPx) / plan.sourceHeightPx,
+      );
+      // SS CAD TEST WorkOrder(1차 CAD/DXF E2E) §10 — "동일한 CadFloorPlan
+      // 데이터가 화면과 DXF 양쪽에서 쓰이도록" pixel_wall_v4가(AI 의미
+      // 판별 없이) 만드는 OpeningType.unknown을 SS-WINDOW로 거짓 표시하지
+      // 않는다 — 실제로 문/창 종류가 확정되지 않았다는 사실을 DXF
+      // 레이어에도 그대로 남긴다.
+      final layer = switch (opening.type) {
+        OpeningType.door => 'SS-DOOR',
+        OpeningType.window => 'SS-WINDOW',
+        OpeningType.unknown => 'SS-UNKNOWN-OPENING',
+      };
+      line(layer, a, b);
     }
 
     buffer.writeln('0');
