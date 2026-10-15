@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 
+import 'core/ss_router.dart';
 import 'screens/login_screen.dart';
 import 'services/app_update_store.dart';
 import 'theme/space_shift_colors.dart';
@@ -71,6 +72,8 @@ class AsonSpaceApp extends StatelessWidget {
         ),
       ),
       home: const LoginScreen(),
+      // SS001 — 단계 이름으로 화면을 연다(core/ss_stage.dart). 기존 연결은 그대로, 이름으로 여는 경로만 더한다.
+      onGenerateRoute: SsRouter.onGenerateRoute,
     );
   }
 }
