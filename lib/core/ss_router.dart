@@ -17,10 +17,10 @@ abstract final class SsRouter {
   /// 평면도 업로드·AI 인식·보정·CAD 변환·CAD 편집·DXF는 기존 [FloorPlanWorkspaceScreen] 한 화면이 한다.
   static final Map<SsStage, WidgetBuilder> existing = {
     SsStage.login: (_) => const LoginScreen(),
-    SsStage.floorPlanUpload: (_) => const FloorPlanWorkspaceScreen(),
-    SsStage.floorPlanReview: (_) => const FloorPlanWorkspaceScreen(),
-    SsStage.cadConversion: (_) => const FloorPlanWorkspaceScreen(),
-    SsStage.cadEditor: (_) => const FloorPlanWorkspaceScreen(),
+    SsStage.floorPlanUpload: (_) => FloorPlanWorkspaceScreen(),
+    SsStage.floorPlanReview: (_) => FloorPlanWorkspaceScreen(),
+    SsStage.cadConversion: (_) => FloorPlanWorkspaceScreen(),
+    SsStage.cadEditor: (_) => FloorPlanWorkspaceScreen(),
     SsStage.imageEditing: (_) => const PhotoSelectScreen(),
   };
 
