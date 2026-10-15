@@ -1598,7 +1598,10 @@ class _FloorPlanWorkspaceScreenState extends State<FloorPlanWorkspaceScreen> {
   }
 
   _WorkspaceSnapshot get _currentSnapshot =>
-      (tasks: List.of(_tasks), drawings: List.of(_drawings));
+      (// 수정 필요: 정의된 파라미터명에 맞게 수정
+// 예: items: 
+ List.of(_tasks), // 수정 필요: 정의된 파라미터명에 맞게 수정
+ List.of(_drawings));
 
   void _mutate(
     List<WorkspaceTaskItem> Function(List<WorkspaceTaskItem>) mutator,
@@ -2061,8 +2064,10 @@ class _FloorPlanWorkspaceScreenState extends State<FloorPlanWorkspaceScreen> {
       case _LeftRailItem.taskList:
         child = WorkspaceTaskList(
           tasks: _tasks,
-          selectedId: _selectedTaskId,
-          onSelect: _selectTask,
+          // 수정 필요: 정의된 파라미터명에 맞게 수정
+ _selectedTaskId,
+          // 수정 필요: 정의된 파라미터명에 맞게 수정
+ _selectTask,
           onToggleVisible: (id) => _mutate(
             (tasks) => [
               for (final t in tasks)
@@ -2129,14 +2134,17 @@ class _FloorPlanWorkspaceScreenState extends State<FloorPlanWorkspaceScreen> {
           projectName: widget.projectName,
           taskCount: _tasks.length,
           visibleTaskCount: _tasks.where((t) => t.visible).length,
-          viewMode: _viewMode,
+          // 수정 필요: 정의된 파라미터명에 맞게 수정
+ _viewMode,
           hasFloorPlanFile: _floorPlanFile != null,
           analysisPhase: _analysisPhase,
           analysisStep: _analysisStep,
           analysisFailureMessage: _analysisFailureMessage,
           onReanalyze: _onReanalyzeRequested,
-          cad: _cadWorkspaceState,
-          cadCallbacks: _cadWorkspaceCallbacks,
+          // 수정 필요: 정의된 파라미터명에 맞게 수정
+ _cadWorkspaceState,
+          // 수정 필요: 정의된 파라미터명에 맞게 수정
+ _cadWorkspaceCallbacks,
           selectedTool: _tool,
           onToolSelected: _onToolSelected,
           onToggleVisible: () =>
@@ -2307,29 +2315,48 @@ class _FloorPlanWorkspaceScreenState extends State<FloorPlanWorkspaceScreen> {
               selectedId: _selectedTaskId,
               onSelect: _selectTask,
               viewMode: _viewMode,
-              floorPlanFile: _floorPlanFile,
-              analysisResult: _analysisResult,
+              // 수정 필요: 정의된 파라미터명에 맞게 수정
+ _floorPlanFile,
+              // 수정 필요: 정의된 파라미터명에 맞게 수정
+ _analysisResult,
               cad: _cadWorkspaceState,
               cadCallbacks: _cadWorkspaceCallbacks,
-              onPickFloorPlanFile: _pickFloorPlan,
-              spaceScene: _spaceScene,
-              spaceSceneV2: _spaceSceneV2,
-              spaceGenerationFailureMessage: _spaceGenerationFailureMessage,
-              generatedIsoImageBytes: _generatedIsoImageBytes,
-              isGeneratingIsoImage: _isGeneratingIsoImage,
-              onExitTo2D: () =>
+              // 수정 필요: 정의된 파라미터명에 맞게 수정
+ _pickFloorPlan,
+              // 수정 필요: 정의된 파라미터명에 맞게 수정
+ _spaceScene,
+              // 수정 필요: 정의된 파라미터명에 맞게 수정
+ _spaceSceneV2,
+              // 수정 필요: 정의된 파라미터명에 맞게 수정
+ _spaceGenerationFailureMessage,
+              // 수정 필요: 정의된 파라미터명에 맞게 수정
+ _generatedIsoImageBytes,
+              // 수정 필요: 정의된 파라미터명에 맞게 수정
+ _isGeneratingIsoImage,
+              // 수정 필요: 정의된 파라미터명에 맞게 수정
+ () =>
                   setState(() => _viewMode = WorkspaceViewMode.plan2d),
-              space3DViewKey: _space3DViewKey,
-              isFullscreen3D: _isFullscreen3D,
-              onToggleFullscreen3D: _onToggleFullscreen3D,
-              tool: _tool,
+              // 수정 필요: 정의된 파라미터명에 맞게 수정
+ _space3DViewKey,
+              // 수정 필요: 정의된 파라미터명에 맞게 수정
+ _isFullscreen3D,
+              // 수정 필요: 정의된 파라미터명에 맞게 수정
+ _onToggleFullscreen3D,
+              // 수정 필요: 정의된 파라미터명에 맞게 수정
+ _tool,
               drawings: _drawings,
-              selectedDrawingId: _selectedDrawingId,
-              viewport: _viewport,
-              onCreateDrawing: _createDrawing,
-              onSelectDrawing: _selectDrawing,
-              onViewportChanged: (v) => setState(() => _viewport = v),
-              onCanvasSizeChanged: (s) => _canvasSize = s,
+              // 수정 필요: 정의된 파라미터명에 맞게 수정
+ _selectedDrawingId,
+              // 수정 필요: 정의된 파라미터명에 맞게 수정
+ _viewport,
+              // 수정 필요: 정의된 파라미터명에 맞게 수정
+ _createDrawing,
+              // 수정 필요: 정의된 파라미터명에 맞게 수정
+ _selectDrawing,
+              // 수정 필요: 정의된 파라미터명에 맞게 수정
+ (v) => setState(() => _viewport = v),
+              // 수정 필요: 정의된 파라미터명에 맞게 수정
+ (s) => _canvasSize = s,
             ),
           ),
         ),

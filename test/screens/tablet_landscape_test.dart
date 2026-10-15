@@ -46,7 +46,7 @@ void main() {
   testWidgets('Galaxy Tab 가로 화면에서 MASTER UI 1~9번 화면에 렌더링 오류가 없다', (
     tester,
   ) async {
-    await tester.binding.setSurfaceSize(const Size(1280, 800));
+    await tester.binding.setSurfaceSize(Size(1280, 800));
     addTearDown(() => tester.binding.setSurfaceSize(null));
 
     final screens = <Widget>[

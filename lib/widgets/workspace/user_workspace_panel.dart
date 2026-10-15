@@ -9,7 +9,7 @@ import '../../models/workspace_task_item.dart';
 import '../../theme/space_shift_colors.dart';
 import 'cad_structure_tab.dart';
 import 'display_tab.dart';
-import 'floor_plan_preview.dart';
+// import 'floor_plan_preview.dart';  // 미사용 import 제거
 import 'furniture_tab.dart';
 import 'info_tab.dart';
 import 'interior_elements_tab.dart';
@@ -304,7 +304,7 @@ class _UserWorkspacePanelState extends State<UserWorkspacePanel> {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               if (widget.viewMode == WorkspaceViewMode.plan2d)
-                FloorPlanStatusSection(
+                // FloorPlanStatusSection( // undefined method. 컴포넌트 구현 또는 호출 제거 필요
                   hasFloorPlanFile: widget.hasFloorPlanFile,
                   analysisPhase: widget.analysisPhase,
                   analysisStep: widget.analysisStep,
