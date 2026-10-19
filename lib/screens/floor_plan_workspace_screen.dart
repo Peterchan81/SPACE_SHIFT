@@ -1607,7 +1607,7 @@ class _FloorPlanWorkspaceScreenState extends State<FloorPlanWorkspaceScreen> {
     List<WorkspaceTaskItem> Function(List<WorkspaceTaskItem>) mutator,
   ) {
     setState(() {
-      _undoStack.add(_currentSnapshot);
+      _undoStack.add(_currentSnapshot());
       _redoStack.clear();
       _tasks = mutator(List.of(_tasks));
       _refreshSpaceSceneMaterialsIfReady();
