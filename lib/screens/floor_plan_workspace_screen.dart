@@ -2063,6 +2063,18 @@ class _FloorPlanWorkspaceScreenState extends State<FloorPlanWorkspaceScreen> {
         child = SingleChildScrollView(child: _buildCadUploadSection());
       case _LeftRailItem.taskList:
         child = WorkspaceTaskList(
+      tasks: _tasks,
+      selectedId: _selectedTaskId,
+      onSelect: (id) {
+        setState(() {
+          _selectedTaskId = id;
+        });
+      },
+      onToggleVisible: (id) {
+        setState(() {
+          // Handle toggle visibility
+        });
+      },
           tasks: _tasks,
           // 수정 필요: 정의된 파라미터명에 맞게 수정
  _selectedTaskId,
@@ -2311,6 +2323,15 @@ class _FloorPlanWorkspaceScreenState extends State<FloorPlanWorkspaceScreen> {
             onPointerDown: (_) => _closeLeftFlyoutOnCenterTap(),
             behavior: HitTestBehavior.translucent,
             child: WorkspaceCanvas(
+      cad: _cadFloorPlan,
+      selectedId: _selectedCadObjectId,
+      viewMode: _viewMode,
+      cadCallbacks: _cadCallbacks,
+      onSelect: (id) {
+        setState(() {
+          _selectedCadObjectId = id;
+        });
+      },
               tasks: _tasks,
               selectedId: _selectedTaskId,
               onSelect: _selectTask,

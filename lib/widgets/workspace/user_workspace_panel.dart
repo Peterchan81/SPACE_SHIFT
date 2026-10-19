@@ -122,7 +122,7 @@ class UserWorkspacePanel extends StatefulWidget {
   /// 판단하는 데 쓰인다(WO 22번, 우측 패널이 단계별로 다른 내용을
   /// 보여준다).
   final WorkspaceViewMode viewMode;
-  final bool hasFloorPlanFile;
+  final bool hasFloorPlanFile = false;
   final FloorPlanAnalysisPhase analysisPhase;
   final FloorPlanAnalysisStep? analysisStep;
   final String? analysisFailureMessage;
