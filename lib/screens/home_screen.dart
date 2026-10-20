@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 
 import '../theme/space_shift_colors.dart';
-import '../widgets/navigation_drawer.dart' hide NavigationDrawer;
 import '../widgets/project_card.dart';
 
 class HomeScreen extends StatelessWidget {
@@ -15,7 +14,7 @@ class HomeScreen extends StatelessWidget {
         title: const Text('SPACE SHIFT'),
         backgroundColor: SpaceShiftColors.purple,
       ),
-      drawer: const NavigationDrawer(),
+      drawer: const NavigationDrawer(children: []),
       body: SafeArea(
         child: Padding(
           padding: const EdgeInsets.all(16.0),
