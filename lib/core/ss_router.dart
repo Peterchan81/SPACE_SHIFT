@@ -16,8 +16,8 @@ abstract final class SsRouter {
   static Map<String, WidgetBuilder> routes = {
     '/login': (context) => LoginScreen(),
     '/home': (context) => const HomeScreen(),
-    '/project_management': (context) => const ProjectManagementScreen(),
-    '/project_creation': (context) => const ProjectCreationScreen(),
+    '/project_management': (context) => ProjectManagementScreen(),
+    '/project_creation': (context) => ProjectCreationScreen(),
   };
 
   /// 이미 있는 화면이 맡는 단계 — 화면을 새로 만들지 않고 연결만 한다.
@@ -69,7 +69,7 @@ class SsStageScreen extends StatelessWidget {
                     Expanded(
                       child: Center(
                         child: Text(
-                          '${stage.title} 화면은 ${stage.workOrder}에서 만듭니다 · MASTER UI ${stage.masterUi}',
+                          '${stage.title} 화면은 ${stage.workOrder}에서 만듭니다 · MASTER UI ${stage.masterUi}',
                           key: const Key('ssStagePending'),
                           style: const TextStyle(color: SpaceShiftColors.textSecondary, fontSize: 16),
                         ),
