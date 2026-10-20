@@ -9,6 +9,7 @@ import 'package:flutter/material.dart';
 import '../screens/floor_plan_workspace_screen.dart';
 import '../screens/login_screen.dart';
 import '../screens/photo_select_screen.dart';
+import '../screens/settings_screen.dart';
 import '../theme/space_shift_colors.dart';
 import 'ss_stage.dart';
 
@@ -35,6 +36,21 @@ abstract final class SsRouter {
 
   /// 단계 화면 열기(이름 그대로 — 화면끼리 클래스를 직접 알 필요 없음).
   static Future<T?> open<T>(BuildContext context, SsStage stage) => Navigator.of(context).pushNamed<T>(stage.routeName);
+
+  /// SS001 보완(S1) — 좌측 메뉴 선택을 실제 화면 이동으로 연결한다(SsNavigation.targetFor로 정한 곳).
+  /// 이미 있는 화면(설정 포함)을 그대로 재사용하고, 저장/내보내기처럼 화면 이동이 아닌 항목이나 지금 보고 있는
+  /// 단계를 다시 고른 경우는 아무 것도 하지 않는다(중복 이동/중복 화면 방지).
+  static void handleNavSelect(BuildContext context, SsStage currentStage, SsNavItem item) {
+    final target = SsNavigation.targetFor(item, currentStage);
+    if (target == null) return;
+    if (target is SsNavSettingsTarget) {
+      Navigator.of(context).push<void>(MaterialPageRoute<void>(builder: (_) => SettingsScreen()));
+      return;
+    }
+    if (target is SsNavStageTarget && target.stage != currentStage) {
+      open(context, target.stage);
+    }
+  }
 }
 
 /// 아직 세부 화면이 없는 단계의 공통 화면 — 3초 법칙(§15) 머리말 + 좌측 Navigation(단계별 활성화) + 담당 Work Order.
@@ -50,7 +66,7 @@ class SsStageScreen extends StatelessWidget {
       body: SafeArea(
         child: Row(
           children: [
-            SsNavRail(enabled: enabled),
+            SsNavRail(enabled: enabled, onSelect: (item) => SsRouter.handleNavSelect(context, stage, item)),
             Expanded(
               child: Padding(
                 padding: const EdgeInsets.all(24),
