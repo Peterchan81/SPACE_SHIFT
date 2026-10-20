@@ -15,9 +15,9 @@ import 'ss_stage.dart';
 abstract final class SsRouter {
   static Map<String, WidgetBuilder> routes = {
     '/login': (context) => LoginScreen(),
-    '/home': (context) => HomeScreen(),
-    '/project_management': (context) => ProjectManagementScreen(),
-    '/project_creation': (context) => ProjectCreationScreen(),
+    '/home': (context) => const HomeScreen(),
+    '/project_management': (context) => const ProjectManagementScreen(),
+    '/project_creation': (context) => const ProjectCreationScreen(),
   };
 
   /// 이미 있는 화면이 맡는 단계 — 화면을 새로 만들지 않고 연결만 한다.
