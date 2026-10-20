@@ -13,6 +13,13 @@ import '../theme/space_shift_colors.dart';
 import 'ss_stage.dart';
 
 abstract final class SsRouter {
+  static Map<String, WidgetBuilder> routes = {
+    '/login': (context) => LoginScreen(),
+    '/home': (context) => HomeScreen(),
+    '/project_management': (context) => ProjectManagementScreen(),
+    '/project_creation': (context) => ProjectCreationScreen(),
+  };
+
   /// 이미 있는 화면이 맡는 단계 — 화면을 새로 만들지 않고 연결만 한다.
   /// 평면도 업로드·AI 인식·보정·CAD 변환·CAD 편집·DXF는 기존 [FloorPlanWorkspaceScreen] 한 화면이 한다.
   static final Map<SsStage, WidgetBuilder> existing = {

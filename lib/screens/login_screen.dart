@@ -2,17 +2,10 @@ import 'package:flutter/material.dart';
 
 import '../theme/space_shift_colors.dart';
 import '../widgets/gradient_cta_button.dart';
-import 'floor_plan_workspace_screen.dart';
+import 'home_screen.dart';
 import 'signup_screen.dart';
 
 /// MASTER UI 1번 화면 — 로그인 / 자동로그인.
-///
-/// 앱 실행 시 가장 먼저 보여지는 화면으로, SPACE SHIFT 로고와 아이디/비밀번호
-/// 입력, 자동 로그인, 간편 로그인, 회원가입 진입을 제공한다.
-///
-/// 실제 인증 백엔드는 아직 준비되지 않았으므로, 이 화면은 로그인 UI와
-/// 정상적인 앱 진입 흐름(신규 MASTER 메인 작업 화면[FloorPlanWorkspaceScreen]
-/// 으로 이동)만 구현하고 실제 계정 검증은 하지 않는다.
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
 
@@ -36,8 +29,8 @@ class _LoginScreenState extends State<LoginScreen> {
   void _enterApp() {
     Navigator.of(context).pushReplacement(
       MaterialPageRoute(
-        builder: (context) => const FloorPlanWorkspaceScreen(),
-        settings: const RouteSettings(name: 'floor_plan_workspace'),
+        builder: (context) => const HomeScreen(),
+        settings: const RouteSettings(name: 'home'),
       ),
     );
   }
@@ -223,10 +216,6 @@ class _LoginScreenState extends State<LoginScreen> {
   }
 }
 
-/// SPACE SHIFT 공식 심볼(assets/icons/space_shift_symbol.png)을 그대로
-/// 보여준다. 원본은 공식 로고 전체 이미지(assets/icons/
-/// space_shift_official_logo.png, "SPACE SHIFT" 워드마크 포함)에서 심볼
-/// 영역만 잘라낸 것 — 원본 파일 자체는 수정하지 않고 보존한다.
 class _SpaceShiftLogoMark extends StatelessWidget {
   const _SpaceShiftLogoMark();
 
