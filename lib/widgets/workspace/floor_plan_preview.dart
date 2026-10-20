@@ -105,6 +105,7 @@ class FloorPlanPreview extends StatelessWidget {
   /// 실기 FAIL 재수정 WO(2번) — 3D 아이소 안에 명확한 "2D 평면도로
   /// 돌아가기" 버튼을 항상 보여준다(상단 View 탭 전환만으로는 눈에
   /// 띄지 않았다는 실사용 신고 대응).
+  // ignore: unused_element_parameter
   final VoidCallback? onExitTo2D;
 
   @override
@@ -877,6 +878,7 @@ class _CadExportReadinessSummary extends StatelessWidget {
 /// 여전히 유효하고([_AiReferenceImageButton] 아래가 실제로 이 이미지를
 /// 보여주는 자리를 대신한다), 향후 "AI 참고 이미지" 전체화면 보기 등에
 /// 재사용할 수 있다.
+// ignore: unused_element
 class _IsoGenerationLoading extends StatelessWidget {
   const _IsoGenerationLoading();
 
@@ -908,6 +910,7 @@ class _IsoGenerationLoading extends StatelessWidget {
 /// 3D 아이소메트릭 이미지를 그대로 보여준다. 실시간 geometry 3D
 /// ([Space3DViewGpuV2])와 똑같이 "2D 평면도로 돌아가기" 버튼을 항상
 /// 보여준다(실기 FAIL 재수정 WO 2번과 동일한 원칙).
+// ignore: unused_element
 class _GeneratedIsoView extends StatelessWidget {
   const _GeneratedIsoView({required this.imageBytes, this.onExitTo2D});
 

@@ -247,6 +247,7 @@ class WorkspaceCanvas extends StatelessWidget {
 /// polygon의 산술 평균(중심) — [CadRoom.polygon]이 지금은 항상 4점
 /// 경계 사각형이라 정확히 기하 중심과 같지만, 향후 실제 윤곽(N점)으로
 /// 바뀌어도 그대로 동작하도록 점 개수에 의존하지 않게 계산한다.
+// ignore: unused_element
 Point2 _polygonCentroid(List<Point2> polygon) {
   if (polygon.isEmpty) return const Point2(0.5, 0.5);
   var sx = 0.0, sy = 0.0;
@@ -257,6 +258,7 @@ Point2 _polygonCentroid(List<Point2> polygon) {
   return Point2(sx / polygon.length, sy / polygon.length);
 }
 
+// ignore: unused_element
 class _RoomNumberMarker extends StatelessWidget {
   const _RoomNumberMarker({
     required this.number,
