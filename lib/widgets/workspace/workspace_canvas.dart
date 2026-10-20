@@ -119,7 +119,7 @@ class WorkspaceCanvas extends StatelessWidget {
         builder: (context, constraints) {
           final floorPlan = cad.floorPlan;
           // V1 GPT CAD-STYLE 2D → GPT ISO IMAGE FLOW WO §2 — 번호
-          // marker(①②③..., 아래 [_RoomNumberMarker])는 "색깔 공간
+          // marker(①②③..., 아래 [])는 "색깔 공간
           // 박스/공간 번호" 계열의 옛 좌표 기반 CAD 표시 UX였다.
           // [cad.floorPlan]은 이제 화면에 보이는 이미지(AI Clean 2D
           // 또는 원본 사진)와 무관하게 3D 생성용 내부 데이터로만 쓰이므로,
@@ -127,7 +127,7 @@ class WorkspaceCanvas extends StatelessWidget {
           // 노출되고 (2) floorPlan의 좌표계(원본 사진 픽셀 기준)가 실제
           // 화면에 보이는 이미지(AI가 새로 그린 별도 해상도의 이미지일
           // 수 있음)와 어긋나 위치도 맞지 않는다. [_RoomNumberMarker]/
-          // [_polygonCentroid]는 삭제하지 않고 그대로 두되(추후 실시간
+          // []는 삭제하지 않고 그대로 두되(추후 실시간
           // geometry 3D 강화 단계에서 재사용 가능), production 2D
           // 화면에서는 더 이상 그리지 않는다.
 

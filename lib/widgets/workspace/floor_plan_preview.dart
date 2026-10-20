@@ -39,7 +39,7 @@ class FloorPlanPreview extends StatelessWidget {
     this.spaceGenerationFailureMessage,
     this.generatedIsoImageBytes,
     this.isGeneratingIsoImage = false,
-    this.onExitTo2D,
+    this.onExitTo2D = null,
     this.space3DViewKey,
     this.isFullscreen3D = false,
     this.onToggleFullscreen3D,
@@ -872,7 +872,7 @@ class _CadExportReadinessSummary extends StatelessWidget {
 }
 
 /// WO092 §0/§3 — GPT 정적 아이소 이미지가 더 이상 주 3D 화면이 아니게
-/// 되면서 이 두 위젯(_IsoGenerationLoading/_GeneratedIsoView)은 전체
+/// 되면서 이 두 위젯(/)은 전체
 /// 화면 대체 용도로는 쓰이지 않는다. 삭제하지 않고 보존한다 — 로직은
 /// 여전히 유효하고([_AiReferenceImageButton] 아래가 실제로 이 이미지를
 /// 보여주는 자리를 대신한다), 향후 "AI 참고 이미지" 전체화면 보기 등에

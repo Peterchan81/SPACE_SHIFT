@@ -1,6 +1,4 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:ason_space/services/autosave_service.dart';
-import 'package:ason_space/models/project_data_model.dart';
 
 void main() {
   group('Autosave Service', () {
