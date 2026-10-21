@@ -158,4 +158,44 @@ abstract final class SsNavigation {
         return {..._always, SsNavItem.currentProject, SsNavItem.save, SsNavItem.export, SsNavItem.view2d, SsNavItem.view3d};
     }
   }
+
+  /// SS001 보완(S1) — 메뉴 항목을 선택했을 때 실제로 이동할 곳. [currentStage]는 지금 화면(현재 FLOW를 가늠하는 기준).
+  /// 화면 이동이 아니라 지금 화면이 직접 처리하는 동작(저장·내보내기)은 null — 각 화면에서 다룬다.
+  static SsNavTarget? targetFor(SsNavItem item, SsStage currentStage) {
+    switch (item) {
+      case SsNavItem.home:
+        return const SsNavStageTarget(SsStage.home);
+      case SsNavItem.projects:
+        return const SsNavStageTarget(SsStage.projectManagement);
+      case SsNavItem.createProject:
+        return const SsNavStageTarget(SsStage.projectCreation);
+      case SsNavItem.currentProject:
+        return SsNavStageTarget(currentStage);
+      case SsNavItem.view2d:
+        return const SsNavStageTarget(SsStage.cadEditor);
+      case SsNavItem.view3d:
+        return const SsNavStageTarget(SsStage.isoEditor);
+      case SsNavItem.settings:
+        return const SsNavSettingsTarget();
+      case SsNavItem.save:
+      case SsNavItem.export:
+        return null;
+    }
+  }
+}
+
+/// 좌측 메뉴 선택이 가리키는 이동 대상(§16) — 이름 있는 단계([SsStage])이거나, 단계 목록 밖의 공통 설정 화면.
+abstract class SsNavTarget {
+  const SsNavTarget();
+}
+
+/// 단계([SsStage]) Route로 이동.
+class SsNavStageTarget extends SsNavTarget {
+  const SsNavStageTarget(this.stage);
+  final SsStage stage;
+}
+
+/// 공통 설정 화면(SettingsScreen, lib/screens/settings_screen.dart)으로 이동 — 기존 화면을 그대로 재사용한다.
+class SsNavSettingsTarget extends SsNavTarget {
+  const SsNavSettingsTarget();
 }
