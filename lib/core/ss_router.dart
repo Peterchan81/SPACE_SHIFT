@@ -36,7 +36,11 @@ abstract final class SsRouter {
     return MaterialPageRoute<void>(settings: settings, builder: builderFor(stage));
   }
 
-  static WidgetBuilder builderFor(SsStage stage) => existing[stage] ?? (_) => SsStageScreen(stage: stage);
+  static WidgetBuilder builderFor(SsStage stage) {
+    if (stage == SsStage.login) return existing[stage]!;
+    final existingBuilder = existing[stage];
+    return (context) => SsStageScreen(stage: stage, child: existingBuilder == null ? null : Builder(builder: existingBuilder));
+  }
 
   /// 단계 화면 열기(이름 그대로 — 화면끼리 클래스를 직접 알 필요 없음).
   static Future<T?> open<T>(BuildContext context, SsStage stage) => Navigator.of(context).pushNamed<T>(stage.routeName);
@@ -77,8 +81,12 @@ abstract final class SsRouter {
 /// 아직 세부 화면이 없는 단계의 공통 화면 — 3초 법칙(§15) 머리말 + 상단 Header + 좌측 Navigation(단계별
 /// 활성화) + 담당 Work Order. MASTER UI(Dark Navy·Neon·고정 좌측 메뉴) 공통 프레임.
 class SsStageScreen extends StatelessWidget {
-  const SsStageScreen({super.key, required this.stage});
+  const SsStageScreen({super.key, required this.stage, this.child});
   final SsStage stage;
+
+  /// SS001-UI 보완 — 이미 있는 화면(FloorPlanWorkspaceScreen 등)을 공통 프레임(Header+NavRail) 안에 그대로
+  /// 보여줄 때 쓴다. 없으면(세부 화면이 아직 없는 단계) 3초 법칙 머리말 + 대기 안내를 보인다.
+  final Widget? child;
 
   @override
   Widget build(BuildContext context) {
@@ -99,25 +107,26 @@ class SsStageScreen extends StatelessWidget {
                     onSelect: (item) => SsRouter.handleNavSelect(context, stage, item),
                   ),
                   Expanded(
-                    child: Padding(
-                      padding: const EdgeInsets.all(24),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          SsStageHeader(stage: stage),
-                          const SizedBox(height: 24),
-                          Expanded(
-                            child: Center(
-                              child: Text(
-                                '${stage.title} 화면은 ${stage.workOrder}에서 만듭니다 · MASTER UI ${stage.masterUi}',
-                                key: const Key('ssStagePending'),
-                                style: const TextStyle(color: SsMasterTheme.textSecondary, fontSize: 16),
+                    child: child ??
+                        Padding(
+                          padding: const EdgeInsets.all(24),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              SsStageHeader(stage: stage),
+                              const SizedBox(height: 24),
+                              Expanded(
+                                child: Center(
+                                  child: Text(
+                                    '${stage.title} 화면은 ${stage.workOrder}에서 만듭니다 · MASTER UI ${stage.masterUi}',
+                                    key: const Key('ssStagePending'),
+                                    style: const TextStyle(color: SsMasterTheme.textSecondary, fontSize: 16),
+                                  ),
+                                ),
                               ),
-                            ),
+                            ],
                           ),
-                        ],
-                      ),
-                    ),
+                        ),
                   ),
                 ],
               ),
