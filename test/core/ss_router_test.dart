@@ -29,8 +29,7 @@ void main() {
     expect(find.byKey(const Key('ssStageWhat')), findsOneWidget);
     expect(find.text('다음: ${SsStage.isoEditor.whatNext}'), findsOneWidget);
     expect(find.textContaining('SS013'), findsOneWidget);
-    final save = tester.widget<Opacity>(find.ancestor(of: find.byKey(const Key('ssNav_view3d')), matching: find.byType(Opacity)).first);
-    expect(save.opacity, 1);
+    expect(find.byKey(const Key('ssNav_view3d')), findsOneWidget, reason: '단계에 맞는 메뉴 항목만 보인다(쓸 수 없는 항목은 흐리게가 아니라 아예 보이지 않음)');
   });
 
   testWidgets('로그인 Route는 기존 로그인 화면을 연다', (tester) async {
