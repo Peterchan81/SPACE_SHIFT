@@ -14,6 +14,7 @@ import '../screens/floor_plan_workspace_screen.dart';
 import '../screens/login_screen.dart';
 import '../screens/photo_select_screen.dart';
 import '../screens/settings_screen.dart';
+import '../services/auth_service.dart';
 import '../theme/ss_master_theme.dart';
 import 'ss_stage.dart';
 
@@ -30,9 +31,19 @@ abstract final class SsRouter {
   };
 
   /// MaterialApp.onGenerateRoute — 모르는 이름이면 null(기존 Navigator 동작 그대로).
+  ///
+  /// SS002 §5 "라우트 보호" — 앱이 세션 복원을 마쳤는데도([AuthController.initialized])
+  /// 로그인 상태가 아니면, 로그인 화면이 아닌 다른 모든 단계 Route는 로그인
+  /// 화면으로 돌려보낸다. 세션 복원이 아직 끝나지 않았으면(이 저장소의 기존
+  /// 테스트들처럼 AuthController를 전혀 거치지 않는 경우 포함) 막지 않는다 —
+  /// 실제 앱은 main.dart가 시작할 때 항상 먼저 [AuthController.bootstrap]을
+  /// 끝내므로 실사용에서는 보호가 그대로 적용된다.
   static Route<dynamic>? onGenerateRoute(RouteSettings settings) {
     final stage = SsStage.fromRoute(settings.name);
     if (stage == null) return null;
+    if (stage != SsStage.login && AuthController.instance.initialized && !AuthController.instance.isAuthenticated) {
+      return MaterialPageRoute<void>(settings: const RouteSettings(name: '/login'), builder: existing[SsStage.login]!);
+    }
     return MaterialPageRoute<void>(settings: settings, builder: builderFor(stage));
   }
 

@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
 
+import '../core/ss_router.dart';
+import '../core/ss_stage.dart';
+import '../services/auth_service.dart';
 import '../theme/space_shift_colors.dart';
 import '../widgets/gradient_cta_button.dart';
-import 'floor_plan_workspace_screen.dart';
 import 'signup_screen.dart';
 
 /// MASTER UI 1번 화면 — 로그인 / 자동로그인.
@@ -14,7 +16,11 @@ import 'signup_screen.dart';
 /// 정상적인 앱 진입 흐름(신규 MASTER 메인 작업 화면[FloorPlanWorkspaceScreen]
 /// 으로 이동)만 구현하고 실제 계정 검증은 하지 않는다.
 class LoginScreen extends StatefulWidget {
-  const LoginScreen({super.key});
+  const LoginScreen({super.key, this.authController});
+
+  /// 테스트에서 [FakeAuthService]를 주입할 수 있게 한다. 지정하지 않으면
+  /// 앱 전체가 공유하는 [AuthController.instance]를 쓴다.
+  final AuthController? authController;
 
   @override
   State<LoginScreen> createState() => _LoginScreenState();
@@ -25,6 +31,11 @@ class _LoginScreenState extends State<LoginScreen> {
   final _passwordController = TextEditingController();
   bool _autoLogin = true;
   bool _obscurePassword = true;
+  bool _submitting = false;
+
+  AuthController get _controller => widget.authController ?? AuthController.instance;
+
+  static final RegExp _emailPattern = RegExp(r'^[^@\s]+@[^@\s]+\.[^@\s]+$');
 
   @override
   void dispose() {
@@ -33,12 +44,51 @@ class _LoginScreenState extends State<LoginScreen> {
     super.dispose();
   }
 
+  void _showMessage(String message) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
+  }
+
+  void _showComingSoon() => _showMessage('아직 준비 중인 기능입니다.');
+
+  /// SS002 §4 — 실제 Supabase Auth 이메일·비밀번호 로그인. 인증 없이 바로
+  /// 작업 화면으로 들어가던 기존 _enterApp 우회 경로는 제거했다.
+  Future<void> _login() async {
+    if (_submitting) return;
+    final email = _emailController.text.trim();
+    final password = _passwordController.text;
+    if (!_controller.isConfigured) {
+      _showMessage(kAuthNotConfiguredMessage);
+      return;
+    }
+    if (email.isEmpty || password.isEmpty) {
+      _showMessage('이메일과 비밀번호를 입력해주세요.');
+      return;
+    }
+    if (!_emailPattern.hasMatch(email)) {
+      _showMessage('올바른 이메일 형식이 아닙니다.');
+      return;
+    }
+    setState(() => _submitting = true);
+    final result = await _controller.signIn(email: email, password: password);
+    if (!mounted) return;
+    setState(() => _submitting = false);
+    if (result.isSuccess) {
+      _enterApp();
+    } else {
+      _showMessage(result.message ?? '로그인에 실패했습니다.');
+    }
+  }
+
+  /// 로그인 성공 후 MASTER 홈([SsStage.home])으로 이동한다(§4) — 기존
+  /// FloorPlanWorkspaceScreen으로 직접 진입시키지 않는다.
   void _enterApp() {
-    Navigator.of(context).pushReplacement(
+    Navigator.of(context).pushAndRemoveUntil(
       MaterialPageRoute(
-        builder: (context) => const FloorPlanWorkspaceScreen(),
-        settings: const RouteSettings(name: 'floor_plan_workspace'),
+        builder: (context) => const SsStageScreen(stage: SsStage.home),
+        settings: RouteSettings(name: SsStage.home.routeName),
       ),
+      (route) => false,
     );
   }
 
@@ -133,7 +183,7 @@ class _LoginScreenState extends State<LoginScreen> {
                       ),
                       const Spacer(),
                       TextButton(
-                        onPressed: _enterApp,
+                        onPressed: _showComingSoon,
                         child: const Text(
                           '비밀번호 찾기',
                           style: TextStyle(
@@ -145,7 +195,7 @@ class _LoginScreenState extends State<LoginScreen> {
                     ],
                   ),
                   const SizedBox(height: 8),
-                  GradientCtaButton(label: '로그인', onPressed: _enterApp),
+                  GradientCtaButton(label: '로그인', onPressed: _submitting ? null : _login),
                   const SizedBox(height: 28),
                   Row(
                     children: const [
@@ -171,21 +221,21 @@ class _LoginScreenState extends State<LoginScreen> {
                         icon: Icons.g_mobiledata_rounded,
                         background: const Color(0xFFF2F2F2),
                         foreground: const Color(0xFF1F2933),
-                        onTap: _enterApp,
+                        onTap: _showComingSoon,
                       ),
                       const SizedBox(width: 18),
                       _SocialLoginButton(
                         icon: Icons.chat_bubble_rounded,
                         background: const Color(0xFFFEE500),
                         foreground: const Color(0xFF3C1E1E),
-                        onTap: _enterApp,
+                        onTap: _showComingSoon,
                       ),
                       const SizedBox(width: 18),
                       _SocialLoginButton(
                         icon: Icons.apple_rounded,
                         background: const Color(0xFF1F2933),
                         foreground: Colors.white,
-                        onTap: _enterApp,
+                        onTap: _showComingSoon,
                       ),
                     ],
                   ),

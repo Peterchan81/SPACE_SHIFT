@@ -2,10 +2,12 @@ import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 
+import '../core/ss_router.dart';
+import '../core/ss_stage.dart';
+import '../services/auth_service.dart';
 import '../services/image_picker_service.dart';
 import '../theme/space_shift_colors.dart';
 import '../widgets/gradient_cta_button.dart';
-import 'floor_plan_workspace_screen.dart';
 
 /// MASTER UI 1번 화면(회원가입 상태) — 이름/이메일/비밀번호와 약관 동의로
 /// 신규 계정을 만드는 화면.
@@ -23,9 +25,14 @@ class SignupScreen extends StatefulWidget {
   const SignupScreen({
     super.key,
     this.imagePickerService = const ImagePickerService(),
+    this.authController,
   });
 
   final ImagePickerService imagePickerService;
+
+  /// 테스트에서 [FakeAuthService]를 주입할 수 있게 한다. 지정하지 않으면
+  /// 앱 전체가 공유하는 [AuthController.instance]를 쓴다.
+  final AuthController? authController;
 
   @override
   State<SignupScreen> createState() => _SignupScreenState();
@@ -40,7 +47,10 @@ class _SignupScreenState extends State<SignupScreen> {
   bool _agreed = false;
   bool _obscurePassword = true;
   bool _obscurePasswordConfirm = true;
+  bool _submitting = false;
   Uint8List? _profileImageBytes;
+
+  AuthController get _controller => widget.authController ?? AuthController.instance;
 
   @override
   void dispose() {
@@ -65,7 +75,7 @@ class _SignupScreenState extends State<SignupScreen> {
     return (value == null || value.trim().isEmpty) ? '필수 항목입니다.' : null;
   }
 
-  void _submit() {
+  Future<void> _submit() async {
     final formOk = _formKey.currentState?.validate() ?? false;
     if (!formOk) return;
     if (_passwordController.text != _passwordConfirmController.text) {
@@ -80,12 +90,34 @@ class _SignupScreenState extends State<SignupScreen> {
       ).showSnackBar(const SnackBar(content: Text('이용약관 및 개인정보처리방침에 동의해주세요.')));
       return;
     }
+    if (_submitting) return;
+    if (!_controller.isConfigured) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text(kAuthNotConfiguredMessage)));
+      return;
+    }
 
-    Navigator.of(context).pushReplacement(
-      MaterialPageRoute(
-        builder: (context) => const FloorPlanWorkspaceScreen(),
-        settings: const RouteSettings(name: 'floor_plan_workspace'),
-      ),
+    setState(() => _submitting = true);
+    final result = await _controller.signUp(
+      email: _emailController.text.trim(),
+      password: _passwordController.text,
+    );
+    if (!mounted) return;
+    setState(() => _submitting = false);
+
+    if (result.status == AuthStatus.success) {
+      Navigator.of(context).pushAndRemoveUntil(
+        MaterialPageRoute(
+          builder: (context) => const SsStageScreen(stage: SsStage.home),
+          settings: RouteSettings(name: SsStage.home.routeName),
+        ),
+        (route) => false,
+      );
+      return;
+    }
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(result.message ?? '회원가입에 실패했습니다.')),
     );
   }
 
@@ -368,7 +400,7 @@ class _SignupScreenState extends State<SignupScreen> {
         ],
       ),
       const SizedBox(height: 20),
-      GradientCtaButton(label: '회원가입', onPressed: _submit),
+      GradientCtaButton(label: '회원가입', onPressed: _submitting ? null : _submit),
       const SizedBox(height: 20),
       Row(
         mainAxisAlignment: MainAxisAlignment.center,
