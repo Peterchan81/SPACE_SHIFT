@@ -6,7 +6,7 @@ import '../core/ss_router.dart';
 import '../core/ss_stage.dart';
 import '../services/auth_service.dart';
 import '../services/image_picker_service.dart';
-import '../theme/space_shift_colors.dart';
+import '../theme/ss_master_theme.dart';
 import '../widgets/gradient_cta_button.dart';
 
 /// MASTER UI 1번 화면(회원가입 상태) — 이름/이메일/비밀번호와 약관 동의로
@@ -131,7 +131,7 @@ class _SignupScreenState extends State<SignupScreen> {
     showModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,
-      backgroundColor: SpaceShiftColors.background,
+      backgroundColor: SsMasterTheme.background,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
       ),
@@ -142,10 +142,10 @@ class _SignupScreenState extends State<SignupScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: SpaceShiftColors.background,
+      backgroundColor: SsMasterTheme.background,
       appBar: AppBar(
-        backgroundColor: SpaceShiftColors.background,
-        foregroundColor: SpaceShiftColors.textPrimary,
+        backgroundColor: SsMasterTheme.background,
+        foregroundColor: SsMasterTheme.textPrimary,
         elevation: 0,
         surfaceTintColor: Colors.transparent,
         title: const Text('회원가입'),
@@ -209,7 +209,7 @@ class _SignupScreenState extends State<SignupScreen> {
                   '회원가입',
                   style: Theme.of(context).textTheme.headlineSmall?.copyWith(
                     fontWeight: FontWeight.bold,
-                    color: SpaceShiftColors.textPrimary,
+                    color: SsMasterTheme.textPrimary,
                   ),
                 ),
                 const SizedBox(height: 8),
@@ -217,7 +217,7 @@ class _SignupScreenState extends State<SignupScreen> {
                   'SPACE SHIFT 계정을 만들고\n공간의 변화를 시작해보세요.',
                   style: TextStyle(
                     fontSize: 14,
-                    color: SpaceShiftColors.textSecondary,
+                    color: SsMasterTheme.textSecondary,
                     height: 1.4,
                   ),
                 ),
@@ -256,13 +256,13 @@ class _SignupScreenState extends State<SignupScreen> {
             decoration: BoxDecoration(
               color: const Color(0xFFF7F8FA),
               shape: BoxShape.circle,
-              border: Border.all(color: SpaceShiftColors.border),
+              border: Border.all(color: SsMasterTheme.panelBorder),
             ),
             child: _profileImageBytes == null
                 ? const Icon(
                     Icons.camera_alt_rounded,
                     size: 30,
-                    color: SpaceShiftColors.textSecondary,
+                    color: SsMasterTheme.textSecondary,
                   )
                 : Image.memory(
                     _profileImageBytes!,
@@ -275,7 +275,7 @@ class _SignupScreenState extends State<SignupScreen> {
         const SizedBox(height: 8),
         const Text(
           '프로필 사진 (선택)',
-          style: TextStyle(fontSize: 12, color: SpaceShiftColors.textSecondary),
+          style: TextStyle(fontSize: 12, color: SsMasterTheme.textSecondary),
         ),
       ],
     );
@@ -344,7 +344,7 @@ class _SignupScreenState extends State<SignupScreen> {
             height: 24,
             child: Checkbox(
               value: _agreed,
-              activeColor: SpaceShiftColors.selectionAccent,
+              activeColor: SsMasterTheme.neonBlue,
               onChanged: (value) => setState(() => _agreed = value ?? false),
             ),
           ),
@@ -362,7 +362,7 @@ class _SignupScreenState extends State<SignupScreen> {
                       style: TextStyle(
                         fontSize: 13,
                         fontWeight: FontWeight.bold,
-                        color: SpaceShiftColors.selectionAccent,
+                        color: SsMasterTheme.neonBlue,
                         decoration: TextDecoration.underline,
                       ),
                     ),
@@ -371,7 +371,7 @@ class _SignupScreenState extends State<SignupScreen> {
                     ' 및 ',
                     style: TextStyle(
                       fontSize: 13,
-                      color: SpaceShiftColors.textSecondary,
+                      color: SsMasterTheme.textSecondary,
                     ),
                   ),
                   GestureDetector(
@@ -381,7 +381,7 @@ class _SignupScreenState extends State<SignupScreen> {
                       style: TextStyle(
                         fontSize: 13,
                         fontWeight: FontWeight.bold,
-                        color: SpaceShiftColors.selectionAccent,
+                        color: SsMasterTheme.neonBlue,
                         decoration: TextDecoration.underline,
                       ),
                     ),
@@ -390,7 +390,7 @@ class _SignupScreenState extends State<SignupScreen> {
                     '에 동의합니다.',
                     style: TextStyle(
                       fontSize: 13,
-                      color: SpaceShiftColors.textSecondary,
+                      color: SsMasterTheme.textSecondary,
                     ),
                   ),
                 ],
@@ -409,7 +409,7 @@ class _SignupScreenState extends State<SignupScreen> {
             '이미 계정이 있으신가요?',
             style: TextStyle(
               fontSize: 13,
-              color: SpaceShiftColors.textSecondary,
+              color: SsMasterTheme.textSecondary,
             ),
           ),
           TextButton(
@@ -419,7 +419,7 @@ class _SignupScreenState extends State<SignupScreen> {
               style: TextStyle(
                 fontSize: 13,
                 fontWeight: FontWeight.bold,
-                color: SpaceShiftColors.selectionAccent,
+                color: SsMasterTheme.neonBlue,
               ),
             ),
           ),
@@ -453,7 +453,7 @@ class _PolicyDocumentSheet extends StatelessWidget {
               height: 4,
               margin: const EdgeInsets.symmetric(vertical: 12),
               decoration: BoxDecoration(
-                color: SpaceShiftColors.border,
+                color: SsMasterTheme.panelBorder,
                 borderRadius: BorderRadius.circular(4),
               ),
             ),
@@ -467,7 +467,7 @@ class _PolicyDocumentSheet extends StatelessWidget {
                       style: const TextStyle(
                         fontSize: 17,
                         fontWeight: FontWeight.bold,
-                        color: SpaceShiftColors.textPrimary,
+                        color: SsMasterTheme.textPrimary,
                       ),
                     ),
                   ),
@@ -478,7 +478,7 @@ class _PolicyDocumentSheet extends StatelessWidget {
                 ],
               ),
             ),
-            const Divider(height: 1, color: SpaceShiftColors.border),
+            const Divider(height: 1, color: SsMasterTheme.panelBorder),
             Expanded(
               child: SingleChildScrollView(
                 padding: const EdgeInsets.all(20),
@@ -487,7 +487,7 @@ class _PolicyDocumentSheet extends StatelessWidget {
                   '서비스 운영 정책이 확정되는 대로 이 화면에 실제 $title 전문이 표시됩니다.',
                   style: const TextStyle(
                     fontSize: 14,
-                    color: SpaceShiftColors.textSecondary,
+                    color: SsMasterTheme.textSecondary,
                     height: 1.6,
                   ),
                 ),

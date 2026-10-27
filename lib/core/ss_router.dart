@@ -154,6 +154,21 @@ class SsStageScreen extends StatelessWidget {
 class SsTopBar extends StatelessWidget {
   const SsTopBar({super.key});
 
+  /// SS002 §5 — 로그아웃: Supabase 세션 종료 + 앱 인증 상태 초기화 후 로그인
+  /// 화면으로 돌려보내고, 보호된 화면으로 뒤로가기(back)로 재진입하지 못하게
+  /// pushAndRemoveUntil로 이전 스택을 모두 제거한다.
+  Future<void> _handleLogout(BuildContext context) async {
+    await AuthController.instance.signOut();
+    if (!context.mounted) return;
+    Navigator.of(context).pushAndRemoveUntil(
+      MaterialPageRoute<void>(
+        builder: (_) => const LoginScreen(),
+        settings: const RouteSettings(name: '/login'),
+      ),
+      (route) => false,
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Container(
@@ -182,10 +197,20 @@ class SsTopBar extends StatelessWidget {
             onPressed: null,
             icon: const Icon(Icons.notifications_outlined, color: SsMasterTheme.textSecondary),
           ),
-          IconButton(
+          PopupMenuButton<String>(
             key: const Key('ssTopBarProfile'),
-            onPressed: null,
+            tooltip: '프로필',
             icon: const Icon(Icons.account_circle_outlined, color: SsMasterTheme.textSecondary),
+            onSelected: (value) {
+              if (value == 'logout') _handleLogout(context);
+            },
+            itemBuilder: (context) => const [
+              PopupMenuItem<String>(
+                value: 'logout',
+                key: Key('ssTopBarLogout'),
+                child: Text('로그아웃'),
+              ),
+            ],
           ),
         ],
       ),

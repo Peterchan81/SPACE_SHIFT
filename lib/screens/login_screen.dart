@@ -3,18 +3,16 @@ import 'package:flutter/material.dart';
 import '../core/ss_router.dart';
 import '../core/ss_stage.dart';
 import '../services/auth_service.dart';
-import '../theme/space_shift_colors.dart';
+import '../theme/ss_master_theme.dart';
 import '../widgets/gradient_cta_button.dart';
 import 'signup_screen.dart';
 
 /// MASTER UI 1번 화면 — 로그인 / 자동로그인.
 ///
-/// 앱 실행 시 가장 먼저 보여지는 화면으로, SPACE SHIFT 로고와 아이디/비밀번호
-/// 입력, 자동 로그인, 간편 로그인, 회원가입 진입을 제공한다.
-///
-/// 실제 인증 백엔드는 아직 준비되지 않았으므로, 이 화면은 로그인 UI와
-/// 정상적인 앱 진입 흐름(신규 MASTER 메인 작업 화면[FloorPlanWorkspaceScreen]
-/// 으로 이동)만 구현하고 실제 계정 검증은 하지 않는다.
+/// SS002 §1 — MASTER UI 1번(로그인 화면)의 Dark Navy 배경과 Rainbow/Neon
+/// 강조색 기준을 따른다. 공통 프레임(SsTopBar 등)과 같은 lib/theme/
+/// ss_master_theme.dart의 MASTER 테마를 재사용하고, 레이아웃·구성은 임의로
+/// 재설계하지 않는다.
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key, this.authController});
 
@@ -101,7 +99,7 @@ class _LoginScreenState extends State<LoginScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: SpaceShiftColors.background,
+      backgroundColor: SsMasterTheme.background,
       body: SafeArea(
         child: Center(
           child: ConstrainedBox(
@@ -114,13 +112,16 @@ class _LoginScreenState extends State<LoginScreen> {
                   const SizedBox(height: 24),
                   const Center(child: _SpaceShiftLogoMark()),
                   const SizedBox(height: 20),
-                  const Text(
-                    'SPACE SHIFT',
-                    textAlign: TextAlign.center,
-                    style: TextStyle(
-                      fontSize: 28,
-                      fontWeight: FontWeight.bold,
-                      color: SpaceShiftColors.textPrimary,
+                  ShaderMask(
+                    shaderCallback: (bounds) => SsMasterTheme.rainbow.createShader(bounds),
+                    child: const Text(
+                      'SPACE SHIFT',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(
+                        fontSize: 28,
+                        fontWeight: FontWeight.bold,
+                        color: Colors.white,
+                      ),
                     ),
                   ),
                   const SizedBox(height: 8),
@@ -129,7 +130,7 @@ class _LoginScreenState extends State<LoginScreen> {
                     textAlign: TextAlign.center,
                     style: TextStyle(
                       fontSize: 14,
-                      color: SpaceShiftColors.textSecondary,
+                      color: SsMasterTheme.textSecondary,
                     ),
                   ),
                   const SizedBox(height: 32),
@@ -168,7 +169,7 @@ class _LoginScreenState extends State<LoginScreen> {
                         height: 24,
                         child: Checkbox(
                           value: _autoLogin,
-                          activeColor: SpaceShiftColors.selectionAccent,
+                          activeColor: SsMasterTheme.neonBlue,
                           onChanged: (value) =>
                               setState(() => _autoLogin = value ?? false),
                         ),
@@ -178,7 +179,7 @@ class _LoginScreenState extends State<LoginScreen> {
                         '자동 로그인',
                         style: TextStyle(
                           fontSize: 13,
-                          color: SpaceShiftColors.textSecondary,
+                          color: SsMasterTheme.textSecondary,
                         ),
                       ),
                       const Spacer(),
@@ -188,7 +189,7 @@ class _LoginScreenState extends State<LoginScreen> {
                           '비밀번호 찾기',
                           style: TextStyle(
                             fontSize: 13,
-                            color: SpaceShiftColors.textSecondary,
+                            color: SsMasterTheme.textSecondary,
                           ),
                         ),
                       ),
@@ -199,18 +200,18 @@ class _LoginScreenState extends State<LoginScreen> {
                   const SizedBox(height: 28),
                   Row(
                     children: const [
-                      Expanded(child: Divider(color: SpaceShiftColors.border)),
+                      Expanded(child: Divider(color: SsMasterTheme.panelBorder)),
                       Padding(
                         padding: EdgeInsets.symmetric(horizontal: 12),
                         child: Text(
                           '간편 로그인',
                           style: TextStyle(
                             fontSize: 12,
-                            color: SpaceShiftColors.textSecondary,
+                            color: SsMasterTheme.textSecondary,
                           ),
                         ),
                       ),
-                      Expanded(child: Divider(color: SpaceShiftColors.border)),
+                      Expanded(child: Divider(color: SsMasterTheme.panelBorder)),
                     ],
                   ),
                   const SizedBox(height: 20),
@@ -247,7 +248,7 @@ class _LoginScreenState extends State<LoginScreen> {
                         '계정이 없으신가요?',
                         style: TextStyle(
                           fontSize: 13,
-                          color: SpaceShiftColors.textSecondary,
+                          color: SsMasterTheme.textSecondary,
                         ),
                       ),
                       TextButton(
@@ -257,7 +258,7 @@ class _LoginScreenState extends State<LoginScreen> {
                           style: TextStyle(
                             fontSize: 13,
                             fontWeight: FontWeight.bold,
-                            color: SpaceShiftColors.selectionAccent,
+                            color: SsMasterTheme.neonBlue,
                           ),
                         ),
                       ),
