@@ -1,14 +1,55 @@
 // SS002 §2~§6 — AuthService 구현체 검증. FakeAuthService는 화면 테스트가
-// 실제 네트워크 없이 쓰는 용도이고, SupabaseAuthService는 http MockClient로
-// Supabase Auth REST API 호출/응답 파싱/오류 안내/세션 저장-복원을 검증한다.
+// 실제 네트워크 없이 쓰는 용도이고, SupabaseAuthService는 supabase_flutter의
+// SupabaseClient에 http MockClient를 주입해(Supabase.instance 전역 싱글턴은
+// 거치지 않음) 회원가입/로그인/오류 안내/로그아웃을 검증한다. 세션 저장/복원
+// 자체(자동 로그인 §5)는 supabase_flutter의 기본 로컬 저장소에 위임하므로,
+// 이 서비스 계층이 직접 파일을 쓰고 읽는지는 더 이상 검증하지 않는다 — 대신
+// 로그인 직후 같은 클라이언트에서 restoreSession()이 그 세션을 그대로
+// 돌려주는지(§5 "유효 세션이면 자동 로그인")를 검증한다.
 import 'dart:convert';
-import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
+import 'package:supabase_flutter/supabase_flutter.dart' as supa;
 
 import 'package:ason_space/services/auth_service.dart';
+
+/// 실제 Supabase Auth REST 응답과 같은 형태의 완전한 user JSON — gotrue의
+/// User 모델 파싱이 기대하는 필드를 모두 채워 MockClient 응답이 실제
+/// Supabase 서버 응답과 동일하게 파싱되게 한다.
+Map<String, Object?> _userJson({required String id, required String email}) => {
+  'id': id,
+  'aud': 'authenticated',
+  'role': 'authenticated',
+  'email': email,
+  'email_confirmed_at': '2024-01-01T00:00:00Z',
+  'phone': '',
+  'app_metadata': {'provider': 'email', 'providers': ['email']},
+  'user_metadata': <String, Object?>{},
+  'identities': <Object?>[],
+  'created_at': '2024-01-01T00:00:00Z',
+  'updated_at': '2024-01-01T00:00:00Z',
+};
+
+Map<String, Object?> _sessionJson({required String accessToken, required String refreshToken, required String userId, required String email}) => {
+  'access_token': accessToken,
+  'token_type': 'bearer',
+  'expires_in': 3600,
+  'expires_at': DateTime.now().toUtc().add(const Duration(hours: 1)).millisecondsSinceEpoch ~/ 1000,
+  'refresh_token': refreshToken,
+  'user': _userJson(id: userId, email: email),
+};
+
+/// 테스트 전용 — Supabase.instance 싱글턴을 전혀 거치지 않는 순수
+/// [supa.SupabaseClient]를 만든다(httpClient만 MockClient로 교체).
+supa.SupabaseClient _testClient(Future<http.Response> Function(http.Request) handler) {
+  return supa.SupabaseClient(
+    'https://example.supabase.co',
+    'anon-key',
+    httpClient: MockClient(handler),
+  );
+}
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -70,7 +111,7 @@ void main() {
     });
   });
 
-  group('SupabaseAuthService — Supabase Auth REST API 호출(MockClient)', () {
+  group('SupabaseAuthService — supabase_flutter SupabaseClient(MockClient 주입)', () {
     test('설정값이 없으면 isConfigured가 false다', () {
       final service = SupabaseAuthService(supabaseUrlOverride: '', anonKeyOverride: '');
       expect(service.isConfigured, isFalse);
@@ -91,59 +132,30 @@ void main() {
       expect(result.errorKind, AuthErrorKind.notConfigured);
     });
 
-    test('회원가입 성공 시 /auth/v1/signup으로 요청하고 세션을 저장한다', () async {
-      final dir = Directory.systemTemp.createTempSync('ss002_auth_signup');
-      addTearDown(() => dir.deleteSync(recursive: true));
-      Uri? requestedUri;
-      final client = MockClient((request) async {
-        requestedUri = request.url;
+    test('회원가입 성공 시 세션이 생기고, 같은 클라이언트에서 restoreSession으로 자동 로그인을 확인할 수 있다(§5)', () async {
+      final client = _testClient((request) async {
         return http.Response(
-          jsonEncode({
-            'access_token': 'at-1',
-            'refresh_token': 'rt-1',
-            'expires_in': 3600,
-            'user': {'id': 'u-1', 'email': 'new@example.com'},
-          }),
+          jsonEncode(_sessionJson(accessToken: 'at-1', refreshToken: 'rt-1', userId: 'u-1', email: 'new@example.com')),
           200,
         );
       });
-      final service = SupabaseAuthService(
-        client: client,
-        sessionDir: dir,
-        supabaseUrlOverride: 'https://example.supabase.co',
-        anonKeyOverride: 'anon-key',
-      );
+      final service = SupabaseAuthService(client: client);
 
       final result = await service.signUp(email: 'new@example.com', password: 'password1');
 
       expect(result.isSuccess, isTrue);
       expect(result.session?.accessToken, 'at-1');
-      expect(requestedUri?.toString(), 'https://example.supabase.co/auth/v1/signup');
 
-      final restored = await SupabaseAuthService(
-        client: client,
-        sessionDir: dir,
-        supabaseUrlOverride: 'https://example.supabase.co',
-        anonKeyOverride: 'anon-key',
-      ).restoreSession();
+      final restored = await service.restoreSession();
       expect(restored?.accessToken, 'at-1');
+      expect(restored?.email, 'new@example.com');
     });
 
     test('이메일 확인이 필요한 응답(세션 없음)은 needsEmailConfirmation으로 처리한다', () async {
-      final dir = Directory.systemTemp.createTempSync('ss002_auth_needs_confirm');
-      addTearDown(() => dir.deleteSync(recursive: true));
-      final client = MockClient((request) async {
-        return http.Response(
-          jsonEncode({'id': 'u-2', 'email': 'pending@example.com'}),
-          200,
-        );
+      final client = _testClient((request) async {
+        return http.Response(jsonEncode(_userJson(id: 'u-2', email: 'pending@example.com')), 200);
       });
-      final service = SupabaseAuthService(
-        client: client,
-        sessionDir: dir,
-        supabaseUrlOverride: 'https://example.supabase.co',
-        anonKeyOverride: 'anon-key',
-      );
+      final service = SupabaseAuthService(client: client);
 
       final result = await service.signUp(email: 'pending@example.com', password: 'password1');
 
@@ -151,20 +163,13 @@ void main() {
     });
 
     test('로그인 실패(잘못된 자격 증명)는 한국어 안내로 변환된다', () async {
-      final dir = Directory.systemTemp.createTempSync('ss002_auth_invalid');
-      addTearDown(() => dir.deleteSync(recursive: true));
-      final client = MockClient((request) async {
+      final client = _testClient((request) async {
         return http.Response(
           jsonEncode({'error_code': 'invalid_credentials', 'msg': 'Invalid login credentials'}),
           400,
         );
       });
-      final service = SupabaseAuthService(
-        client: client,
-        sessionDir: dir,
-        supabaseUrlOverride: 'https://example.supabase.co',
-        anonKeyOverride: 'anon-key',
-      );
+      final service = SupabaseAuthService(client: client);
 
       final result = await service.signIn(email: 'a@b.com', password: 'wrong');
 
@@ -174,103 +179,56 @@ void main() {
     });
 
     test('요청 제한(429) 응답은 한국어 재시도 안내로 변환된다', () async {
-      final dir = Directory.systemTemp.createTempSync('ss002_auth_rate');
-      addTearDown(() => dir.deleteSync(recursive: true));
-      final client = MockClient((request) async {
-        return http.Response(jsonEncode({'msg': 'rate limit exceeded'}), 429);
+      final client = _testClient((request) async {
+        return http.Response(jsonEncode({'error_code': 'over_request_rate_limit', 'msg': 'rate limit exceeded'}), 429);
       });
-      final service = SupabaseAuthService(
-        client: client,
-        sessionDir: dir,
-        supabaseUrlOverride: 'https://example.supabase.co',
-        anonKeyOverride: 'anon-key',
-      );
+      final service = SupabaseAuthService(client: client);
 
       final result = await service.signIn(email: 'a@b.com', password: 'password1');
 
       expect(result.errorKind, AuthErrorKind.rateLimited);
     });
 
-    test('저장된 세션이 만료되면 refresh_token으로 갱신한다', () async {
-      final dir = Directory.systemTemp.createTempSync('ss002_auth_refresh');
-      addTearDown(() => dir.deleteSync(recursive: true));
-      final sessionFile = File('${dir.path}${Platform.pathSeparator}space_shift_auth_session.json');
-      await sessionFile.writeAsString(jsonEncode({
-        'userId': 'u-3',
-        'email': 'old@example.com',
-        'accessToken': 'expired-token',
-        'refreshToken': 'refresh-3',
-        'expiresAt': DateTime.now().toUtc().subtract(const Duration(hours: 1)).toIso8601String(),
-      }));
-
-      String? grantType;
-      final client = MockClient((request) async {
-        grantType = request.url.queryParameters['grant_type'];
+    test('이미 가입된 이메일로 회원가입하면 한국어 안내로 변환된다', () async {
+      final client = _testClient((request) async {
         return http.Response(
-          jsonEncode({
-            'access_token': 'at-new',
-            'refresh_token': 'rt-new',
-            'expires_in': 3600,
-            'user': {'id': 'u-3', 'email': 'old@example.com'},
-          }),
+          jsonEncode({'error_code': 'user_already_exists', 'msg': 'User already registered'}),
+          400,
+        );
+      });
+      final service = SupabaseAuthService(client: client);
+
+      final result = await service.signUp(email: 'dup@example.com', password: 'password1');
+
+      expect(result.errorKind, AuthErrorKind.emailAlreadyRegistered);
+      expect(result.message, '이미 가입된 이메일입니다.');
+    });
+
+    test('로그인 성공 후 로그아웃하면 같은 클라이언트의 currentSession이 사라진다', () async {
+      final client = _testClient((request) async {
+        if (request.url.path.endsWith('/auth/v1/logout')) {
+          return http.Response('', 204);
+        }
+        return http.Response(
+          jsonEncode(_sessionJson(accessToken: 'at-logout', refreshToken: 'rt-logout', userId: 'u-4', email: 'logout@example.com')),
           200,
         );
       });
-      final service = SupabaseAuthService(
-        client: client,
-        sessionDir: dir,
-        supabaseUrlOverride: 'https://example.supabase.co',
-        anonKeyOverride: 'anon-key',
-      );
+      final service = SupabaseAuthService(client: client);
+      await service.signUp(email: 'logout@example.com', password: 'password1');
+      expect(await service.restoreSession(), isNotNull);
 
-      final restored = await service.restoreSession();
-
-      expect(grantType, 'refresh_token');
-      expect(restored?.accessToken, 'at-new');
-    });
-
-    test('세션이 저장되어 있지 않으면 restoreSession은 null이다', () async {
-      final dir = Directory.systemTemp.createTempSync('ss002_auth_empty');
-      addTearDown(() => dir.deleteSync(recursive: true));
-      final service = SupabaseAuthService(
-        sessionDir: dir,
-        supabaseUrlOverride: 'https://example.supabase.co',
-        anonKeyOverride: 'anon-key',
-      );
+      await service.signOut();
 
       expect(await service.restoreSession(), isNull);
     });
 
-    test('로그아웃하면 로컬 세션 파일이 삭제되고 이후 restoreSession은 null이다', () async {
-      final dir = Directory.systemTemp.createTempSync('ss002_auth_logout');
-      addTearDown(() => dir.deleteSync(recursive: true));
-      String? authHeader;
-      final client = MockClient((request) async {
-        if (request.url.path.endsWith('/auth/v1/signup')) {
-          return http.Response(
-            jsonEncode({
-              'access_token': 'at-logout',
-              'refresh_token': 'rt-logout',
-              'expires_in': 3600,
-              'user': {'id': 'u-4', 'email': 'logout@example.com'},
-            }),
-            200,
-          );
-        }
-        authHeader = request.headers['Authorization'];
-        return http.Response('', 204);
+    test('세션이 없으면 restoreSession은 null이다', () async {
+      final client = _testClient((request) async {
+        return http.Response('', 404);
       });
-      final service = SupabaseAuthService(
-        client: client,
-        sessionDir: dir,
-        supabaseUrlOverride: 'https://example.supabase.co',
-        anonKeyOverride: 'anon-key',
-      );
-      await service.signUp(email: 'logout@example.com', password: 'password1');
+      final service = SupabaseAuthService(client: client);
 
-      await service.signOut();
-
-      expect(authHeader, 'Bearer at-logout');
       expect(await service.restoreSession(), isNull);
     });
   });

@@ -1,29 +1,27 @@
 /// SS002 §2~§6 — Supabase Auth 이메일·비밀번호 인증을 화면과 분리하는 서비스 계층.
 ///
 /// 화면은 [AuthService] 인터페이스만 보고 호출한다. 실제 네트워크 연결은
-/// [SupabaseAuthService](Supabase Auth REST API, http 패키지로 직접 호출)가
-/// 담당하고, 테스트는 실제 네트워크 없이 [FakeAuthService]를 쓴다.
+/// [SupabaseAuthService]가 담당하고, 테스트는 실제 네트워크 없이 [FakeAuthService]를 쓴다.
 ///
-/// 이 저장소의 pubspec.yaml 의존성은 바꾸지 않는다 — `supabase_flutter`를
-/// 새로 추가하는 대신, Supabase Auth가 공개하는 REST 엔드포인트
-/// (`/auth/v1/signup`, `/auth/v1/token`, `/auth/v1/logout`)를 이미 의존성에
-/// 있는 [http] 패키지로 직접 호출해 같은 이메일·비밀번호 인증(B안)을
-/// 구현한다. service_role/secret key는 앱에 전혀 포함하지 않고,
+/// 작업지시서 §2·§5·8단계가 이름으로 지정한 `supabase_flutter`(pubspec.yaml)를
+/// 실제로 쓴다 — Supabase Auth REST 엔드포인트를 직접 호출하지 않고,
+/// `supabase_flutter`가 공개하는 [SupabaseClient]/[GoTrueClient](signUp,
+/// signInWithPassword, signOut, currentSession, AuthException)를 그대로
+/// 쓴다. service_role/secret key는 앱에 전혀 포함하지 않고,
 /// SUPABASE_URL/SUPABASE_ANON_KEY만 `String.fromEnvironment`로 읽는다(§2).
 ///
-/// 세션 저장/복원(자동 로그인, §5)은 `supabase_flutter`의 기본 저장소 대신
-/// 기존 [FileSsProjectStore](lib/core/ss_project_store.dart)와 같은 "임시
-/// 파일에 쓰고 바꿔 넣기" 방식을 그대로 재사용해, 앱이 중간에 꺼져도 세션
-/// 파일이 깨지지 않게 한다.
+/// 세션 저장/복원(자동 로그인, §5)은 `supabase_flutter`의 기본 저장소
+/// (`Supabase.initialize()`가 설정하는 로컬 저장소)를 그대로 활용한다 —
+/// main.dart가 앱 시작 시 설정값이 있으면 `Supabase.initialize()`를 한 번
+/// 호출해 두면, 이후 [SupabaseAuthService]는 `Supabase.instance.client`의
+/// `auth.currentSession`만 읽어 자동 로그인을 구현한다. 더 이상 이 서비스가
+/// 직접 세션 파일을 쓰고 읽지 않는다.
 library;
 
 import 'dart:async';
-import 'dart:convert';
-import 'dart:io';
 
 import 'package:flutter/foundation.dart';
-import 'package:http/http.dart' as http;
-import 'package:path_provider/path_provider.dart';
+import 'package:supabase_flutter/supabase_flutter.dart' as supa;
 
 /// `--dart-define=SUPABASE_ANON_KEY=...`. 공개 가능한 anon key — service_role/
 /// secret key가 아니다. 지정하지 않으면 인증 설정이 없는 것으로 취급한다(§2).
@@ -141,25 +139,27 @@ abstract class AuthService {
   Future<AuthResult> signIn({required String email, required String password});
   Future<void> signOut();
 
-  /// 앱 시작 시 저장된 세션을 복원한다(§5) — 만료됐으면 refresh token으로
-  /// 갱신을 시도하고, 그래도 안 되면 null(로그인 화면으로).
+  /// 앱 시작 시 저장된 세션을 복원한다(§5) — supabase_flutter가 복원해 둔
+  /// 세션이 있으면 그대로 돌려주고, 없으면 null(로그인 화면으로).
   Future<AuthSession?> restoreSession();
 }
 
-/// SS002 §2~§6 — Supabase Auth REST API(이메일·비밀번호)를 직접 호출하는 구현.
+/// SS002 §2~§6 — `supabase_flutter`(package:supabase_flutter)의 [supa.SupabaseClient]
+/// 를 그대로 써서 Supabase Auth 이메일·비밀번호 인증을 구현한다.
 ///
-/// 세션은 앱 문서 폴더의 `space_shift_auth_session.json`에 저장해, 기존
-/// [FileSsProjectStore](lib/core/ss_project_store.dart)와 같은 "임시 파일에
-/// 쓰고 바꿔 넣기" 방식으로 앱이 중간에 꺼져도 깨지지 않게 한다(§5 자동 로그인).
+/// 실제 앱에서는 main.dart가 시작할 때 미리 끝낸 `Supabase.initialize()`의
+/// 전역 싱글턴([supa.Supabase.instance.client])을 그대로 쓴다 —
+/// supabase_flutter의 기본 세션 저장/복원(§5)이 이 전역 클라이언트에서만
+/// 동작하기 때문이다. 테스트(§2 "실제 Supabase 연결 없이도 실행 가능")는
+/// `client`에 httpClient를 MockClient로 바꾼 순수 [supa.SupabaseClient]를
+/// 직접 주입해 `Supabase.instance`를 전혀 거치지 않는다.
 class SupabaseAuthService implements AuthService {
-  SupabaseAuthService({http.Client? client, Directory? sessionDir, String? supabaseUrlOverride, String? anonKeyOverride})
-    : _client = client ?? http.Client(),
-      _sessionDirOverride = sessionDir,
+  SupabaseAuthService({supa.SupabaseClient? client, String? supabaseUrlOverride, String? anonKeyOverride})
+    : _clientOverride = client,
       _urlOverride = supabaseUrlOverride,
       _keyOverride = anonKeyOverride;
 
-  final http.Client _client;
-  final Directory? _sessionDirOverride;
+  final supa.SupabaseClient? _clientOverride;
 
   /// `--dart-define` 값은 컴파일 타임에 고정되어 테스트에서 런타임에 바꿀 수
   /// 없으므로(기존 [AppUpdateService]의 `supabaseUrlOverride`와 같은 관례),
@@ -173,30 +173,33 @@ class SupabaseAuthService implements AuthService {
   @override
   bool get isConfigured => _url.isNotEmpty && _key.isNotEmpty;
 
-  Uri _authUri(String path, [Map<String, String>? query]) => Uri.parse('$_url/auth/v1/$path').replace(queryParameters: query);
+  supa.SupabaseClient? _ownClient;
 
-  Map<String, String> get _headers => {'Content-Type': 'application/json', 'apikey': _key};
+  supa.SupabaseClient get _client {
+    if (_clientOverride != null) return _clientOverride;
+    try {
+      return supa.Supabase.instance.client;
+    } catch (_) {
+      // main.dart가 Supabase.initialize()를 아직 안 불렀거나(설정이 없는
+      // 빌드) 거치지 않는 예외적 호출 경로 — 이번 호출에서만 쓸 임시
+      // 클라이언트를 직접 만든다(세션 영속 저장은 없음).
+      return _ownClient ??= supa.SupabaseClient(_url, _key);
+    }
+  }
 
   @override
   Future<AuthResult> signUp({required String email, required String password}) async {
     if (!isConfigured) return const AuthResult.failure(kAuthNotConfiguredMessage, AuthErrorKind.notConfigured);
     try {
-      final res = await _client
-          .post(_authUri('signup'), headers: _headers, body: jsonEncode({'email': email, 'password': password}))
-          .timeout(const Duration(seconds: 20));
-      final body = _tryDecode(res.body);
-      if (res.statusCode >= 200 && res.statusCode < 300) {
-        final session = _sessionFromTokenResponse(body, fallbackEmail: email);
-        if (session == null) {
-          return const AuthResult.needsEmailConfirmation('확인 메일을 보냈습니다. 메일에서 확인 후 로그인해주세요.');
-        }
-        await _saveSession(session);
-        return AuthResult.success(session);
+      final res = await _client.auth.signUp(email: email, password: password).timeout(const Duration(seconds: 20));
+      final session = _mapSession(res.session, fallbackEmail: email);
+      if (session == null) {
+        return const AuthResult.needsEmailConfirmation('확인 메일을 보냈습니다. 메일에서 확인 후 로그인해주세요.');
       }
-      return _failureFrom(res.statusCode, body);
+      return AuthResult.success(session);
+    } on supa.AuthException catch (e) {
+      return _failureFromException(e);
     } on TimeoutException {
-      return const AuthResult.failure('네트워크 연결을 확인해주세요.', AuthErrorKind.network);
-    } on http.ClientException {
       return const AuthResult.failure('네트워크 연결을 확인해주세요.', AuthErrorKind.network);
     } catch (_) {
       return const AuthResult.failure('네트워크 연결을 확인해주세요.', AuthErrorKind.network);
@@ -207,20 +210,15 @@ class SupabaseAuthService implements AuthService {
   Future<AuthResult> signIn({required String email, required String password}) async {
     if (!isConfigured) return const AuthResult.failure(kAuthNotConfiguredMessage, AuthErrorKind.notConfigured);
     try {
-      final res = await _client
-          .post(_authUri('token', {'grant_type': 'password'}), headers: _headers, body: jsonEncode({'email': email, 'password': password}))
+      final res = await _client.auth
+          .signInWithPassword(email: email, password: password)
           .timeout(const Duration(seconds: 20));
-      final body = _tryDecode(res.body);
-      if (res.statusCode >= 200 && res.statusCode < 300) {
-        final session = _sessionFromTokenResponse(body, fallbackEmail: email);
-        if (session == null) return const AuthResult.failure('로그인에 실패했습니다. 다시 시도해주세요.');
-        await _saveSession(session);
-        return AuthResult.success(session);
-      }
-      return _failureFrom(res.statusCode, body);
+      final session = _mapSession(res.session, fallbackEmail: email);
+      if (session == null) return const AuthResult.failure('로그인에 실패했습니다. 다시 시도해주세요.');
+      return AuthResult.success(session);
+    } on supa.AuthException catch (e) {
+      return _failureFromException(e);
     } on TimeoutException {
-      return const AuthResult.failure('네트워크 연결을 확인해주세요.', AuthErrorKind.network);
-    } on http.ClientException {
       return const AuthResult.failure('네트워크 연결을 확인해주세요.', AuthErrorKind.network);
     } catch (_) {
       return const AuthResult.failure('네트워크 연결을 확인해주세요.', AuthErrorKind.network);
@@ -229,90 +227,54 @@ class SupabaseAuthService implements AuthService {
 
   @override
   Future<void> signOut() async {
-    final session = await _readSavedSession();
-    if (isConfigured && session != null) {
-      try {
-        await _client
-            .post(_authUri('logout'), headers: {..._headers, 'Authorization': 'Bearer ${session.accessToken}'})
-            .timeout(const Duration(seconds: 10));
-      } catch (_) {
-        // 로그아웃 요청이 실패해도 로컬 세션은 반드시 지운다(§5 — 로그아웃은
-        // 사용자를 다시 로그인 화면으로 보내는 것이 최우선).
-      }
+    try {
+      await _client.auth.signOut().timeout(const Duration(seconds: 10));
+    } catch (_) {
+      // 로그아웃 요청이 실패해도 앱 인증 상태(AuthController)는 반드시
+      // 초기화된다(§5 — 로그아웃은 사용자를 다시 로그인 화면으로 보내는
+      // 것이 최우선). 로컬에 남은 세션 정리는 supabase_flutter가 맡는다.
     }
-    await _clearSession();
   }
 
   @override
   Future<AuthSession?> restoreSession() async {
-    final saved = await _readSavedSession();
-    if (saved == null) return null;
-    if (!saved.isExpired) return saved;
     if (!isConfigured) return null;
-    // 만료된 세션 — refresh token으로 재확인(§5).
-    try {
-      final res = await _client
-          .post(_authUri('token', {'grant_type': 'refresh_token'}), headers: _headers, body: jsonEncode({'refresh_token': saved.refreshToken}))
-          .timeout(const Duration(seconds: 20));
-      if (res.statusCode >= 200 && res.statusCode < 300) {
-        final session = _sessionFromTokenResponse(_tryDecode(res.body), fallbackEmail: saved.email);
-        if (session != null) {
-          await _saveSession(session);
-          return session;
-        }
-      }
-    } catch (_) {
-      // 네트워크 오류로 갱신 실패 — 세션 없음으로 취급(로그인 화면에서 다시 시도).
-    }
-    await _clearSession();
-    return null;
+    return _mapSession(_client.auth.currentSession);
   }
 
-  AuthSession? _sessionFromTokenResponse(Object? body, {required String fallbackEmail}) {
-    if (body is! Map) return null;
-    final access = body['access_token'];
-    final refresh = body['refresh_token'];
-    final expiresIn = body['expires_in'];
-    final user = body['user'];
-    if (access is! String || refresh is! String) return null;
-    final seconds = expiresIn is int ? expiresIn : (expiresIn is num ? expiresIn.toInt() : 3600);
-    String userId = '';
-    String email = fallbackEmail;
-    if (user is Map) {
-      userId = '${user['id'] ?? ''}';
-      email = '${user['email'] ?? fallbackEmail}';
-    }
+  AuthSession? _mapSession(supa.Session? session, {String? fallbackEmail}) {
+    if (session == null) return null;
+    final expiresAtSeconds = session.expiresAt;
+    final expiresAt = expiresAtSeconds != null
+        ? DateTime.fromMillisecondsSinceEpoch(expiresAtSeconds * 1000, isUtc: true)
+        : DateTime.now().toUtc().add(const Duration(hours: 1));
     return AuthSession(
-      userId: userId,
-      email: email,
-      accessToken: access,
-      refreshToken: refresh,
-      expiresAt: DateTime.now().toUtc().add(Duration(seconds: seconds)),
+      userId: session.user.id,
+      email: session.user.email ?? fallbackEmail ?? '',
+      accessToken: session.accessToken,
+      refreshToken: session.refreshToken ?? '',
+      expiresAt: expiresAt,
     );
   }
 
-  AuthResult _failureFrom(int statusCode, Object? body) {
-    String code = '';
-    String msg = '';
-    if (body is Map) {
-      code = '${body['error_code'] ?? body['code'] ?? ''}'.toLowerCase();
-      msg = '${body['msg'] ?? body['error_description'] ?? body['message'] ?? ''}'.toLowerCase();
-    }
+  AuthResult _failureFromException(supa.AuthException e) {
+    final msg = e.message.toLowerCase();
+    final statusCode = int.tryParse(e.statusCode ?? '') ?? 0;
     AuthErrorKind kind;
     String korean;
-    if (statusCode == 429 || code.contains('rate') || msg.contains('rate limit')) {
+    if (statusCode == 429 || msg.contains('rate limit') || msg.contains('too many requests')) {
       kind = AuthErrorKind.rateLimited;
       korean = '요청이 너무 많습니다. 잠시 후 다시 시도해주세요.';
-    } else if (code.contains('email_not_confirmed') || msg.contains('not confirmed') || msg.contains('confirm')) {
+    } else if (msg.contains('not confirmed') || msg.contains('confirm')) {
       kind = AuthErrorKind.emailNotConfirmed;
       korean = '이메일 확인이 필요합니다. 메일함을 확인해주세요.';
-    } else if (code.contains('user_already_registered') || msg.contains('already registered') || msg.contains('already exists')) {
+    } else if (msg.contains('already registered') || msg.contains('already exists')) {
       kind = AuthErrorKind.emailAlreadyRegistered;
       korean = '이미 가입된 이메일입니다.';
-    } else if (code.contains('weak_password') || (msg.contains('password') && (msg.contains('short') || msg.contains('weak') || msg.contains('least')))) {
+    } else if (msg.contains('password') && (msg.contains('short') || msg.contains('weak') || msg.contains('least') || msg.contains('character'))) {
       kind = AuthErrorKind.weakPassword;
       korean = '비밀번호가 보안 정책에 맞지 않습니다(최소 8자 이상).';
-    } else if (code.contains('invalid_credentials') || msg.contains('invalid login') || msg.contains('invalid email or password')) {
+    } else if (msg.contains('invalid login') || msg.contains('invalid email or password') || msg.contains('invalid credentials')) {
       kind = AuthErrorKind.invalidCredentials;
       korean = '이메일 또는 비밀번호가 올바르지 않습니다.';
     } else if (msg.contains('invalid') && msg.contains('email')) {
@@ -323,49 +285,6 @@ class SupabaseAuthService implements AuthService {
       korean = '요청을 처리하지 못했습니다. 잠시 후 다시 시도해주세요.';
     }
     return AuthResult.failure(korean, kind);
-  }
-
-  Object? _tryDecode(String body) {
-    try {
-      return jsonDecode(body);
-    } catch (_) {
-      return null;
-    }
-  }
-
-  Future<Directory> _resolveSessionDir() async => _sessionDirOverride ?? await getApplicationDocumentsDirectory();
-
-  Future<File> _sessionFile() async {
-    final dir = await _resolveSessionDir();
-    return File('${dir.path}${Platform.pathSeparator}space_shift_auth_session.json');
-  }
-
-  Future<void> _saveSession(AuthSession session) async {
-    final f = await _sessionFile();
-    await f.parent.create(recursive: true);
-    final tmp = File('${f.path}.tmp');
-    await tmp.writeAsString(jsonEncode(session.toJson()), flush: true);
-    if (await f.exists()) await f.delete();
-    await tmp.rename(f.path);
-  }
-
-  Future<AuthSession?> _readSavedSession() async {
-    try {
-      final f = await _sessionFile();
-      if (!await f.exists()) return null;
-      return AuthSession.tryFromJson(jsonDecode(await f.readAsString()));
-    } catch (_) {
-      return null;
-    }
-  }
-
-  Future<void> _clearSession() async {
-    try {
-      final f = await _sessionFile();
-      if (await f.exists()) await f.delete();
-    } catch (_) {
-      // 삭제 실패해도 앱 인증 상태(메모리)는 이미 초기화됨.
-    }
   }
 }
 

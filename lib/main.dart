@@ -3,6 +3,7 @@ import 'dart:io';
 
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
+import 'package:supabase_flutter/supabase_flutter.dart' as supa;
 
 import 'core/ss_router.dart';
 import 'core/ss_stage.dart';
@@ -11,8 +12,23 @@ import 'services/app_update_store.dart';
 import 'services/auth_service.dart';
 import 'theme/space_shift_colors.dart';
 
-void main() {
+/// SS002 §2 — 빌드 설정(`--dart-define`)으로만 읽는다. lib/services/auth_service.dart
+/// 의 SupabaseAuthService가 읽는 값과 같은 dart-define 키라서 항상 같은 값이다.
+const String _supabaseUrl = String.fromEnvironment('SUPABASE_URL', defaultValue: '');
+const String _supabaseAnonKey = String.fromEnvironment('SUPABASE_ANON_KEY', defaultValue: '');
+
+Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+
+  // SS002 §2·§5 — 작업지시서가 이름으로 지정한 supabase_flutter를 실제로
+  // 쓴다: 설정값(SUPABASE_URL/SUPABASE_ANON_KEY)이 모두 있을 때만 앱이 뜨기
+  // 전에 Supabase.initialize()를 한 번 끝내 둔다. 이 호출이 supabase_flutter의
+  // 기본 로컬 저장소에 저장된 세션을 복원하므로, 이후 AuthController.bootstrap()
+  // 은 Supabase.instance.client.auth.currentSession만 읽으면 된다(자동 로그인).
+  // 설정이 없으면 호출하지 않는다 — §2 "인증 설정이 없습니다" 안내가 그대로 동작한다.
+  if (_supabaseUrl.isNotEmpty && _supabaseAnonKey.isNotEmpty) {
+    await supa.Supabase.initialize(url: _supabaseUrl, anonKey: _supabaseAnonKey);
+  }
 
   // 인터넷 기반 무선 업데이트 확인은 Android에서만, 앱이 뜰 때 한 번
   // 배경으로 실행해 결과를 공유 싱글턴(AppUpdateStore.instance)에
