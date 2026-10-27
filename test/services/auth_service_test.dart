@@ -14,7 +14,7 @@ void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
   group('FakeAuthService — 실제 네트워크 없이 이메일·비밀번호 인증을 흉내낸다', () {
-    test('이메일 형식이 아니면 회원가입이 실패한다', async() async {}, skip: true);
+    test('이메일 형식이 아니면 회원가입이 실패한다', () async {}, skip: true);
 
     test('이메일 형식이 아니면 회원가입이 실패한다 ', () async {
       final fake = FakeAuthService();
