@@ -126,6 +126,8 @@ void main() {
   testWidgets('"회원가입" 링크를 누르면 회원가입 화면으로 이동한다', (tester) async {
     await pumpLogin(tester);
 
+    await tester.ensureVisible(find.text('회원가입'));
+    await tester.pumpAndSettle();
     await tester.tap(find.text('회원가입'));
     await tester.pumpAndSettle();
 
