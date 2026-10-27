@@ -171,7 +171,7 @@ class SupabaseAuthService implements AuthService {
   String get _key => (_keyOverride ?? _supabaseAnonKeyDefine).trim();
 
   @override
-  bool get isConfigured => _url.isNotEmpty && _key.isNotEmpty;
+  bool get isConfigured => _clientOverride != null || (_url.isNotEmpty && _key.isNotEmpty);
 
   supa.SupabaseClient? _ownClient;
 
