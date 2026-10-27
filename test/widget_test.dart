@@ -33,13 +33,13 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:ason_space/models/ai_generation_request.dart';
 import 'package:ason_space/models/ai_generation_response.dart';
 import 'package:ason_space/screens/final_confirm_screen.dart';
-import 'package:ason_space/screens/floor_plan_workspace_screen.dart';
 import 'package:ason_space/screens/generate_screen.dart';
 import 'package:ason_space/screens/login_screen.dart';
 import 'package:ason_space/screens/photo_select_screen.dart';
 import 'package:ason_space/screens/result_screen.dart';
 import 'package:ason_space/screens/revise_result_screen.dart';
 import 'package:ason_space/services/ai_generation_service.dart';
+import 'package:ason_space/services/auth_service.dart';
 import 'package:ason_space/services/image_picker_service.dart';
 import 'package:ason_space/services/result_image_service.dart';
 import 'package:ason_space/services/usage_policy_service.dart';
@@ -237,28 +237,33 @@ void main() {
     UsagePolicyService.instance.resetForTesting();
   });
 
-  testWidgets('로그인 화면에서 로그인을 누르면 신규 MASTER 메인 작업 화면으로 이동한다', (
+  testWidgets('로그인 화면에서 올바른 이메일·비밀번호로 로그인하면 MASTER 홈 화면으로 이동한다', (
     WidgetTester tester,
   ) async {
-    await tester.pumpWidget(const MaterialApp(home: LoginScreen()));
+    // SS002 §4 — 실제 인증 백엔드와 연결된 뒤로는 자격 증명 없이 로그인
+    // 버튼만 눌러서는 더 이상 작업 화면으로 들어갈 수 없다(기존에는 검증
+    // 없이 바로 FloorPlanWorkspaceScreen으로 이동했었다). 네트워크 없이도
+    // 같은 성공 흐름을 검증하기 위해 FakeAuthService로 미리 가입된 계정의
+    // 이메일·비밀번호를 입력해 로그인하고, 로그인 성공 시 이동하는 MASTER
+    // 홈([SsStage.home])이 보이는지 확인한다.
+    final fakeAuth = FakeAuthService();
+    await fakeAuth.signUp(email: 'widgettest@example.com', password: 'password1');
+    final controller = AuthController(service: fakeAuth);
+
+    await tester.pumpWidget(
+      MaterialApp(home: LoginScreen(authController: controller)),
+    );
 
     expect(find.text('SPACE SHIFT'), findsOneWidget);
     expect(find.text('로그인'), findsWidgets);
 
+    await tester.enterText(find.byType(TextField).first, 'widgettest@example.com');
+    await tester.enterText(find.byType(TextField).last, 'password1');
     await tester.tap(find.widgetWithText(GradientCtaButton, '로그인'));
     await tester.pumpAndSettle();
 
-    expect(find.byType(FloorPlanWorkspaceScreen), findsOneWidget);
-    // FINAL PROFESSIONAL UI RESTRUCTURE WO §1/§6 — 중앙 작업 화면을
-    // 최대로 확보하기 위해 정적인 "평면도 업로드 작업실" 타이틀만 있던
-    // 상단 AppBar를 없앴다. 화면을 식별하는 역할은 이제 좌측 상단
-    // 브랜드 영역(SPACE SHIFT 심볼+텍스트)이 대신한다.
-    expect(find.text('SPACE\nSHIFT'), findsOneWidget);
-    // WO099 UI COMPACT MODE — 좌측 "시작 방식 선택"은 이제 세로 아이콘
-    // 레일(기본 상태는 아이콘만, hover 시 tooltip)이다.
-    expect(find.byTooltip('평면도 업로드'), findsOneWidget);
-    // 기존 "공간 사진 등록" 화면이 로그인 직후 자동으로 나타나지 않는다.
-    expect(find.text('공간 사진 등록'), findsNothing);
+    expect(find.byType(LoginScreen), findsNothing);
+    expect(find.byKey(const Key('ssStageTitle')), findsOneWidget);
   });
 
   testWidgets('사진이 없을 때 다음 버튼이 비활성화된다', (WidgetTester tester) async {
