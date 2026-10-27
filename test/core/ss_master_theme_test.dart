@@ -28,7 +28,9 @@ void main() {
     expect(find.text('SS'), findsOneWidget);
     expect(tester.widget<IconButton>(find.byKey(const Key('ssTopBarHelp'))).onPressed, isNull);
     expect(tester.widget<IconButton>(find.byKey(const Key('ssTopBarNotifications'))).onPressed, isNull);
-    expect(tester.widget<IconButton>(find.byKey(const Key('ssTopBarProfile'))).onPressed, isNull);
+    // SS002 §5 — 프로필 아이콘은 로그아웃 메뉴(PopupMenuButton)로 동작한다(도움말·알림만 비활성).
+    expect(find.byKey(const Key('ssTopBarProfile')), findsOneWidget);
+    expect(tester.widget<PopupMenuButton<String>>(find.byKey(const Key('ssTopBarProfile'))).onSelected, isNotNull);
   });
 
   testWidgets('홈 단계는 홈·프로젝트·프로젝트 생성·설정만 보이고(저장/2D 등은 숨김), 홈이 선택 표시된다', (tester) async {
