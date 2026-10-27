@@ -48,6 +48,12 @@ supa.SupabaseClient _testClient(Future<http.Response> Function(http.Request) han
     'https://example.supabase.co',
     'anon-key',
     httpClient: MockClient(handler),
+    // gotrue의 signUp()은 기본(PKCE) 플로우에서 asyncStorage가 있어야
+    // code_challenge를 만들 수 있다고 assert한다. 이 테스트 클라이언트는
+    // 로컬 저장소를 쓰지 않으므로, PKCE가 필요 없는 implicit 플로우로
+    // 바꿔 그 assert를 피한다(실제 앱은 main.dart의 전역 클라이언트를
+    // 쓰므로 영향 없음).
+    authOptions: const supa.AuthClientOptions(authFlowType: supa.AuthFlowType.implicit),
   );
 }
 
