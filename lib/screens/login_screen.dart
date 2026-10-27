@@ -15,6 +15,10 @@ import 'signup_screen.dart';
 /// 입력과 로그인/회원가입 버튼을 둔다. lib/theme/ss_master_theme.dart의
 /// 기존 MASTER 테마를 재사용하며, 화면 전체를 임의로 재설계하지 않는다.
 ///
+/// MASTER 원본에서는 로고+카드 블록이 화면 왼쪽으로 치우쳐 배치되고, 카드가
+/// 배경과 부드러운 흰 빛 번짐(halo)으로 섞인다(검토 §1 지적) — 중앙 정렬 +
+/// 검은 그림자 박스 대신 좌측 치우침 Align + 흰 halo로 맞춘다.
+///
 /// 인증은 [AuthService] 인터페이스(§2) 뒤에서 [AuthController]가 담당한다.
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key, this.authController});
@@ -118,7 +122,10 @@ class _LoginScreenState extends State<LoginScreen> {
             ),
           ),
           SafeArea(
-            child: Center(
+            child: Align(
+              // MASTER UI 1번은 로고+카드 블록이 화면 왼쪽으로 치우쳐 배치된다 —
+              // 중앙 정렬 대신 약간 왼쪽으로 치우친 위치에 그린다.
+              alignment: const Alignment(-0.35, 0),
               child: SingleChildScrollView(
                 padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 32),
                 child: ConstrainedBox(
@@ -157,8 +164,12 @@ class _LoginScreenState extends State<LoginScreen> {
                         decoration: BoxDecoration(
                           color: Colors.white.withValues(alpha: 0.97),
                           borderRadius: BorderRadius.circular(20),
+                          // MASTER 원본처럼 카드 주위가 배경과 부드러운 흰 빛
+                          // 번짐(halo)으로 섞이도록 한다 — 검은 그림자만으로는
+                          // 원본과 달리 카드가 딱딱한 박스처럼 떠 보인다.
                           boxShadow: [
-                            BoxShadow(color: Colors.black.withValues(alpha: 0.25), blurRadius: 24, offset: const Offset(0, 12)),
+                            BoxShadow(color: Colors.white.withValues(alpha: 0.45), blurRadius: 48, offset: const Offset(0, 0)),
+                            BoxShadow(color: Colors.black.withValues(alpha: 0.12), blurRadius: 20, offset: const Offset(0, 10)),
                           ],
                         ),
                         child: Column(

@@ -1,7 +1,10 @@
 // SS001-UI — 공통 프레임(lib/core/ss_router.dart)이 MASTER UI(Dark Navy·Neon·고정 좌측 메뉴, SsMasterTheme)
 // 디자인을 쓰는지 검증한다. SS001·S1의 Route/메뉴 이동 기능 검증은 test/core/ss_router_test.dart가 그대로 맡는다.
+// SS002 §5 — SsTopBar의 프로필 아이콘은 로그아웃 기능을 제공해야 하므로(검토 지적) 더 이상 비활성이 아니다.
 import 'package:ason_space/core/ss_router.dart';
 import 'package:ason_space/core/ss_stage.dart';
+import 'package:ason_space/screens/login_screen.dart';
+import 'package:ason_space/services/auth_service.dart';
 import 'package:ason_space/theme/ss_master_theme.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -21,14 +24,35 @@ void main() {
     expect(scaffold.backgroundColor, SsMasterTheme.background);
   });
 
-  testWidgets('상단 Header는 무지개 SS 로고 + SPACE SHIFT, 도움말·알림·프로필 아이콘(비활성)을 보인다', (tester) async {
+  testWidgets('상단 Header는 무지개 SS 로고 + SPACE SHIFT, 도움말·알림 아이콘(비활성)을 보인다', (tester) async {
     await pumpStage(tester, SsStage.home);
     expect(find.byKey(const Key('ssTopBar')), findsOneWidget);
     expect(find.text('SPACE SHIFT'), findsOneWidget);
     expect(find.text('SS'), findsOneWidget);
     expect(tester.widget<IconButton>(find.byKey(const Key('ssTopBarHelp'))).onPressed, isNull);
     expect(tester.widget<IconButton>(find.byKey(const Key('ssTopBarNotifications'))).onPressed, isNull);
-    expect(tester.widget<IconButton>(find.byKey(const Key('ssTopBarProfile'))).onPressed, isNull);
+  });
+
+  testWidgets('프로필 아이콘은 로그아웃 기능을 제공한다(§5) — 누르면 세션을 종료하고 로그인 화면으로 이동한다', (tester) async {
+    final originalController = AuthController.instance;
+    final fake = FakeAuthService();
+    await fake.signUp(email: 'topbar@example.com', password: 'password1');
+    final controller = AuthController(service: fake);
+    await controller.signIn(email: 'topbar@example.com', password: 'password1');
+    expect(controller.isAuthenticated, isTrue);
+    AuthController.instance = controller;
+    addTearDown(() => AuthController.instance = originalController);
+
+    await pumpStage(tester, SsStage.home);
+    expect(find.byKey(const Key('ssTopBar')), findsOneWidget);
+    expect(tester.widget<IconButton>(find.byKey(const Key('ssTopBarProfile'))).onPressed, isNotNull);
+
+    await tester.tap(find.byKey(const Key('ssTopBarProfile')));
+    await tester.pumpAndSettle();
+
+    expect(controller.isAuthenticated, isFalse, reason: '로그아웃하면 Supabase 세션 종료 + 앱 인증 상태 초기화');
+    expect(find.byType(LoginScreen), findsOneWidget, reason: '로그아웃하면 로그인 화면으로 이동한다');
+    expect(find.byKey(const Key('ssTopBar')), findsNothing, reason: '보호된 화면(공통 프레임)은 더 이상 보이지 않는다');
   });
 
   testWidgets('홈 단계는 홈·프로젝트·프로젝트 생성·설정만 보이고(저장/2D 등은 숨김), 홈이 선택 표시된다', (tester) async {

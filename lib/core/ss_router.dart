@@ -150,9 +150,21 @@ class SsStageScreen extends StatelessWidget {
 }
 
 /// 상단 공통 Header(MASTER UI 2·5 기준) — 왼쪽 무지개 SS 로고 + "SPACE SHIFT", 오른쪽 도움말·알림·프로필.
-/// 아직 동작이 없는 아이콘은 누를 수 없게 비활성(onPressed: null)만 두고 가짜 동작을 만들지 않는다.
+/// 아직 동작이 없는 도움말·알림 아이콘은 누를 수 없게 비활성(onPressed: null)만 두고 가짜 동작을 만들지 않는다.
+/// 프로필 아이콘은 SS002 §5 "로그아웃 — 공통 프레임의 SsTopBar에서 로그아웃 기능을 제공한다"에 따라, 누르면
+/// Supabase 세션을 종료하고(AuthController.signOut) 앱 인증 상태를 초기화한 뒤 로그인 화면으로 돌아간다
+/// (pushAndRemoveUntil로 뒤로가기를 막아 보호된 화면 재진입을 차단한다).
 class SsTopBar extends StatelessWidget {
   const SsTopBar({super.key});
+
+  Future<void> _logout(BuildContext context) async {
+    await AuthController.instance.signOut();
+    if (!context.mounted) return;
+    Navigator.of(context).pushAndRemoveUntil(
+      MaterialPageRoute<void>(builder: (_) => const LoginScreen(), settings: const RouteSettings(name: '/login')),
+      (route) => false,
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -184,7 +196,8 @@ class SsTopBar extends StatelessWidget {
           ),
           IconButton(
             key: const Key('ssTopBarProfile'),
-            onPressed: null,
+            tooltip: '로그아웃',
+            onPressed: () => _logout(context),
             icon: const Icon(Icons.account_circle_outlined, color: SsMasterTheme.textSecondary),
           ),
         ],
