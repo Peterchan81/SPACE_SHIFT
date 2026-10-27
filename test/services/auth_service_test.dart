@@ -48,6 +48,11 @@ supa.SupabaseClient _testClient(Future<http.Response> Function(http.Request) han
     'https://example.supabase.co',
     'anon-key',
     httpClient: MockClient(handler),
+    // 테스트에서는 asyncStorage를 주입하지 않으므로, signUp() 등이 기본값인
+    // PKCE 플로우에서 code verifier를 로컬 저장소에 저장하려다 예외를
+    // 던지는 것을 막기 위해 implicit 플로우를 쓴다(§5 자동 로그인 검증과
+    // 무관 — 세션 생성/복원 동작만 확인하는 이 테스트 목적에 영향 없음).
+    authFlowType: supa.AuthFlowType.implicit,
   );
 }
 
