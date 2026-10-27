@@ -246,6 +246,15 @@ void main() {
     // 같은 성공 흐름을 검증하기 위해 FakeAuthService로 미리 가입된 계정의
     // 이메일·비밀번호를 입력해 로그인하고, 로그인 성공 시 이동하는 MASTER
     // 홈([SsStage.home])이 보이는지 확인한다.
+    //
+    // 로그인 성공 후 이동하는 SsStageScreen은 고정 폭(236) NavRail을 포함한
+    // Row 레이아웃이라 기본(작은) 테스트 뷰포트에서는 오버플로가 날 수 있다.
+    // 같은 작업지시서(SS002)의 login_screen_test.dart/signup_screen_test.dart와
+    // 동일하게 뷰포트를 넓혀 둔다.
+    tester.view.physicalSize = const Size(2000, 1200);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+
     final fakeAuth = FakeAuthService();
     await fakeAuth.signUp(email: 'widgettest@example.com', password: 'password1');
     final controller = AuthController(service: fakeAuth);
