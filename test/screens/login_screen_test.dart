@@ -126,6 +126,12 @@ void main() {
   testWidgets('"회원가입" 링크를 누르면 회원가입 화면으로 이동한다', (tester) async {
     await pumpLogin(tester);
 
+    // 기본 테스트 뷰포트(800x600)에서는 LoginScreen 콘텐츠 전체 높이가
+    // 뷰포트보다 커서 회원가입 링크가 스크롤 없이는 화면 밖에 위치한다.
+    // 탭 좌표가 실제로 보이는 위치에 있어야 히트테스트가 되므로 먼저
+    // 스크롤해 보이게 한다(widget_test.dart의 다른 탭 테스트들과 동일한 패턴).
+    await tester.ensureVisible(find.text('회원가입'));
+    await tester.pumpAndSettle();
     await tester.tap(find.text('회원가입'));
     await tester.pumpAndSettle();
 
