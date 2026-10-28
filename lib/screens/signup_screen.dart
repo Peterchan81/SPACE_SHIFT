@@ -9,6 +9,7 @@ import '../services/image_picker_service.dart';
 import '../theme/space_shift_colors.dart';
 import '../widgets/gradient_cta_button.dart';
 import 'email_confirmation_screen.dart';
+import 'home_screen.dart';
 
 /// MASTER UI 1번 화면(회원가입 상태) — 이름/이메일/비밀번호와 약관 동의로
 /// 신규 계정을 만드는 화면.
@@ -110,7 +111,7 @@ class _SignupScreenState extends State<SignupScreen> {
     if (result.status == AuthStatus.success) {
       Navigator.of(context).pushAndRemoveUntil(
         MaterialPageRoute(
-          builder: (context) => const SsStageScreen(stage: SsStage.home),
+          builder: (context) => const SsStageScreen(stage: SsStage.home, child: HomeScreen()),
           settings: RouteSettings(name: SsStage.home.routeName),
         ),
         (route) => false,
