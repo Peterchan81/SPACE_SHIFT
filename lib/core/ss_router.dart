@@ -89,6 +89,20 @@ abstract final class SsRouter {
   }
 }
 
+/// SS002 §5(2026-10-28 #2 후속 지시) — 설정 화면([SettingsScreen])과
+/// [SsTopBar]가 공유하는 로그아웃 동작 하나. Supabase 세션 종료
+/// ([AuthController.signOut]) + 앱 인증 상태 초기화 뒤 로그인 화면으로
+/// 돌아가며(pushAndRemoveUntil로 뒤로가기를 막아 보호된 화면 재진입을
+/// 차단), 세션 종료 로직을 두 번 구현하지 않는다.
+Future<void> performLogout(BuildContext context) async {
+  await AuthController.instance.signOut();
+  if (!context.mounted) return;
+  Navigator.of(context).pushAndRemoveUntil(
+    MaterialPageRoute<void>(builder: (_) => const LoginScreen(), settings: const RouteSettings(name: '/login')),
+    (route) => false,
+  );
+}
+
 /// 아직 세부 화면이 없는 단계의 공통 화면 — 3초 법칙(§15) 머리말 + 상단 Header + 좌측 Navigation(단계별
 /// 활성화) + 담당 Work Order. MASTER UI(Dark Navy·Neon·고정 좌측 메뉴) 공통 프레임.
 class SsStageScreen extends StatelessWidget {
@@ -151,20 +165,12 @@ class SsStageScreen extends StatelessWidget {
 
 /// 상단 공통 Header(MASTER UI 2·5 기준) — 왼쪽 무지개 SS 로고 + "SPACE SHIFT", 오른쪽 도움말·알림·프로필.
 /// 아직 동작이 없는 도움말·알림 아이콘은 누를 수 없게 비활성(onPressed: null)만 두고 가짜 동작을 만들지 않는다.
-/// 프로필 아이콘은 SS002 §5 "로그아웃 — 공통 프레임의 SsTopBar에서 로그아웃 기능을 제공한다"에 따라, 누르면
-/// Supabase 세션을 종료하고(AuthController.signOut) 앱 인증 상태를 초기화한 뒤 로그인 화면으로 돌아간다
-/// (pushAndRemoveUntil로 뒤로가기를 막아 보호된 화면 재진입을 차단한다).
+///
+/// 프로필 아이콘(2026-10-28 #2 후속 지시 — Galaxy Tab 실기 검증 후) — 더 이상
+/// 이 아이콘에서 직접 로그아웃하지 않는다. 누르면 [SettingsScreen]으로 이동해,
+/// "계정" 구역의 로그아웃(확인 창 → [performLogout])에서 로그아웃하게 한다.
 class SsTopBar extends StatelessWidget {
   const SsTopBar({super.key});
-
-  Future<void> _logout(BuildContext context) async {
-    await AuthController.instance.signOut();
-    if (!context.mounted) return;
-    Navigator.of(context).pushAndRemoveUntil(
-      MaterialPageRoute<void>(builder: (_) => const LoginScreen(), settings: const RouteSettings(name: '/login')),
-      (route) => false,
-    );
-  }
 
   @override
   Widget build(BuildContext context) {
@@ -196,8 +202,8 @@ class SsTopBar extends StatelessWidget {
           ),
           IconButton(
             key: const Key('ssTopBarProfile'),
-            tooltip: '로그아웃',
-            onPressed: () => _logout(context),
+            tooltip: '설정',
+            onPressed: () => Navigator.of(context).push<void>(MaterialPageRoute<void>(builder: (_) => SettingsScreen())),
             icon: const Icon(Icons.account_circle_outlined, color: SsMasterTheme.textSecondary),
           ),
         ],

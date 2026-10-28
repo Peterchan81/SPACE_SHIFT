@@ -26,7 +26,21 @@
 /// 않고 [AuthErrorKind.unknown] + 일반 안내로 처리하며, 실제 예외 종류와
 /// 메시지는 `debugPrint`로 남긴다(비밀번호·토큰은 남기지 않는다). catch-all
 /// 이 모든 실패를 하나의 원인으로 둔갑시키지 않는다 — signUp·signIn·signOut·
-/// 세션 복원 모두 같은 규칙을 따른다.
+/// 세션 복원·resendConfirmation 모두 같은 규칙을 따른다.
+///
+/// 이메일 인증 콜백(2026-10-28 #2 후속 지시) — 인증 메일의 확인 링크가
+/// Supabase 기본 Site URL(localhost)로 가서 ERR_CONNECTION_REFUSED가 나던
+/// 원인은 signUp에 emailRedirectTo가 없었기 때문이다. 설치된 앱(Android·
+/// Windows)은 [kAuthRedirectUrl](커스텀 스킴 `io.spaceshift.app://login-callback`)
+/// 을 signUp·resend에 넘기고, Web(kIsWeb)에서는 넘기지 않는다(Supabase
+/// 대시보드 Site URL/Redirect URLs 설정은 사용자가 직접 한다). 실제 콜백
+/// 링크 수신·PKCE 코드 교환은 `supabase_flutter`가 app_links로 자동
+/// 처리하고([Supabase.initialize]가 내부적으로 구독) 결과를
+/// `auth.onAuthStateChange`로 흘려보낸다(성공: signedIn 이벤트, 실패:
+/// notifyException으로 같은 스트림에 오류) — 설치된 패키지 소스
+/// (supabase_flutter의 supabase_auth.dart, gotrue의 getSessionFromUrl)로
+/// 확인했다. [AuthController.attachAuthStateListener]가 이 스트림을 구독해
+/// 인증 상태에 반영한다.
 library;
 
 import 'dart:async';
@@ -36,8 +50,9 @@ import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import 'package:supabase_flutter/supabase_flutter.dart' as supa;
 
-/// `--dart-define=SUPABASE_ANON_KEY=...`. 공개 가능한 anon key — service_role/
-/// secret key가 아니다. 지정하지 않으면 인증 설정이 없는 것으로 취급한다(§2).
+/// `--dart-define=SUPABASE_ANON_KEY=...`. 공개 가능한 anon/publishable key —
+/// service_role/secret key가 아니다. 지정하지 않으면 인증 설정이 없는 것으로
+/// 취급한다(§2).
 const String _supabaseAnonKeyDefine = String.fromEnvironment(
   'SUPABASE_ANON_KEY',
   defaultValue: '',
@@ -50,6 +65,13 @@ const String _supabaseUrlDefine = String.fromEnvironment(
   'SUPABASE_URL',
   defaultValue: '',
 );
+
+/// 인증 복귀 주소(2026-10-28 #2 후속 지시) — 설치 앱(Android·Windows)이
+/// 이메일 인증 메일의 링크가 돌아올 커스텀 스킴. Android는
+/// AndroidManifest.xml의 intent-filter, Windows는 실행 시 등록하는 레지스트리
+/// URL 프로토콜(windows/runner/main.cpp)이 이 스킴을 받는다. Web 빌드에서는
+/// 쓰지 않는다(Supabase 대시보드 Site URL로 돌아간다).
+const String kAuthRedirectUrl = 'io.spaceshift.app://login-callback';
 
 /// 로그인된 사용자의 인증 세션.
 @immutable
@@ -158,6 +180,10 @@ abstract class AuthService {
   /// 앱 시작 시 저장된 세션을 복원한다(§5) — supabase_flutter가 복원해 둔
   /// 세션이 있으면 그대로 돌려주고, 없으면 null(로그인 화면으로).
   Future<AuthSession?> restoreSession();
+
+  /// 확인 메일을 다시 보낸다(§3·§6 "요청 제한 및 이메일 발송 한도",
+  /// 2026-10-28 #2 후속 지시 "인증 메일 다시 보내기").
+  Future<AuthResult> resendConfirmation({required String email});
 }
 
 /// SS002 §2~§6 — `supabase_flutter`(package:supabase_flutter)의 [supa.SupabaseClient]
@@ -203,11 +229,18 @@ class SupabaseAuthService implements AuthService {
     }
   }
 
+  /// 설치 앱(Android·Windows)만 커스텀 스킴 콜백 주소를 쓴다(2026-10-28 #2
+  /// 후속 지시) — Web(kIsWeb)에서는 넘기지 않아 Supabase 대시보드 Site URL
+  /// 설정이 그대로 적용된다.
+  String? get _emailRedirectTo => kIsWeb ? null : kAuthRedirectUrl;
+
   @override
   Future<AuthResult> signUp({required String email, required String password}) async {
     if (!isConfigured) return const AuthResult.failure(kAuthNotConfiguredMessage, AuthErrorKind.notConfigured);
     try {
-      final res = await _client.auth.signUp(email: email, password: password).timeout(const Duration(seconds: 20));
+      final res = await _client.auth
+          .signUp(email: email, password: password, emailRedirectTo: _emailRedirectTo)
+          .timeout(const Duration(seconds: 20));
       final session = _mapSession(res.session, fallbackEmail: email);
       if (session == null) {
         return const AuthResult.needsEmailConfirmation('확인 메일을 보냈습니다. 메일에서 확인 후 로그인해주세요.');
@@ -273,6 +306,27 @@ class SupabaseAuthService implements AuthService {
       // 여기서도 catch-all이 원인을 숨기지 않도록 실제 예외를 남긴다.
       debugPrint('SupabaseAuthService.restoreSession 실패: ${e.runtimeType}: $e\n$st');
       return null;
+    }
+  }
+
+  @override
+  Future<AuthResult> resendConfirmation({required String email}) async {
+    if (!isConfigured) return const AuthResult.failure(kAuthNotConfiguredMessage, AuthErrorKind.notConfigured);
+    try {
+      await _client.auth
+          .resend(type: supa.OtpType.signup, email: email, emailRedirectTo: _emailRedirectTo)
+          .timeout(const Duration(seconds: 20));
+      return const AuthResult.needsEmailConfirmation('확인 메일을 다시 보냈습니다. 메일함을 확인해주세요.');
+    } on supa.AuthException catch (e) {
+      return _failureFromException(e);
+    } on SocketException catch (e) {
+      return _networkFailure('resendConfirmation', e);
+    } on http.ClientException catch (e) {
+      return _networkFailure('resendConfirmation', e);
+    } on TimeoutException catch (e) {
+      return _networkFailure('resendConfirmation', e);
+    } catch (e, st) {
+      return _unknownFailure('resendConfirmation', e, st);
     }
   }
 
@@ -363,6 +417,9 @@ class FakeAuthService implements AuthService {
   AuthSession? _session;
   int _idSeq = 0;
 
+  /// 테스트 편의 — resendConfirmation이 몇 번 불렸는지 확인한다.
+  int resendCallCount = 0;
+
   @override
   bool get isConfigured => configured;
 
@@ -419,6 +476,17 @@ class FakeAuthService implements AuthService {
   @override
   Future<AuthSession?> restoreSession() async => _session;
 
+  @override
+  Future<AuthResult> resendConfirmation({required String email}) async {
+    if (!isConfigured) return const AuthResult.failure(kAuthNotConfiguredMessage, AuthErrorKind.notConfigured);
+    resendCallCount++;
+    if (simulateNetworkError) return const AuthResult.failure('네트워크 연결을 확인해주세요.', AuthErrorKind.network);
+    if (!_users.containsKey(email)) {
+      return const AuthResult.failure('가입된 이메일을 찾을 수 없습니다.', AuthErrorKind.invalidEmail);
+    }
+    return const AuthResult.needsEmailConfirmation('확인 메일을 다시 보냈습니다. 메일함을 확인해주세요.');
+  }
+
   AuthSession _newSession(String email) => AuthSession(
     userId: 'fake-user-$_idSeq',
     email: email,
@@ -457,6 +525,17 @@ class AuthController extends ChangeNotifier {
   String? _lastError;
   String? get lastError => _lastError;
 
+  StreamSubscription<supa.AuthState>? _authStateSub;
+
+  /// 이메일 인증 콜백 딥링크 처리 중 발생한 안내(§6, 2026-10-28 #2 후속
+  /// 지시) — 만료/오류 링크나 다른 기기에서 연 링크 등. 홈으로 보내지
+  /// 않는다. [EmailConfirmationScreen] 등이 구독해서 보여준다.
+  String? _emailLinkError;
+  String? get emailLinkError => _emailLinkError;
+  void clearEmailLinkError() {
+    _emailLinkError = null;
+  }
+
   /// 인증 설정 자체가 없는가(§2) — 있으면 로그인/회원가입 화면은 항상 이
   /// 안내만 보여주고 더 진행하지 않는다.
   bool get isConfigured => service.isConfigured;
@@ -470,6 +549,68 @@ class AuthController extends ChangeNotifier {
     }
     _initialized = true;
     notifyListeners();
+  }
+
+  /// SS002 §5(2026-10-28 #2 후속 지시) — 이메일 인증 메일의 콜백 링크를
+  /// 받으면 supabase_flutter가 내부적으로 app_links 스트림을 구독해 PKCE
+  /// 코드 교환까지 끝내고, 그 결과를 [supa.GoTrueClient.onAuthStateChange]
+  /// 로 흘려보낸다(설치된 supabase_flutter/gotrue 소스로 확인: 성공하면
+  /// signedIn 이벤트, 링크 자체 오류·코드 교환 실패는 notifyException으로
+  /// 같은 스트림에 오류로 전달). 여기서는 그 결과만 구독해 인증 상태에
+  /// 반영한다 — 앱이 직접 URI를 파싱하지 않는다. main.dart가 전역
+  /// Supabase 클라이언트로 한 번 호출한다. FakeAuthService를 쓰는
+  /// 테스트에는 영향이 없다(authClient를 넘기지 않으면 Supabase.instance가
+  /// 없을 때 조용히 아무 것도 하지 않는다).
+  void attachAuthStateListener([supa.GoTrueClient? authClient]) {
+    final client = authClient ?? _supabaseAuthClientOrNull();
+    if (client == null) return;
+    unawaited(_authStateSub?.cancel());
+    _authStateSub = client.onAuthStateChange.listen(
+      (state) {
+        if (state.event != supa.AuthChangeEvent.signedIn || state.session == null) return;
+        final s = state.session!;
+        _emailLinkError = null;
+        _session = AuthSession(
+          userId: s.user.id,
+          email: s.user.email ?? '',
+          accessToken: s.accessToken,
+          refreshToken: s.refreshToken ?? '',
+          expiresAt: s.expiresAt != null
+              ? DateTime.fromMillisecondsSinceEpoch(s.expiresAt! * 1000, isUtc: true)
+              : DateTime.now().toUtc().add(const Duration(hours: 1)),
+        );
+        _initialized = true;
+        notifyListeners();
+      },
+      onError: (Object error, StackTrace stackTrace) {
+        _emailLinkError = describeDeeplinkError(error, stackTrace);
+        notifyListeners();
+      },
+    );
+  }
+
+  supa.GoTrueClient? _supabaseAuthClientOrNull() {
+    try {
+      return supa.Supabase.instance.client.auth;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// 인증 콜백 딥링크 처리 중 발생한 오류를 한국어 안내로 바꾼다(§6) — 네트워크
+  /// 오류로 둔갑시키지 않고 원인별로 구분한다. 순수 함수라 실제 스트림 없이도
+  /// 바로 단위 테스트할 수 있다.
+  static String describeDeeplinkError(Object error, [StackTrace? stackTrace]) {
+    if (error is supa.AuthPKCEGrantCodeExchangeError) {
+      debugPrint('AuthController 인증 콜백(다른 기기에서 열었을 가능성): ${error.runtimeType}: ${error.message}');
+      return '이메일 인증은 처리되었을 수 있습니다 — 가입한 기기의 SPACE SHIFT에서 로그인하세요.';
+    }
+    if (error is supa.AuthException) {
+      debugPrint('AuthController 인증 콜백 링크 오류: ${error.runtimeType}: ${error.message}');
+      return '인증 링크가 만료되었거나 올바르지 않습니다.';
+    }
+    debugPrint('AuthController 인증 콜백 처리 중 예상치 못한 오류(네트워크 아님): ${error.runtimeType}: $error\n$stackTrace');
+    return kAuthUnknownErrorMessage;
   }
 
   Future<AuthResult> signIn({required String email, required String password}) async {
@@ -506,6 +647,19 @@ class AuthController extends ChangeNotifier {
     return result;
   }
 
+  /// SS002 §3·§6(2026-10-28 #2 후속 지시) — 확인 메일 다시 보내기.
+  Future<AuthResult> resendConfirmation({required String email}) async {
+    _busy = true;
+    notifyListeners();
+    final result = await service.resendConfirmation(email: email);
+    if (result.status == AuthStatus.failure) {
+      _lastError = result.message;
+    }
+    _busy = false;
+    notifyListeners();
+    return result;
+  }
+
   /// SS002 §5 — 로그아웃: Supabase 세션 종료 + 앱 인증 상태 초기화. 호출 뒤
   /// [isAuthenticated]는 항상 false이므로, 보호된 화면은 다시 열 수 없다.
   Future<void> signOut() async {
@@ -515,5 +669,11 @@ class AuthController extends ChangeNotifier {
     _session = null;
     _busy = false;
     notifyListeners();
+  }
+
+  @override
+  void dispose() {
+    unawaited(_authStateSub?.cancel());
+    super.dispose();
   }
 }

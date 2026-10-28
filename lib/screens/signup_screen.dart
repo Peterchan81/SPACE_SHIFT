@@ -8,6 +8,7 @@ import '../services/auth_service.dart';
 import '../services/image_picker_service.dart';
 import '../theme/space_shift_colors.dart';
 import '../widgets/gradient_cta_button.dart';
+import 'email_confirmation_screen.dart';
 
 /// MASTER UI 1번 화면(회원가입 상태) — 이름/이메일/비밀번호와 약관 동의로
 /// 신규 계정을 만드는 화면.
@@ -113,6 +114,21 @@ class _SignupScreenState extends State<SignupScreen> {
           settings: RouteSettings(name: SsStage.home.routeName),
         ),
         (route) => false,
+      );
+      return;
+    }
+    if (result.status == AuthStatus.needsEmailConfirmation) {
+      // SS002 §3(2026-10-28 #2 후속 지시) — 이메일 확인이 필요하면 SnackBar
+      // 로 끝내지 않고, 다시 보내기/인증 완료 확인을 할 수 있는 전용 화면으로
+      // 보낸다. 인증 전에는 홈으로 들어가지 않는다.
+      Navigator.of(context).push(
+        MaterialPageRoute(
+          builder: (context) => EmailConfirmationScreen(
+            email: _emailController.text.trim(),
+            password: _passwordController.text,
+            authController: widget.authController,
+          ),
+        ),
       );
       return;
     }

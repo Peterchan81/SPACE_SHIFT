@@ -1,9 +1,11 @@
 // SS001-UI — 공통 프레임(lib/core/ss_router.dart)이 MASTER UI(Dark Navy·Neon·고정 좌측 메뉴, SsMasterTheme)
 // 디자인을 쓰는지 검증한다. SS001·S1의 Route/메뉴 이동 기능 검증은 test/core/ss_router_test.dart가 그대로 맡는다.
-// SS002 §5 — SsTopBar의 프로필 아이콘은 로그아웃 기능을 제공해야 하므로(검토 지적) 더 이상 비활성이 아니다.
+// SS002 §5(2026-10-28 #2 후속 지시 — Galaxy Tab 실기 검증 후) — 프로필 아이콘은
+// 더 이상 이 화면에서 직접 로그아웃하지 않고 설정 화면을 연다. 로그아웃 자체는
+// test/screens/settings_screen_test.dart가 검증한다.
 import 'package:ason_space/core/ss_router.dart';
 import 'package:ason_space/core/ss_stage.dart';
-import 'package:ason_space/screens/login_screen.dart';
+import 'package:ason_space/screens/settings_screen.dart';
 import 'package:ason_space/services/auth_service.dart';
 import 'package:ason_space/theme/ss_master_theme.dart';
 import 'package:flutter/material.dart';
@@ -33,7 +35,7 @@ void main() {
     expect(tester.widget<IconButton>(find.byKey(const Key('ssTopBarNotifications'))).onPressed, isNull);
   });
 
-  testWidgets('프로필 아이콘은 로그아웃 기능을 제공한다(§5) — 누르면 세션을 종료하고 로그인 화면으로 이동한다', (tester) async {
+  testWidgets('프로필 아이콘은 더 이상 로그아웃하지 않고, 누르면 설정 화면을 연다(§5, 2026-10-28 #2 후속 지시)', (tester) async {
     final originalController = AuthController.instance;
     final fake = FakeAuthService();
     await fake.signUp(email: 'topbar@example.com', password: 'password1');
@@ -50,9 +52,8 @@ void main() {
     await tester.tap(find.byKey(const Key('ssTopBarProfile')));
     await tester.pumpAndSettle();
 
-    expect(controller.isAuthenticated, isFalse, reason: '로그아웃하면 Supabase 세션 종료 + 앱 인증 상태 초기화');
-    expect(find.byType(LoginScreen), findsOneWidget, reason: '로그아웃하면 로그인 화면으로 이동한다');
-    expect(find.byKey(const Key('ssTopBar')), findsNothing, reason: '보호된 화면(공통 프레임)은 더 이상 보이지 않는다');
+    expect(controller.isAuthenticated, isTrue, reason: '프로필 아이콘은 더 이상 로그아웃 동작이 아니다');
+    expect(find.byType(SettingsScreen), findsOneWidget, reason: '프로필 아이콘을 누르면 설정 화면으로 이동한다');
   });
 
   testWidgets('홈 단계는 홈·프로젝트·프로젝트 생성·설정만 보이고(저장/2D 등은 숨김), 홈이 선택 표시된다', (tester) async {

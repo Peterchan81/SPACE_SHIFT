@@ -14,9 +14,11 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 
 import 'package:ason_space/models/app_update_info.dart';
+import 'package:ason_space/screens/login_screen.dart';
 import 'package:ason_space/screens/settings_screen.dart';
 import 'package:ason_space/services/app_update_service.dart';
 import 'package:ason_space/services/app_update_store.dart';
+import 'package:ason_space/services/auth_service.dart';
 
 class _FakeAppUpdateService implements AppUpdateService {
   _FakeAppUpdateService({this.checkResult, this.downloadedPath});
@@ -177,5 +179,56 @@ void main() {
 
     expect(find.textContaining('네트워크 연결을 확인'), findsOneWidget);
     expect(find.widgetWithText(OutlinedButton, '다시 시도'), findsOneWidget);
+  });
+
+  // SS002 §5(2026-10-28 #2 후속 지시 — Galaxy Tab 실기 검증 후) — 로그아웃을
+  // SsTopBar 프로필 아이콘에서 설정 화면 "계정" 구역으로 옮겼다.
+  group('계정 — 로그아웃(§5)', () {
+    testWidgets('로그아웃을 누르면 확인 창 뒤 세션을 종료하고 로그인 화면으로 이동한다(뒤로 가기로 재진입 불가)', (tester) async {
+      final originalController = AuthController.instance;
+      final fake = FakeAuthService();
+      await fake.signUp(email: 'settings@example.com', password: 'password1');
+      final controller = AuthController(service: fake);
+      await controller.signIn(email: 'settings@example.com', password: 'password1');
+      expect(controller.isAuthenticated, isTrue);
+      AuthController.instance = controller;
+      addTearDown(() => AuthController.instance = originalController);
+
+      await tester.pumpWidget(MaterialApp(home: SettingsScreen()));
+      await tester.pumpAndSettle();
+
+      await tester.ensureVisible(find.byKey(const Key('settingsLogoutButton')));
+      await tester.tap(find.byKey(const Key('settingsLogoutButton')));
+      await tester.pumpAndSettle();
+
+      expect(find.text('로그아웃하시겠습니까?'), findsOneWidget);
+      await tester.tap(find.widgetWithText(TextButton, '로그아웃'));
+      await tester.pumpAndSettle();
+
+      expect(controller.isAuthenticated, isFalse, reason: '로그아웃하면 Supabase 세션 종료 + 앱 인증 상태 초기화');
+      expect(find.byType(LoginScreen), findsOneWidget, reason: '로그아웃하면 로그인 화면으로 이동한다');
+      expect(find.byType(SettingsScreen), findsNothing, reason: '뒤로 가기로 보호된 화면에 다시 들어갈 수 없다(pushAndRemoveUntil)');
+    });
+
+    testWidgets('확인 창에서 취소하면 로그아웃하지 않는다', (tester) async {
+      final originalController = AuthController.instance;
+      final fake = FakeAuthService();
+      await fake.signUp(email: 'cancel@example.com', password: 'password1');
+      final controller = AuthController(service: fake);
+      await controller.signIn(email: 'cancel@example.com', password: 'password1');
+      AuthController.instance = controller;
+      addTearDown(() => AuthController.instance = originalController);
+
+      await tester.pumpWidget(MaterialApp(home: SettingsScreen()));
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byKey(const Key('settingsLogoutButton')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('취소'));
+      await tester.pumpAndSettle();
+
+      expect(controller.isAuthenticated, isTrue);
+      expect(find.byType(SettingsScreen), findsOneWidget);
+    });
   });
 }

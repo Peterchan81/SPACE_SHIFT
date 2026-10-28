@@ -330,4 +330,88 @@ void main() {
       expect(controller.isAuthenticated, isFalse);
     });
   });
+
+  // 2026-10-28 #2 후속 지시 — 이메일 인증 콜백(localhost 오류 원인 해결):
+  // 설치 앱은 emailRedirectTo로 kAuthRedirectUrl을 쓰고, 콜백으로 생긴
+  // signedIn은 AuthController가 받아 인증 상태에 반영하며, 콜백 오류는
+  // 네트워크 오류로 둔갑하지 않는 한국어 안내로 분류된다.
+  group('이메일 인증 콜백(§2·§3·§6, 2026-10-28 #2 후속 지시)', () {
+    test('회원가입 요청에 설치 앱의 콜백 주소(emailRedirectTo)가 담긴다', () async {
+      String? capturedRedirectTo;
+      final client = _testClient((request) async {
+        if (request.url.path.endsWith('/signup')) {
+          capturedRedirectTo = request.url.queryParameters['redirect_to'];
+        }
+        return http.Response(
+          jsonEncode(_sessionJson(accessToken: 'at-redirect', refreshToken: 'rt-redirect', userId: 'u-redirect', email: 'redirect@example.com')),
+          200,
+        );
+      });
+      final service = SupabaseAuthService(client: client);
+
+      await service.signUp(email: 'redirect@example.com', password: 'password1');
+
+      expect(capturedRedirectTo, kAuthRedirectUrl);
+    });
+
+    test('인증 메일 다시 보내기(resend)도 같은 콜백 주소를 쓰고 needsEmailConfirmation으로 안내한다', () async {
+      String? capturedRedirectTo;
+      final client = _testClient((request) async {
+        if (request.url.path.endsWith('/resend')) {
+          capturedRedirectTo = request.url.queryParameters['redirect_to'];
+          return http.Response('{}', 200);
+        }
+        return http.Response(jsonEncode(_userJson(id: 'u-resend', email: 'resend@example.com')), 200);
+      });
+      final service = SupabaseAuthService(client: client);
+
+      final result = await service.resendConfirmation(email: 'resend@example.com');
+
+      expect(result.status, AuthStatus.needsEmailConfirmation);
+      expect(capturedRedirectTo, kAuthRedirectUrl);
+    });
+
+    test('FakeAuthService.resendConfirmation — 가입된 이메일이면 다시 보내기 성공을 흉내낸다', () async {
+      final fake = FakeAuthService(requireEmailConfirmation: true);
+      await fake.signUp(email: 'resend2@example.com', password: 'password1');
+
+      final result = await fake.resendConfirmation(email: 'resend2@example.com');
+
+      expect(result.status, AuthStatus.needsEmailConfirmation);
+      expect(fake.resendCallCount, 1);
+    });
+
+    test('AuthController.attachAuthStateListener — 같은 클라이언트에 signedIn 이벤트가 오면 인증 상태에 반영된다(딥링크 콜백과 같은 신호)', () async {
+      final client = _testClient((request) async {
+        return http.Response(
+          jsonEncode(_sessionJson(accessToken: 'at-deep', refreshToken: 'rt-deep', userId: 'u-deep', email: 'deep@example.com')),
+          200,
+        );
+      });
+      final controller = AuthController(service: SupabaseAuthService(client: client));
+      controller.attachAuthStateListener(client.auth);
+
+      await client.auth.signInWithPassword(email: 'deep@example.com', password: 'password1');
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+
+      expect(controller.isAuthenticated, isTrue);
+      expect(controller.session?.email, 'deep@example.com');
+    });
+
+    test('describeDeeplinkError — PKCE 코드 교환 실패(다른 기기에서 열었을 가능성)는 다른 기기 안내다', () {
+      final msg = AuthController.describeDeeplinkError(const supa.AuthPKCEGrantCodeExchangeError('code verifier could not be found'));
+      expect(msg, contains('가입한 기기'));
+    });
+
+    test('describeDeeplinkError — 만료·오류 링크(AuthException)는 만료 안내다(홈 아님)', () {
+      final msg = AuthController.describeDeeplinkError(const supa.AuthException('Email link is invalid or has expired', statusCode: 'otp_expired'));
+      expect(msg, '인증 링크가 만료되었거나 올바르지 않습니다.');
+    });
+
+    test('describeDeeplinkError — 그 밖의 예외는 네트워크 오류로 둔갑하지 않고 일반 오류다', () {
+      final msg = AuthController.describeDeeplinkError(StateError('boom'));
+      expect(msg, kAuthUnknownErrorMessage);
+      expect(msg, isNot(contains('네트워크')));
+    });
+  });
 }
