@@ -149,6 +149,7 @@ class _LoginScreenState extends State<LoginScreen> {
                         shaderCallback: (bounds) => SsMasterTheme.rainbow.createShader(bounds),
                         child: const Text(
                           'SPACE SHIFT',
+                          key: Key('loginTitle'),
                           style: TextStyle(fontSize: 42, fontWeight: FontWeight.w900, color: Colors.white, letterSpacing: 1),
                         ),
                       ),

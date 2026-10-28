@@ -263,7 +263,7 @@ void main() {
       MaterialApp(home: LoginScreen(authController: controller)),
     );
 
-    expect(find.text('SPACE SHIFT'), findsOneWidget);
+    expect(find.byKey(const Key('loginTitle')), findsOneWidget);
     expect(find.text('로그인'), findsWidgets);
 
     await tester.enterText(find.byType(TextField).first, 'widgettest@example.com');
