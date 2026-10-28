@@ -38,12 +38,13 @@ class SsProjectStoreProvider {
 
   Future<SsProjectStore> _create() async {
     // 플랫폼 채널(path_provider)이 응답하지 않는 환경(예: flutter_test — 네이티브
-    // 쪽이 없어 getApplicationDocumentsDirectory()의 Future가 영원히 끝나지
-    // 않는다)에서 홈 화면 로딩이 멈춘 것처럼 보이는 것을 막는다. 짧게
-    // 기다려도 응답이 없으면 TimeoutException으로 실패시켜, 호출자
-    // (HomeScreen._load 등)의 기존 일반 오류 처리로 넘긴다 — 실기기에서는
-    // 보통 즉시 응답하므로 동작에 영향이 없다.
-    final docs = await getApplicationDocumentsDirectory().timeout(const Duration(seconds: 3));
+    // 쪽이 없어 getApplicationDocumentsDirectory() 호출이 곧바로 실패할 수 있다)
+    // 에서도 실제 Timer를 두지 않는다 — flutter_test는 가짜 시간(FakeAsync) 위에서
+    // 실행되므로, pumpAndSettle()이 흘려보내지 않는 실제 시간만큼의 Timer를 두면
+    // 위젯 트리가 사라진 뒤에도 Timer가 "pending" 상태로 남아 테스트가 실패한다.
+    // 그래서 그냥 호출만 하고, 실패하면(실기기에서는 거의 없는 경우) 호출자
+    // (HomeScreen._load 등)의 기존 일반 오류 처리로 넘긴다.
+    final docs = await getApplicationDocumentsDirectory();
     return FileSsProjectStore(Directory('${docs.path}${Platform.pathSeparator}space_shift_projects'));
   }
 }

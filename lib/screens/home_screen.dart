@@ -149,7 +149,7 @@ class _HeroBanner extends StatelessWidget {
               ),
               const SizedBox(width: 8),
               const Text(
-                'SPACE SHIFT',
+                'SPACE SHIFT AI',
                 style: TextStyle(color: SsMasterTheme.textSecondary, fontSize: 12, fontWeight: FontWeight.w700, letterSpacing: 1.2),
               ),
             ],
