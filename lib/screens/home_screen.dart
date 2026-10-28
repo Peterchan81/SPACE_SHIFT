@@ -275,9 +275,12 @@ class _RecentProjectsSection extends StatelessWidget {
   Widget _buildBody() {
     switch (state) {
       case _HomeLoad.loading:
+        // value를 고정해 두어(결정적 인디케이터) 끝없이 반복되는 애니메이션 컨트롤러가 생기지
+        // 않게 한다 — 그렇지 않으면(불확정 스피너) 위젯 테스트의 pumpAndSettle()이 "더 이상
+        // 예약된 프레임이 없는" 상태에 영원히 도달하지 못해 타임아웃한다.
         return const Padding(
           padding: EdgeInsets.symmetric(vertical: 24),
-          child: Center(child: CircularProgressIndicator(key: Key('ssHomeLoading'), color: SsMasterTheme.neonBlue)),
+          child: Center(child: CircularProgressIndicator(key: Key('ssHomeLoading'), color: SsMasterTheme.neonBlue, value: 0.3)),
         );
       case _HomeLoad.error:
         return Padding(

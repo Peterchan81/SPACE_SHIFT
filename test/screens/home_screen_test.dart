@@ -41,7 +41,10 @@ Future<void> _pumpHome(WidgetTester tester, SsProjectStore store) async {
   tester.view.physicalSize = const Size(2000, 1200);
   tester.view.devicePixelRatio = 1;
   addTearDown(tester.view.reset);
-  await tester.pumpWidget(MaterialApp(onGenerateRoute: SsRouter.onGenerateRoute, home: HomeScreen(projectStore: store)));
+  // HomeScreen의 InkWell(시작 카드 등)은 Material 조상이 필요하다(실제 앱 경로인
+  // SsStageScreen은 Scaffold로 이미 그 조상을 제공한다) — 여기서는 Scaffold로 감싸
+  // 같은 조건을 만든다.
+  await tester.pumpWidget(MaterialApp(onGenerateRoute: SsRouter.onGenerateRoute, home: Scaffold(body: HomeScreen(projectStore: store))));
 }
 
 void main() {
