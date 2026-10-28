@@ -25,8 +25,14 @@ abstract class SsProjectStore {
   Future<String?> lastOpened();
 }
 
+/// SS004 — 프로젝트 삭제를 지원하는 저장소(삭제는 화면에서 반드시 확인을 거친 뒤에만 부른다).
+/// 기존 [SsProjectStore] 구현(테스트용 가짜 저장소 포함)을 깨지 않도록 별도 인터페이스로 둔다.
+abstract class SsDeletableProjectStore implements SsProjectStore {
+  Future<void> delete(String projectId);
+}
+
 /// 메모리 저장소(테스트·미리보기용).
-class MemorySsProjectStore implements SsProjectStore {
+class MemorySsProjectStore implements SsDeletableProjectStore {
   final Map<String, String> _files = {};
   String? _last;
   bool failNextSave = false;
@@ -54,10 +60,16 @@ class MemorySsProjectStore implements SsProjectStore {
 
   @override
   Future<String?> lastOpened() async => _last;
+
+  @override
+  Future<void> delete(String projectId) async {
+    _files.remove(projectId);
+    if (_last == projectId) _last = null;
+  }
 }
 
 /// 파일 저장소 — 프로젝트마다 `<id>.json` + 직전 정상본 `<id>.json.bak`.
-class FileSsProjectStore implements SsProjectStore {
+class FileSsProjectStore implements SsDeletableProjectStore {
   FileSsProjectStore(this.dir);
 
   /// 앱 문서 폴더 아래 `space_shift_projects`(path_provider로 정해서 넘긴다).
@@ -119,6 +131,16 @@ class FileSsProjectStore implements SsProjectStore {
     } catch (_) {
       return null;
     }
+  }
+
+  /// 사용자가 확인한 뒤에만 — 본 파일·직전 정상본·쓰다 남은 임시 파일을 지운다.
+  @override
+  Future<void> delete(String projectId) async {
+    final f = _file(projectId);
+    for (final c in [f, File('${f.path}.bak'), File('${f.path}.tmp')]) {
+      if (await c.exists()) await c.delete();
+    }
+    if (await lastOpened() == projectId && await _lastFile.exists()) await _lastFile.delete();
   }
 }
 
