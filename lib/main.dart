@@ -7,6 +7,7 @@ import 'package:supabase_flutter/supabase_flutter.dart' as supa;
 
 import 'core/ss_router.dart';
 import 'core/ss_stage.dart';
+import 'screens/home_screen.dart';
 import 'screens/login_screen.dart';
 import 'services/app_update_store.dart';
 import 'services/auth_service.dart';
@@ -147,7 +148,7 @@ class _AuthGateState extends State<_AuthGate> {
       );
     }
     return controller.isAuthenticated
-        ? const SsStageScreen(stage: SsStage.home)
+        ? const SsStageScreen(stage: SsStage.home, child: HomeScreen())
         : const LoginScreen();
   }
 }

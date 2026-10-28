@@ -5,6 +5,7 @@ import '../core/ss_stage.dart';
 import '../services/auth_service.dart';
 import '../theme/space_shift_colors.dart';
 import '../widgets/gradient_cta_button.dart';
+import 'home_screen.dart';
 import 'login_screen.dart';
 
 /// SS002 §3·§6(2026-10-28 #2 후속 지시) — 회원가입 직후 이메일 확인이
@@ -67,7 +68,7 @@ class _EmailConfirmationScreenState extends State<EmailConfirmationScreen> {
 
   void _goHome() {
     Navigator.of(context).pushAndRemoveUntil(
-      MaterialPageRoute(builder: (context) => const SsStageScreen(stage: SsStage.home), settings: RouteSettings(name: SsStage.home.routeName)),
+      MaterialPageRoute(builder: (context) => const SsStageScreen(stage: SsStage.home, child: HomeScreen()), settings: RouteSettings(name: SsStage.home.routeName)),
       (route) => false,
     );
   }

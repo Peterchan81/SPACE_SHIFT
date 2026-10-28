@@ -11,6 +11,7 @@ library;
 import 'package:flutter/material.dart';
 
 import '../screens/floor_plan_workspace_screen.dart';
+import '../screens/home_screen.dart';
 import '../screens/login_screen.dart';
 import '../screens/photo_select_screen.dart';
 import '../screens/settings_screen.dart';
@@ -23,6 +24,7 @@ abstract final class SsRouter {
   /// 평면도 업로드·AI 인식·보정·CAD 변환·CAD 편집·DXF는 기존 [FloorPlanWorkspaceScreen] 한 화면이 한다.
   static final Map<SsStage, WidgetBuilder> existing = {
     SsStage.login: (_) => const LoginScreen(),
+    SsStage.home: (_) => const HomeScreen(),
     SsStage.floorPlanUpload: (_) => const FloorPlanWorkspaceScreen(),
     SsStage.floorPlanReview: (_) => const FloorPlanWorkspaceScreen(),
     SsStage.cadConversion: (_) => const FloorPlanWorkspaceScreen(),

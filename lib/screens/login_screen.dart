@@ -5,6 +5,7 @@ import '../core/ss_stage.dart';
 import '../services/auth_service.dart';
 import '../theme/ss_master_theme.dart';
 import '../widgets/gradient_cta_button.dart';
+import 'home_screen.dart';
 import 'signup_screen.dart';
 
 /// MASTER UI 1번 화면 — 로그인 / 자동로그인.
@@ -88,7 +89,7 @@ class _LoginScreenState extends State<LoginScreen> {
   void _enterApp() {
     Navigator.of(context).pushAndRemoveUntil(
       MaterialPageRoute(
-        builder: (context) => const SsStageScreen(stage: SsStage.home),
+        builder: (context) => const SsStageScreen(stage: SsStage.home, child: HomeScreen()),
         settings: RouteSettings(name: SsStage.home.routeName),
       ),
       (route) => false,
