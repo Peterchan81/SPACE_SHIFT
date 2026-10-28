@@ -15,6 +15,14 @@ void main() {
     WidgetTester tester, {
     FakeAuthService? service,
   }) async {
+    // 기본 테스트 뷰포트(800x600)에서는 MASTER UI 1번 레이아웃(§1, 카드가
+    // 화면 아래쪽으로 치우침)이 로그인 버튼을 보이는 영역 밖으로 밀어내
+    // tap()이 화면 밖 좌표를 계산해 hit-test에 실패한다. 다른 화면
+    // 테스트(test/core/ss_master_theme_test.dart 등)처럼 뷰포트를 충분히
+    // 키워 버튼이 항상 화면 안에 들어오게 한다.
+    tester.view.physicalSize = const Size(2000, 1200);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
     final controller = AuthController(service: service ?? FakeAuthService());
     await tester.pumpWidget(
       MaterialApp(home: LoginScreen(authController: controller)),
