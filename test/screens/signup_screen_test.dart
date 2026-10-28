@@ -1,13 +1,19 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:ason_space/screens/floor_plan_workspace_screen.dart';
+import 'package:ason_space/core/ss_stage.dart';
 import 'package:ason_space/screens/signup_screen.dart';
+import 'package:ason_space/services/auth_service.dart';
 import 'package:ason_space/widgets/gradient_cta_button.dart';
 
 void main() {
-  Future<void> pumpSignup(WidgetTester tester) async {
-    await tester.pumpWidget(const MaterialApp(home: SignupScreen()));
+  Future<void> pumpSignup(
+    WidgetTester tester, {
+    AuthController? authController,
+  }) async {
+    await tester.pumpWidget(
+      MaterialApp(home: SignupScreen(authController: authController)),
+    );
     await tester.pump();
   }
 
@@ -70,8 +76,14 @@ void main() {
     expect(find.byType(SignupScreen), findsOneWidget);
   });
 
-  testWidgets('필수 항목을 채우고 약관에 동의하면 신규 MASTER 메인 작업 화면으로 이동한다', (tester) async {
-    await pumpSignup(tester);
+  testWidgets('필수 항목을 채우고 약관에 동의하면 MASTER 홈 화면으로 이동한다', (tester) async {
+    tester.view.physicalSize = const Size(2000, 1200);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    await pumpSignup(
+      tester,
+      authController: AuthController(service: FakeAuthService()),
+    );
     await fillRequiredFields(tester);
     await tester.tap(find.byType(Checkbox));
     await tester.pump();
@@ -80,7 +92,11 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.byType(SignupScreen), findsNothing);
-    expect(find.byType(FloorPlanWorkspaceScreen), findsOneWidget);
+    expect(find.byKey(const Key('ssStageTitle')), findsOneWidget);
+    expect(
+      tester.widget<Text>(find.byKey(const Key('ssStageTitle'))).data,
+      SsStage.home.title,
+    );
   });
 
   testWidgets('비밀번호 필드의 보기/숨기기 아이콘이 각각 독립적으로 동작한다', (tester) async {

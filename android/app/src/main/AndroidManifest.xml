@@ -30,6 +30,16 @@
                 <action android:name="android.intent.action.MAIN"/>
                 <category android:name="android.intent.category.LAUNCHER"/>
             </intent-filter>
+            <!-- SS002 §5(2026-10-28 #2 후속 지시) — 이메일 인증 메일의 콜백 링크
+                 (io.spaceshift.app://login-callback?...)를 이 앱이 받도록 한다.
+                 Supabase 대시보드 Redirect URLs/Site URL에도 같은 주소를 등록해야
+                 한다(사용자가 직접). -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW"/>
+                <category android:name="android.intent.category.DEFAULT"/>
+                <category android:name="android.intent.category.BROWSABLE"/>
+                <data android:scheme="io.spaceshift.app" android:host="login-callback"/>
+            </intent-filter>
         </activity>
         <!-- Don't delete the meta-data below.
              This is used by the Flutter tool to generate GeneratedPluginRegistrant.java -->

@@ -1,20 +1,31 @@
 import 'package:flutter/material.dart';
 
-import '../theme/space_shift_colors.dart';
+import '../core/ss_router.dart';
+import '../core/ss_stage.dart';
+import '../services/auth_service.dart';
+import '../theme/ss_master_theme.dart';
 import '../widgets/gradient_cta_button.dart';
-import 'floor_plan_workspace_screen.dart';
 import 'signup_screen.dart';
 
 /// MASTER UI 1번 화면 — 로그인 / 자동로그인.
 ///
-/// 앱 실행 시 가장 먼저 보여지는 화면으로, SPACE SHIFT 로고와 아이디/비밀번호
-/// 입력, 자동 로그인, 간편 로그인, 회원가입 진입을 제공한다.
+/// 2026-09-28 확정 MASTER UI 1번 기준(SS002 §1): Dark Navy 배경 위에 SPACE
+/// SHIFT 브랜드 사진(assets/images/ss_login_background.jpg)을 깔고, 무지개
+/// SS 로고 + "SPACE SHIFT" 타이틀, 흰색 반투명 카드 안에 이메일·비밀번호
+/// 입력과 로그인/회원가입 버튼을 둔다. lib/theme/ss_master_theme.dart의
+/// 기존 MASTER 테마를 재사용하며, 화면 전체를 임의로 재설계하지 않는다.
 ///
-/// 실제 인증 백엔드는 아직 준비되지 않았으므로, 이 화면은 로그인 UI와
-/// 정상적인 앱 진입 흐름(신규 MASTER 메인 작업 화면[FloorPlanWorkspaceScreen]
-/// 으로 이동)만 구현하고 실제 계정 검증은 하지 않는다.
+/// MASTER 원본에서는 로고+카드 블록이 화면 왼쪽으로 치우쳐 배치되고, 카드가
+/// 배경과 부드러운 흰 빛 번짐(halo)으로 섞인다(검토 §1 지적) — 중앙 정렬 +
+/// 검은 그림자 박스 대신 좌측 치우침 Align + 흰 halo로 맞춘다.
+///
+/// 인증은 [AuthService] 인터페이스(§2) 뒤에서 [AuthController]가 담당한다.
 class LoginScreen extends StatefulWidget {
-  const LoginScreen({super.key});
+  const LoginScreen({super.key, this.authController});
+
+  /// 테스트에서 [FakeAuthService]를 주입할 수 있게 한다. 지정하지 않으면
+  /// 앱 전체가 공유하는 [AuthController.instance]를 쓴다.
+  final AuthController? authController;
 
   @override
   State<LoginScreen> createState() => _LoginScreenState();
@@ -23,8 +34,12 @@ class LoginScreen extends StatefulWidget {
 class _LoginScreenState extends State<LoginScreen> {
   final _emailController = TextEditingController();
   final _passwordController = TextEditingController();
-  bool _autoLogin = true;
   bool _obscurePassword = true;
+  bool _submitting = false;
+
+  AuthController get _controller => widget.authController ?? AuthController.instance;
+
+  static final RegExp _emailPattern = RegExp(r'^[^@\s]+@[^@\s]+\.[^@\s]+$');
 
   @override
   void dispose() {
@@ -33,242 +48,230 @@ class _LoginScreenState extends State<LoginScreen> {
     super.dispose();
   }
 
+  void _showMessage(String message) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
+  }
+
+  /// SS002 §4 — 실제 Supabase Auth 이메일·비밀번호 로그인. 인증 없이 바로
+  /// 작업 화면으로 들어가던 기존 _enterApp 우회 경로는 없다 — 반드시
+  /// [AuthController.signIn] 성공을 거쳐야만 홈으로 이동한다.
+  Future<void> _login() async {
+    if (_submitting) return;
+    final email = _emailController.text.trim();
+    final password = _passwordController.text;
+    if (!_controller.isConfigured) {
+      _showMessage(kAuthNotConfiguredMessage);
+      return;
+    }
+    if (email.isEmpty || password.isEmpty) {
+      _showMessage('이메일과 비밀번호를 입력해주세요.');
+      return;
+    }
+    if (!_emailPattern.hasMatch(email)) {
+      _showMessage('올바른 이메일 형식이 아닙니다.');
+      return;
+    }
+    setState(() => _submitting = true);
+    final result = await _controller.signIn(email: email, password: password);
+    if (!mounted) return;
+    setState(() => _submitting = false);
+    if (result.isSuccess) {
+      _enterApp();
+    } else {
+      _showMessage(result.message ?? '로그인에 실패했습니다.');
+    }
+  }
+
+  /// 로그인 성공 후 MASTER 홈([SsStage.home])으로 이동한다(§4) — 기존
+  /// FloorPlanWorkspaceScreen으로 직접 진입시키지 않는다.
   void _enterApp() {
-    Navigator.of(context).pushReplacement(
+    Navigator.of(context).pushAndRemoveUntil(
       MaterialPageRoute(
-        builder: (context) => const FloorPlanWorkspaceScreen(),
-        settings: const RouteSettings(name: 'floor_plan_workspace'),
+        builder: (context) => const SsStageScreen(stage: SsStage.home),
+        settings: RouteSettings(name: SsStage.home.routeName),
       ),
+      (route) => false,
     );
   }
 
   void _goToSignup() {
-    Navigator.of(
-      context,
-    ).push(MaterialPageRoute(builder: (context) => const SignupScreen()));
+    Navigator.of(context).push(MaterialPageRoute(builder: (context) => const SignupScreen()));
   }
 
   @override
   Widget build(BuildContext context) {
+    // 2026-10-28 추가 지시 — MASTER UI 1번 원본 대비 로고 크기를 화면 폭
+    // 비율(약 14%)로 맞춘다(고정 96px는 MASTER보다 훨씬 작았다).
+    final screenWidth = MediaQuery.sizeOf(context).width;
+    final logoSize = (screenWidth * 0.14).clamp(110.0, 220.0);
     return Scaffold(
-      backgroundColor: SpaceShiftColors.background,
-      body: SafeArea(
-        child: Center(
-          child: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 460),
-            child: SingleChildScrollView(
-              padding: const EdgeInsets.symmetric(horizontal: 28, vertical: 32),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  const SizedBox(height: 24),
-                  const Center(child: _SpaceShiftLogoMark()),
-                  const SizedBox(height: 20),
-                  const Text(
-                    'SPACE SHIFT',
-                    textAlign: TextAlign.center,
-                    style: TextStyle(
-                      fontSize: 28,
-                      fontWeight: FontWeight.bold,
-                      color: SpaceShiftColors.textPrimary,
-                    ),
-                  ),
-                  const SizedBox(height: 8),
-                  const Text(
-                    '공간의 변화, 당신의 방식으로',
-                    textAlign: TextAlign.center,
-                    style: TextStyle(
-                      fontSize: 14,
-                      color: SpaceShiftColors.textSecondary,
-                    ),
-                  ),
-                  const SizedBox(height: 32),
-                  TextField(
-                    controller: _emailController,
-                    keyboardType: TextInputType.emailAddress,
-                    decoration: const InputDecoration(
-                      hintText: '이메일',
-                      prefixIcon: Icon(Icons.person_outline_rounded),
-                    ),
-                  ),
-                  const SizedBox(height: 14),
-                  TextField(
-                    controller: _passwordController,
-                    obscureText: _obscurePassword,
-                    decoration: InputDecoration(
-                      hintText: '비밀번호',
-                      prefixIcon: const Icon(Icons.lock_outline_rounded),
-                      suffixIcon: IconButton(
-                        onPressed: () => setState(
-                          () => _obscurePassword = !_obscurePassword,
-                        ),
-                        icon: Icon(
-                          _obscurePassword
-                              ? Icons.visibility_off_outlined
-                              : Icons.visibility_outlined,
-                        ),
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: 10),
-                  Row(
-                    children: [
-                      SizedBox(
-                        width: 24,
-                        height: 24,
-                        child: Checkbox(
-                          value: _autoLogin,
-                          activeColor: SpaceShiftColors.selectionAccent,
-                          onChanged: (value) =>
-                              setState(() => _autoLogin = value ?? false),
-                        ),
-                      ),
-                      const SizedBox(width: 8),
-                      const Text(
-                        '자동 로그인',
-                        style: TextStyle(
-                          fontSize: 13,
-                          color: SpaceShiftColors.textSecondary,
-                        ),
-                      ),
-                      const Spacer(),
-                      TextButton(
-                        onPressed: _enterApp,
-                        child: const Text(
-                          '비밀번호 찾기',
-                          style: TextStyle(
-                            fontSize: 13,
-                            color: SpaceShiftColors.textSecondary,
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 8),
-                  GradientCtaButton(label: '로그인', onPressed: _enterApp),
-                  const SizedBox(height: 28),
-                  Row(
-                    children: const [
-                      Expanded(child: Divider(color: SpaceShiftColors.border)),
-                      Padding(
-                        padding: EdgeInsets.symmetric(horizontal: 12),
-                        child: Text(
-                          '간편 로그인',
-                          style: TextStyle(
-                            fontSize: 12,
-                            color: SpaceShiftColors.textSecondary,
-                          ),
-                        ),
-                      ),
-                      Expanded(child: Divider(color: SpaceShiftColors.border)),
-                    ],
-                  ),
-                  const SizedBox(height: 20),
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      _SocialLoginButton(
-                        icon: Icons.g_mobiledata_rounded,
-                        background: const Color(0xFFF2F2F2),
-                        foreground: const Color(0xFF1F2933),
-                        onTap: _enterApp,
-                      ),
-                      const SizedBox(width: 18),
-                      _SocialLoginButton(
-                        icon: Icons.chat_bubble_rounded,
-                        background: const Color(0xFFFEE500),
-                        foreground: const Color(0xFF3C1E1E),
-                        onTap: _enterApp,
-                      ),
-                      const SizedBox(width: 18),
-                      _SocialLoginButton(
-                        icon: Icons.apple_rounded,
-                        background: const Color(0xFF1F2933),
-                        foreground: Colors.white,
-                        onTap: _enterApp,
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 28),
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      const Text(
-                        '계정이 없으신가요?',
-                        style: TextStyle(
-                          fontSize: 13,
-                          color: SpaceShiftColors.textSecondary,
-                        ),
-                      ),
-                      TextButton(
-                        onPressed: _goToSignup,
-                        child: const Text(
-                          '회원가입',
-                          style: TextStyle(
-                            fontSize: 13,
-                            fontWeight: FontWeight.bold,
-                            color: SpaceShiftColors.selectionAccent,
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
+      backgroundColor: SsMasterTheme.background,
+      body: Stack(
+        fit: StackFit.expand,
+        children: [
+          // MASTER UI 1번 배경 사진(사용자 승인 디자인 자산) — 새로 그리거나
+          // 다른 그림으로 바꾸지 않고 그대로 쓴다.
+          Image.asset('assets/images/ss_login_background.jpg', fit: BoxFit.cover),
+          Container(
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+                colors: [
+                  SsMasterTheme.background.withValues(alpha: 0.30),
+                  SsMasterTheme.background.withValues(alpha: 0.10),
                 ],
               ),
             ),
           ),
-        ),
-      ),
-    );
-  }
-}
-
-/// SPACE SHIFT 공식 심볼(assets/icons/space_shift_symbol.png)을 그대로
-/// 보여준다. 원본은 공식 로고 전체 이미지(assets/icons/
-/// space_shift_official_logo.png, "SPACE SHIFT" 워드마크 포함)에서 심볼
-/// 영역만 잘라낸 것 — 원본 파일 자체는 수정하지 않고 보존한다.
-class _SpaceShiftLogoMark extends StatelessWidget {
-  const _SpaceShiftLogoMark();
-
-  @override
-  Widget build(BuildContext context) {
-    return SizedBox(
-      width: 78,
-      height: 80,
-      child: Image.asset(
-        'assets/icons/space_shift_symbol.png',
-        fit: BoxFit.contain,
-      ),
-    );
-  }
-}
-
-class _SocialLoginButton extends StatelessWidget {
-  const _SocialLoginButton({
-    required this.icon,
-    required this.background,
-    required this.foreground,
-    required this.onTap,
-  });
-
-  final IconData icon;
-  final Color background;
-  final Color foreground;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    return Material(
-      color: background,
-      shape: const CircleBorder(),
-      child: InkWell(
-        onTap: onTap,
-        customBorder: const CircleBorder(),
-        child: SizedBox(
-          width: 52,
-          height: 52,
-          child: Icon(icon, color: foreground),
-        ),
+          SafeArea(
+            child: Align(
+              // MASTER UI 1번은 로고+카드 블록이 화면 왼쪽으로 치우쳐 배치되고,
+              // 카드는 화면 세로 중앙보다 아래쪽(약 55~89% 높이)에 온다
+              // (2026-10-28 추가 지시) — 왼쪽 치우침은 유지하고 아래쪽으로도
+              // 치우치게 한다.
+              alignment: const Alignment(-0.35, 0.35),
+              child: SingleChildScrollView(
+                padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 32),
+                child: ConstrainedBox(
+                  constraints: const BoxConstraints(maxWidth: 420),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      SizedBox(
+                        width: logoSize,
+                        height: logoSize,
+                        child: Image.asset('assets/icons/space_shift_symbol.png', fit: BoxFit.contain),
+                      ),
+                      const SizedBox(height: 16),
+                      ShaderMask(
+                        shaderCallback: (bounds) => SsMasterTheme.rainbow.createShader(bounds),
+                        child: const Text(
+                          'SPACE SHIFT',
+                          key: Key('loginTitle'),
+                          style: TextStyle(fontSize: 42, fontWeight: FontWeight.w900, color: Colors.white, letterSpacing: 1),
+                        ),
+                      ),
+                      const SizedBox(height: 14),
+                      const Text(
+                        '공간의 변화를 만드는',
+                        textAlign: TextAlign.center,
+                        style: TextStyle(fontSize: 22, fontWeight: FontWeight.w800, color: Colors.white, height: 1.3),
+                      ),
+                      Wrap(
+                        alignment: WrapAlignment.center,
+                        crossAxisAlignment: WrapCrossAlignment.center,
+                        children: [
+                          const Text(
+                            '새로운 가능성, ',
+                            style: TextStyle(fontSize: 22, fontWeight: FontWeight.w800, color: Colors.white),
+                          ),
+                          ShaderMask(
+                            shaderCallback: (bounds) => SsMasterTheme.rainbow.createShader(bounds),
+                            child: const Text(
+                              'SPACE SHIFT',
+                              style: TextStyle(fontSize: 22, fontWeight: FontWeight.w800, color: Colors.white),
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 6),
+                      const Text(
+                        'AI와 함께, 당신의 공간을 새롭게 디자인하세요.',
+                        textAlign: TextAlign.center,
+                        style: TextStyle(fontSize: 13, color: Color(0xFFCBD5E1)),
+                      ),
+                      const SizedBox(height: 26),
+                      Container(
+                        padding: const EdgeInsets.fromLTRB(24, 24, 24, 20),
+                        decoration: BoxDecoration(
+                          // MASTER 원본처럼 카드 배경이 완전한 불투명 흰색이
+                          // 아니라 뒤 배경이 살짝 비치는 반투명 흰색이다
+                          // (2026-10-28 추가 지시).
+                          color: Colors.white.withValues(alpha: 0.88),
+                          borderRadius: BorderRadius.circular(20),
+                          // MASTER 원본처럼 카드 주위가 배경과 부드러운 흰 빛
+                          // 번짐(halo)으로 섞이도록 한다 — 검은 그림자만으로는
+                          // 원본과 달리 카드가 딱딱한 박스처럼 떠 보인다.
+                          boxShadow: [
+                            BoxShadow(color: Colors.white.withValues(alpha: 0.45), blurRadius: 48, offset: const Offset(0, 0)),
+                            BoxShadow(color: Colors.black.withValues(alpha: 0.12), blurRadius: 20, offset: const Offset(0, 10)),
+                          ],
+                        ),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [
+                            TextField(
+                              controller: _emailController,
+                              keyboardType: TextInputType.emailAddress,
+                              decoration: const InputDecoration(
+                                hintText: '이메일 주소',
+                                prefixIcon: Icon(Icons.mail_outline_rounded),
+                              ),
+                            ),
+                            const SizedBox(height: 14),
+                            TextField(
+                              controller: _passwordController,
+                              obscureText: _obscurePassword,
+                              decoration: InputDecoration(
+                                hintText: '비밀번호',
+                                prefixIcon: const Icon(Icons.lock_outline_rounded),
+                                suffixIcon: IconButton(
+                                  onPressed: () => setState(() => _obscurePassword = !_obscurePassword),
+                                  icon: Icon(_obscurePassword ? Icons.visibility_off_outlined : Icons.visibility_outlined),
+                                ),
+                              ),
+                            ),
+                            const SizedBox(height: 18),
+                            GradientCtaButton(
+                              label: '로그인',
+                              onPressed: _submitting ? null : _login,
+                              trailingIcon: Icons.arrow_forward_rounded,
+                            ),
+                            const SizedBox(height: 18),
+                            Row(
+                              children: [
+                                const Expanded(child: Divider(color: Color(0xFFE2E8F0))),
+                                Padding(
+                                  padding: const EdgeInsets.symmetric(horizontal: 12),
+                                  child: Text('또는', style: TextStyle(fontSize: 12, color: Colors.grey.shade500)),
+                                ),
+                                const Expanded(child: Divider(color: Color(0xFFE2E8F0))),
+                              ],
+                            ),
+                            const SizedBox(height: 18),
+                            SizedBox(
+                              height: 52,
+                              child: OutlinedButton(
+                                onPressed: _goToSignup,
+                                style: OutlinedButton.styleFrom(
+                                  side: const BorderSide(color: Color(0xFFE2E8F0)),
+                                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                                ),
+                                child: Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: const [
+                                    Text(
+                                      '회원가입',
+                                      style: TextStyle(fontSize: 15, fontWeight: FontWeight.w700, color: Color(0xFF6D28D9)),
+                                    ),
+                                    SizedBox(width: 8),
+                                    Icon(Icons.arrow_forward_rounded, size: 18, color: Color(0xFF6D28D9)),
+                                  ],
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }

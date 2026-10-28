@@ -14,6 +14,7 @@ import '../screens/floor_plan_workspace_screen.dart';
 import '../screens/login_screen.dart';
 import '../screens/photo_select_screen.dart';
 import '../screens/settings_screen.dart';
+import '../services/auth_service.dart';
 import '../theme/ss_master_theme.dart';
 import 'ss_stage.dart';
 
@@ -30,9 +31,19 @@ abstract final class SsRouter {
   };
 
   /// MaterialApp.onGenerateRoute — 모르는 이름이면 null(기존 Navigator 동작 그대로).
+  ///
+  /// SS002 §5 "라우트 보호" — 앱이 세션 복원을 마쳤는데도([AuthController.initialized])
+  /// 로그인 상태가 아니면, 로그인 화면이 아닌 다른 모든 단계 Route는 로그인
+  /// 화면으로 돌려보낸다. 세션 복원이 아직 끝나지 않았으면(이 저장소의 기존
+  /// 테스트들처럼 AuthController를 전혀 거치지 않는 경우 포함) 막지 않는다 —
+  /// 실제 앱은 main.dart가 시작할 때 항상 먼저 [AuthController.bootstrap]을
+  /// 끝내므로 실사용에서는 보호가 그대로 적용된다.
   static Route<dynamic>? onGenerateRoute(RouteSettings settings) {
     final stage = SsStage.fromRoute(settings.name);
     if (stage == null) return null;
+    if (stage != SsStage.login && AuthController.instance.initialized && !AuthController.instance.isAuthenticated) {
+      return MaterialPageRoute<void>(settings: const RouteSettings(name: '/login'), builder: existing[SsStage.login]!);
+    }
     return MaterialPageRoute<void>(settings: settings, builder: builderFor(stage));
   }
 
@@ -76,6 +87,20 @@ abstract final class SsRouter {
         return SsNavItem.currentProject;
     }
   }
+}
+
+/// SS002 §5(2026-10-28 #2 후속 지시) — 설정 화면([SettingsScreen])과
+/// [SsTopBar]가 공유하는 로그아웃 동작 하나. Supabase 세션 종료
+/// ([AuthController.signOut]) + 앱 인증 상태 초기화 뒤 로그인 화면으로
+/// 돌아가며(pushAndRemoveUntil로 뒤로가기를 막아 보호된 화면 재진입을
+/// 차단), 세션 종료 로직을 두 번 구현하지 않는다.
+Future<void> performLogout(BuildContext context) async {
+  await AuthController.instance.signOut();
+  if (!context.mounted) return;
+  Navigator.of(context).pushAndRemoveUntil(
+    MaterialPageRoute<void>(builder: (_) => const LoginScreen(), settings: const RouteSettings(name: '/login')),
+    (route) => false,
+  );
 }
 
 /// 아직 세부 화면이 없는 단계의 공통 화면 — 3초 법칙(§15) 머리말 + 상단 Header + 좌측 Navigation(단계별
@@ -139,7 +164,11 @@ class SsStageScreen extends StatelessWidget {
 }
 
 /// 상단 공통 Header(MASTER UI 2·5 기준) — 왼쪽 무지개 SS 로고 + "SPACE SHIFT", 오른쪽 도움말·알림·프로필.
-/// 아직 동작이 없는 아이콘은 누를 수 없게 비활성(onPressed: null)만 두고 가짜 동작을 만들지 않는다.
+/// 아직 동작이 없는 도움말·알림 아이콘은 누를 수 없게 비활성(onPressed: null)만 두고 가짜 동작을 만들지 않는다.
+///
+/// 프로필 아이콘(2026-10-28 #2 후속 지시 — Galaxy Tab 실기 검증 후) — 더 이상
+/// 이 아이콘에서 직접 로그아웃하지 않는다. 누르면 [SettingsScreen]으로 이동해,
+/// "계정" 구역의 로그아웃(확인 창 → [performLogout])에서 로그아웃하게 한다.
 class SsTopBar extends StatelessWidget {
   const SsTopBar({super.key});
 
@@ -173,7 +202,8 @@ class SsTopBar extends StatelessWidget {
           ),
           IconButton(
             key: const Key('ssTopBarProfile'),
-            onPressed: null,
+            tooltip: '설정',
+            onPressed: () => Navigator.of(context).push<void>(MaterialPageRoute<void>(builder: (_) => SettingsScreen())),
             icon: const Icon(Icons.account_circle_outlined, color: SsMasterTheme.textSecondary),
           ),
         ],

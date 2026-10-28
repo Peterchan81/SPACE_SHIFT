@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 
+import '../core/ss_router.dart' show performLogout;
 import '../services/app_update_store.dart';
 import '../theme/space_shift_colors.dart';
 
@@ -37,6 +38,24 @@ class _SettingsScreenState extends State<SettingsScreen> {
     setState(() => _packageInfo = info);
   }
 
+  /// SS002 §5(2026-10-28 #2 후속 지시) — 확인 창 → [performLogout]. 로그아웃
+  /// 뒤에는 Supabase 세션 종료·로그인 화면·뒤로 가기로 보호 화면 재진입 불가.
+  Future<void> _confirmLogout(BuildContext context) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('로그아웃'),
+        content: const Text('로그아웃하시겠습니까?'),
+        actions: [
+          TextButton(onPressed: () => Navigator.of(dialogContext).pop(false), child: const Text('취소')),
+          TextButton(onPressed: () => Navigator.of(dialogContext).pop(true), child: const Text('로그아웃')),
+        ],
+      ),
+    );
+    if (confirmed != true || !context.mounted) return;
+    await performLogout(context);
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -70,6 +89,37 @@ class _SettingsScreenState extends State<SettingsScreen> {
                           widget.updateStore.currentVersionCode ??
                           int.tryParse(_packageInfo?.buildNumber ?? ''),
                     ),
+                  ),
+                ),
+                const SizedBox(height: 20),
+                // SS002 §5(2026-10-28 #2 후속 지시 — Galaxy Tab 실기 검증 후) —
+                // 로그아웃을 SsTopBar 프로필 아이콘에서 이 "계정" 구역으로
+                // 옮겼다. 세션 종료 로직은 ss_router.dart의 performLogout
+                // 하나를 그대로 재사용한다(두 번 구현하지 않음).
+                _SettingsSection(
+                  title: '계정',
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      const Text(
+                        '로그아웃하면 다시 로그인해야 앱을 사용할 수 있습니다.',
+                        style: TextStyle(fontSize: 13, color: SpaceShiftColors.textSecondary),
+                      ),
+                      const SizedBox(height: 12),
+                      SizedBox(
+                        height: 48,
+                        child: OutlinedButton.icon(
+                          key: const Key('settingsLogoutButton'),
+                          onPressed: () => _confirmLogout(context),
+                          icon: const Icon(Icons.logout_rounded, size: 18, color: Colors.redAccent),
+                          label: const Text('로그아웃', style: TextStyle(color: Colors.redAccent, fontWeight: FontWeight.w700)),
+                          style: OutlinedButton.styleFrom(
+                            side: const BorderSide(color: Colors.redAccent),
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                          ),
+                        ),
+                      ),
+                    ],
                   ),
                 ),
                 const SizedBox(height: 20),
