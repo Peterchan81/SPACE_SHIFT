@@ -12,11 +12,17 @@ class GradientCtaButton extends StatelessWidget {
     required this.label,
     required this.onPressed,
     this.icon,
+    this.trailingIcon,
   });
 
   final String label;
   final VoidCallback? onPressed;
   final IconData? icon;
+
+  /// 글자 오른쪽에 두는 보조 아이콘(MASTER UI 1번의 "로그인 →"처럼 글자
+  /// 뒤에 화살표를 붙일 때 쓴다, 2026-10-28 추가 지시). [icon](왼쪽)과는
+  /// 독립적으로 쓸 수 있다.
+  final IconData? trailingIcon;
 
   @override
   Widget build(BuildContext context) {
@@ -60,6 +66,10 @@ class GradientCtaButton extends StatelessWidget {
                       color: Colors.white,
                     ),
                   ),
+                  if (trailingIcon != null) ...[
+                    const SizedBox(width: 10),
+                    Icon(trailingIcon, color: Colors.white, size: 20),
+                  ],
                 ],
               ),
             ),

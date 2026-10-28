@@ -7,6 +7,7 @@
 // 로그인 직후 같은 클라이언트에서 restoreSession()이 그 세션을 그대로
 // 돌려주는지(§5 "유효 세션이면 자동 로그인")를 검증한다.
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
@@ -236,6 +237,41 @@ void main() {
       final service = SupabaseAuthService(client: client);
 
       expect(await service.restoreSession(), isNull);
+    });
+
+    // 2026-10-28 추가 지시 — 네트워크 오류로 안내하는 것은 실제 연결
+    // 문제뿐이고, 그 밖의 예외는 네트워크 오류로 둔갑시키지 않는다.
+    test('실제 연결 실패(SocketException)는 네트워크 오류로 안내한다', () async {
+      final client = _testClient((request) async {
+        // gotrue의 _handleRequest는 httpClient 호출 중 발생한 어떤 예외든
+        // AuthRetryableFetchException으로 감싸 던진다 — 실제 연결 실패를
+        // 흉내낸다.
+        throw const SocketException('Failed host lookup');
+      });
+      final service = SupabaseAuthService(client: client);
+
+      final result = await service.signIn(email: 'a@b.com', password: 'password1');
+
+      expect(result.status, AuthStatus.failure);
+      expect(result.errorKind, AuthErrorKind.network);
+      expect(result.message, '네트워크 연결을 확인해주세요.');
+    });
+
+    test('네트워크와 무관한 예상치 못한 예외(응답 파싱 실패)는 네트워크 오류가 아니라 일반 오류로 안내한다', () async {
+      final client = _testClient((request) async {
+        // access_token은 있지만 user가 객체가 아닌 응답 — gotrue가
+        // AuthResponse를 만드는 단계(fetch의 try/catch 밖)에서
+        // FormatException(네트워크와 무관)을 던진다.
+        return http.Response(jsonEncode({'access_token': 'at', 'token_type': 'bearer', 'user': 'not-an-object'}), 200);
+      });
+      final service = SupabaseAuthService(client: client);
+
+      final result = await service.signIn(email: 'a@b.com', password: 'password1');
+
+      expect(result.status, AuthStatus.failure);
+      expect(result.errorKind, isNot(AuthErrorKind.network));
+      expect(result.errorKind, AuthErrorKind.unknown);
+      expect(result.message, kAuthUnknownErrorMessage);
     });
   });
 

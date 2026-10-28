@@ -101,6 +101,10 @@ class _LoginScreenState extends State<LoginScreen> {
 
   @override
   Widget build(BuildContext context) {
+    // 2026-10-28 추가 지시 — MASTER UI 1번 원본 대비 로고 크기를 화면 폭
+    // 비율(약 14%)로 맞춘다(고정 96px는 MASTER보다 훨씬 작았다).
+    final screenWidth = MediaQuery.sizeOf(context).width;
+    final logoSize = (screenWidth * 0.14).clamp(110.0, 220.0);
     return Scaffold(
       backgroundColor: SsMasterTheme.background,
       body: Stack(
@@ -123,9 +127,11 @@ class _LoginScreenState extends State<LoginScreen> {
           ),
           SafeArea(
             child: Align(
-              // MASTER UI 1번은 로고+카드 블록이 화면 왼쪽으로 치우쳐 배치된다 —
-              // 중앙 정렬 대신 약간 왼쪽으로 치우친 위치에 그린다.
-              alignment: const Alignment(-0.35, 0),
+              // MASTER UI 1번은 로고+카드 블록이 화면 왼쪽으로 치우쳐 배치되고,
+              // 카드는 화면 세로 중앙보다 아래쪽(약 55~89% 높이)에 온다
+              // (2026-10-28 추가 지시) — 왼쪽 치우침은 유지하고 아래쪽으로도
+              // 치우치게 한다.
+              alignment: const Alignment(-0.35, 0.35),
               child: SingleChildScrollView(
                 padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 32),
                 child: ConstrainedBox(
@@ -134,23 +140,40 @@ class _LoginScreenState extends State<LoginScreen> {
                     mainAxisSize: MainAxisSize.min,
                     children: [
                       SizedBox(
-                        width: 96,
-                        height: 96,
+                        width: logoSize,
+                        height: logoSize,
                         child: Image.asset('assets/icons/space_shift_symbol.png', fit: BoxFit.contain),
                       ),
-                      const SizedBox(height: 14),
+                      const SizedBox(height: 16),
                       ShaderMask(
                         shaderCallback: (bounds) => SsMasterTheme.rainbow.createShader(bounds),
                         child: const Text(
                           'SPACE SHIFT',
-                          style: TextStyle(fontSize: 30, fontWeight: FontWeight.w900, color: Colors.white, letterSpacing: 1),
+                          style: TextStyle(fontSize: 42, fontWeight: FontWeight.w900, color: Colors.white, letterSpacing: 1),
                         ),
                       ),
-                      const SizedBox(height: 10),
+                      const SizedBox(height: 14),
                       const Text(
-                        '공간의 변화를 만드는\n새로운 가능성, SPACE SHIFT',
+                        '공간의 변화를 만드는',
                         textAlign: TextAlign.center,
-                        style: TextStyle(fontSize: 15, fontWeight: FontWeight.w700, color: Colors.white, height: 1.3),
+                        style: TextStyle(fontSize: 22, fontWeight: FontWeight.w800, color: Colors.white, height: 1.3),
+                      ),
+                      Wrap(
+                        alignment: WrapAlignment.center,
+                        crossAxisAlignment: WrapCrossAlignment.center,
+                        children: [
+                          const Text(
+                            '새로운 가능성, ',
+                            style: TextStyle(fontSize: 22, fontWeight: FontWeight.w800, color: Colors.white),
+                          ),
+                          ShaderMask(
+                            shaderCallback: (bounds) => SsMasterTheme.rainbow.createShader(bounds),
+                            child: const Text(
+                              'SPACE SHIFT',
+                              style: TextStyle(fontSize: 22, fontWeight: FontWeight.w800, color: Colors.white),
+                            ),
+                          ),
+                        ],
                       ),
                       const SizedBox(height: 6),
                       const Text(
@@ -162,7 +185,10 @@ class _LoginScreenState extends State<LoginScreen> {
                       Container(
                         padding: const EdgeInsets.fromLTRB(24, 24, 24, 20),
                         decoration: BoxDecoration(
-                          color: Colors.white.withValues(alpha: 0.97),
+                          // MASTER 원본처럼 카드 배경이 완전한 불투명 흰색이
+                          // 아니라 뒤 배경이 살짝 비치는 반투명 흰색이다
+                          // (2026-10-28 추가 지시).
+                          color: Colors.white.withValues(alpha: 0.88),
                           borderRadius: BorderRadius.circular(20),
                           // MASTER 원본처럼 카드 주위가 배경과 부드러운 흰 빛
                           // 번짐(halo)으로 섞이도록 한다 — 검은 그림자만으로는
@@ -197,7 +223,11 @@ class _LoginScreenState extends State<LoginScreen> {
                               ),
                             ),
                             const SizedBox(height: 18),
-                            GradientCtaButton(label: '로그인', onPressed: _submitting ? null : _login),
+                            GradientCtaButton(
+                              label: '로그인',
+                              onPressed: _submitting ? null : _login,
+                              trailingIcon: Icons.arrow_forward_rounded,
+                            ),
                             const SizedBox(height: 18),
                             Row(
                               children: [
@@ -218,9 +248,16 @@ class _LoginScreenState extends State<LoginScreen> {
                                   side: const BorderSide(color: Color(0xFFE2E8F0)),
                                   shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
                                 ),
-                                child: const Text(
-                                  '회원가입',
-                                  style: TextStyle(fontSize: 15, fontWeight: FontWeight.w700, color: Color(0xFF6D28D9)),
+                                child: Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: const [
+                                    Text(
+                                      '회원가입',
+                                      style: TextStyle(fontSize: 15, fontWeight: FontWeight.w700, color: Color(0xFF6D28D9)),
+                                    ),
+                                    SizedBox(width: 8),
+                                    Icon(Icons.arrow_forward_rounded, size: 18, color: Color(0xFF6D28D9)),
+                                  ],
                                 ),
                               ),
                             ),

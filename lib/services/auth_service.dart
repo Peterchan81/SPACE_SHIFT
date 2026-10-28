@@ -16,11 +16,24 @@
 /// 호출해 두면, 이후 [SupabaseAuthService]는 `Supabase.instance.client`의
 /// `auth.currentSession`만 읽어 자동 로그인을 구현한다. 더 이상 이 서비스가
 /// 직접 세션 파일을 쓰고 읽지 않는다.
+///
+/// 오류 분류 규칙(2026-10-28 추가 지시) — 네트워크 오류로 안내하는 것은
+/// 실제 연결 문제뿐이다: [SocketException], `http`의 `ClientException`,
+/// [TimeoutException], 그리고 gotrue가 fetch 단계(연결 실패/CORS 등)에서
+/// 모든 전송 오류를 감싸 던지는 [supa.AuthRetryableFetchException]. 그 밖의
+/// 예외(예: gotrue 응답 파싱 실패로 발생하는 FormatException, 우리 코드의
+/// 버그로 인한 StateError/TypeError 등)는 절대 네트워크 오류로 보고하지
+/// 않고 [AuthErrorKind.unknown] + 일반 안내로 처리하며, 실제 예외 종류와
+/// 메시지는 `debugPrint`로 남긴다(비밀번호·토큰은 남기지 않는다). catch-all
+/// 이 모든 실패를 하나의 원인으로 둔갑시키지 않는다 — signUp·signIn·signOut·
+/// 세션 복원 모두 같은 규칙을 따른다.
 library;
 
 import 'dart:async';
+import 'dart:io';
 
 import 'package:flutter/foundation.dart';
+import 'package:http/http.dart' as http;
 import 'package:supabase_flutter/supabase_flutter.dart' as supa;
 
 /// `--dart-define=SUPABASE_ANON_KEY=...`. 공개 가능한 anon key — service_role/
@@ -129,6 +142,9 @@ class AuthResult {
 /// 인증 설정이 없을 때 모든 화면이 공통으로 보여줄 안내(§2).
 const String kAuthNotConfiguredMessage = '인증 설정이 없습니다.';
 
+/// 네트워크와 무관한 예상치 못한 오류일 때 보여줄 일반 안내(§6, 2026-10-28 추가 지시).
+const String kAuthUnknownErrorMessage = '알 수 없는 오류가 발생했습니다. 잠시 후 다시 시도해주세요.';
+
 /// 화면이 바라보는 인증 인터페이스 — Supabase 구현과 테스트용 Fake가 이를 구현한다.
 abstract class AuthService {
   /// SUPABASE_URL/SUPABASE_ANON_KEY가 모두 있어야 true(§2) — 없으면 회원가입/
@@ -199,10 +215,14 @@ class SupabaseAuthService implements AuthService {
       return AuthResult.success(session);
     } on supa.AuthException catch (e) {
       return _failureFromException(e);
-    } on TimeoutException {
-      return const AuthResult.failure('네트워크 연결을 확인해주세요.', AuthErrorKind.network);
-    } catch (_) {
-      return const AuthResult.failure('네트워크 연결을 확인해주세요.', AuthErrorKind.network);
+    } on SocketException catch (e) {
+      return _networkFailure('signUp', e);
+    } on http.ClientException catch (e) {
+      return _networkFailure('signUp', e);
+    } on TimeoutException catch (e) {
+      return _networkFailure('signUp', e);
+    } catch (e, st) {
+      return _unknownFailure('signUp', e, st);
     }
   }
 
@@ -218,10 +238,14 @@ class SupabaseAuthService implements AuthService {
       return AuthResult.success(session);
     } on supa.AuthException catch (e) {
       return _failureFromException(e);
-    } on TimeoutException {
-      return const AuthResult.failure('네트워크 연결을 확인해주세요.', AuthErrorKind.network);
-    } catch (_) {
-      return const AuthResult.failure('네트워크 연결을 확인해주세요.', AuthErrorKind.network);
+    } on SocketException catch (e) {
+      return _networkFailure('signIn', e);
+    } on http.ClientException catch (e) {
+      return _networkFailure('signIn', e);
+    } on TimeoutException catch (e) {
+      return _networkFailure('signIn', e);
+    } catch (e, st) {
+      return _unknownFailure('signIn', e, st);
     }
   }
 
@@ -229,17 +253,42 @@ class SupabaseAuthService implements AuthService {
   Future<void> signOut() async {
     try {
       await _client.auth.signOut().timeout(const Duration(seconds: 10));
-    } catch (_) {
+    } catch (e, st) {
       // 로그아웃 요청이 실패해도 앱 인증 상태(AuthController)는 반드시
       // 초기화된다(§5 — 로그아웃은 사용자를 다시 로그인 화면으로 보내는
       // 것이 최우선). 로컬에 남은 세션 정리는 supabase_flutter가 맡는다.
+      // 사용자에게 보여줄 메시지는 없지만(로그아웃은 항상 성공한 것처럼
+      // 처리) 원인 파악을 위해 실제 예외는 남긴다(비밀번호·토큰 제외).
+      debugPrint('SupabaseAuthService.signOut 실패(무시하고 로컬 상태는 초기화): ${e.runtimeType}: $e\n$st');
     }
   }
 
   @override
   Future<AuthSession?> restoreSession() async {
     if (!isConfigured) return null;
-    return _mapSession(_client.auth.currentSession);
+    try {
+      return _mapSession(_client.auth.currentSession);
+    } catch (e, st) {
+      // 세션 복원 실패는 "세션 없음"과 동일하게 로그인 화면으로 보낸다 —
+      // 여기서도 catch-all이 원인을 숨기지 않도록 실제 예외를 남긴다.
+      debugPrint('SupabaseAuthService.restoreSession 실패: ${e.runtimeType}: $e\n$st');
+      return null;
+    }
+  }
+
+  /// 실제 연결 문제(§6 "네트워크 연결 오류")로 확인된 예외만 이 메시지를 쓴다.
+  AuthResult _networkFailure(String op, Object error) {
+    debugPrint('SupabaseAuthService.$op 네트워크 오류: ${error.runtimeType}: $error');
+    return const AuthResult.failure('네트워크 연결을 확인해주세요.', AuthErrorKind.network);
+  }
+
+  /// 네트워크 원인으로 확인되지 않은 그 밖의 모든 예외 — 절대 네트워크
+  /// 오류로 보고하지 않고 일반 오류로 안내하며, 실제 예외 종류/메시지는
+  /// debugPrint로 남겨 개발자가 원인을 알 수 있게 한다(비밀번호·토큰은
+  /// 담지 않는다 — error.toString()에 포함되지 않음).
+  AuthResult _unknownFailure(String op, Object error, StackTrace st) {
+    debugPrint('SupabaseAuthService.$op 예상치 못한 오류(네트워크 아님): ${error.runtimeType}: $error\n$st');
+    return const AuthResult.failure(kAuthUnknownErrorMessage, AuthErrorKind.unknown);
   }
 
   AuthSession? _mapSession(supa.Session? session, {String? fallbackEmail}) {
@@ -258,6 +307,14 @@ class SupabaseAuthService implements AuthService {
   }
 
   AuthResult _failureFromException(supa.AuthException e) {
+    // AuthRetryableFetchException — gotrue가 fetch 단계(연결 실패/CORS 등
+    // 전송 오류)에서 원래 예외 종류와 무관하게 공통으로 던지는 "재시도
+    // 가능" 예외다(2026-10-28 추가 지시) — 메시지 키워드와 무관하게 항상
+    // 네트워크 오류로 안내한다.
+    if (e is supa.AuthRetryableFetchException) {
+      debugPrint('SupabaseAuthService 네트워크 오류(AuthRetryableFetchException): ${e.message}');
+      return const AuthResult.failure('네트워크 연결을 확인해주세요.', AuthErrorKind.network);
+    }
     final msg = e.message.toLowerCase();
     final statusCode = int.tryParse(e.statusCode ?? '') ?? 0;
     AuthErrorKind kind;
@@ -283,6 +340,7 @@ class SupabaseAuthService implements AuthService {
     } else {
       kind = AuthErrorKind.unknown;
       korean = '요청을 처리하지 못했습니다. 잠시 후 다시 시도해주세요.';
+      debugPrint('SupabaseAuthService 분류되지 않은 AuthException: statusCode=${e.statusCode} message=${e.message}');
     }
     return AuthResult.failure(korean, kind);
   }
