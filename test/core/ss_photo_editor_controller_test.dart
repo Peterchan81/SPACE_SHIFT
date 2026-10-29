@@ -4,7 +4,6 @@ import 'dart:typed_data';
 
 import 'package:ason_space/core/ss_photo_editor_controller.dart';
 import 'package:ason_space/models/ss_photo_scene.dart';
-import 'package:flutter/material.dart' show Offset;
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {

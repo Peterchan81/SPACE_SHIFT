@@ -26,7 +26,11 @@ void main() {
     tester.view.physicalSize = const Size(1600, 1000);
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.reset);
-    await tester.pumpWidget(MaterialApp(home: PhotoDesignEditorScreen(projectId: 'p1', projectStore: store)));
+    // PhotoDesignEditorScreen의 InkWell(우측 탭 등)은 Material 조상이 필요하다(실제 앱 경로인
+    // SsStageScreen은 Scaffold로 이미 그 조상을 제공한다) — 여기서는 Scaffold로 감싸 같은 조건을 만든다.
+    await tester.pumpWidget(
+      MaterialApp(home: Scaffold(body: PhotoDesignEditorScreen(projectId: 'p1', projectStore: store))),
+    );
     await tester.pumpAndSettle();
   }
 
