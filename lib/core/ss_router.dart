@@ -10,6 +10,7 @@ library;
 
 import 'package:flutter/material.dart';
 
+import '../screens/direct_draw_screen.dart';
 import '../screens/floor_plan_workspace_screen.dart';
 import '../screens/home_screen.dart';
 import '../screens/login_screen.dart';
@@ -29,6 +30,7 @@ abstract final class SsRouter {
     SsStage.home: (_) => const HomeScreen(),
     SsStage.projectManagement: (_) => const ProjectManagementScreen(),
     SsStage.projectCreation: (_) => const ProjectCreationScreen(),
+    SsStage.directDrawing: (context) => DirectDrawScreen(projectId: ModalRoute.of(context)?.settings.arguments as String?),
     SsStage.floorPlanUpload: (_) => const FloorPlanWorkspaceScreen(),
     SsStage.floorPlanReview: (_) => const FloorPlanWorkspaceScreen(),
     SsStage.cadConversion: (_) => const FloorPlanWorkspaceScreen(),
