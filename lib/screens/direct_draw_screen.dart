@@ -16,6 +16,7 @@ import '../core/ss_draw_editor_controller.dart';
 import '../core/ss_editing.dart';
 import '../core/ss_project.dart';
 import '../core/ss_project_store.dart';
+import '../core/ss_router.dart';
 import '../core/ss_stage.dart';
 import '../models/ss_draw_scene.dart';
 import '../models/workspace_viewport_transform.dart';
@@ -270,11 +271,23 @@ class _DirectDrawScreenState extends State<DirectDrawScreen> {
   @override
   Widget build(BuildContext context) {
     if (_state == _DrawLoad.error) {
-      return const Center(
-        child: Text(
-          '평면도를 불러오지 못했습니다. 프로젝트 관리에서 다시 열어주세요.',
-          key: Key('ssDrawLoadError'),
-          style: TextStyle(color: SsMasterTheme.textSecondary),
+      return Padding(
+        padding: const EdgeInsets.all(20),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const SsStageHeader(stage: SsStage.directDrawing),
+            const SizedBox(height: 20),
+            const Expanded(
+              child: Center(
+                child: Text(
+                  '평면도를 불러오지 못했습니다. 프로젝트 관리에서 다시 열어주세요.',
+                  key: Key('ssDrawLoadError'),
+                  style: TextStyle(color: SsMasterTheme.textSecondary),
+                ),
+              ),
+            ),
+          ],
         ),
       );
     }
@@ -283,7 +296,19 @@ class _DirectDrawScreenState extends State<DirectDrawScreen> {
       // 않게 한다 — 그렇지 않으면(불확정 스피너) 위젯 테스트의 pumpAndSettle()이 "더 이상
       // 예약된 프레임이 없는" 상태에 영원히 도달하지 못해 타임아웃한다(home_screen.dart의
       // ssHomeLoading·project_management_screen.dart의 ssProjectsLoading과 같은 규칙).
-      return const Center(child: CircularProgressIndicator(key: Key('ssDrawLoading'), color: SsMasterTheme.neonBlue, value: 0.3));
+      return Padding(
+        padding: const EdgeInsets.all(20),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const SsStageHeader(stage: SsStage.directDrawing),
+            const SizedBox(height: 20),
+            const Expanded(
+              child: Center(child: CircularProgressIndicator(key: Key('ssDrawLoading'), color: SsMasterTheme.neonBlue, value: 0.3)),
+            ),
+          ],
+        ),
+      );
     }
     return PopScope(
       canPop: true,
@@ -295,6 +320,10 @@ class _DirectDrawScreenState extends State<DirectDrawScreen> {
         builder: (context, _) => Column(
           key: const Key('ssDrawScreen'),
           children: [
+            const Padding(
+              padding: EdgeInsets.fromLTRB(20, 16, 20, 0),
+              child: SsStageHeader(stage: SsStage.directDrawing),
+            ),
             _buildTopToolbar(),
             const Divider(height: 1, color: SsMasterTheme.panelBorder),
             Expanded(
