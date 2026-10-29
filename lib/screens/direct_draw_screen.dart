@@ -389,23 +389,26 @@ class _DirectDrawScreenState extends State<DirectDrawScreen> {
 
   Widget _buildGridMenu() {
     const options = [50.0, 100.0, 200.0, 300.0, 500.0];
-    return PopupMenuButton<double>(
-      key: const Key('ssDrawGridSize'),
-      initialValue: _draw.gridMm,
-      color: SsMasterTheme.panel,
-      onSelected: _draw.setGridMm,
-      itemBuilder: (context) => [
-        for (final v in options) PopupMenuItem<double>(value: v, child: Text(SsLength.mm(v).format(SsLengthUnit.mm), style: const TextStyle(color: Colors.white))),
-      ],
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-        decoration: BoxDecoration(border: Border.all(color: SsMasterTheme.panelBorder), borderRadius: BorderRadius.circular(8)),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Text(SsLength.mm(_draw.gridMm).format(SsLengthUnit.mm), style: const TextStyle(color: Colors.white)),
-            const Icon(Icons.arrow_drop_down, color: SsMasterTheme.textSecondary),
-          ],
+    return Material(
+      type: MaterialType.transparency,
+      child: PopupMenuButton<double>(
+        key: const Key('ssDrawGridSize'),
+        initialValue: _draw.gridMm,
+        color: SsMasterTheme.panel,
+        onSelected: _draw.setGridMm,
+        itemBuilder: (context) => [
+          for (final v in options) PopupMenuItem<double>(value: v, child: Text(SsLength.mm(v).format(SsLengthUnit.mm), style: const TextStyle(color: Colors.white))),
+        ],
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+          decoration: BoxDecoration(border: Border.all(color: SsMasterTheme.panelBorder), borderRadius: BorderRadius.circular(8)),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(SsLength.mm(_draw.gridMm).format(SsLengthUnit.mm), style: const TextStyle(color: Colors.white)),
+              const Icon(Icons.arrow_drop_down, color: SsMasterTheme.textSecondary),
+            ],
+          ),
         ),
       ),
     );
