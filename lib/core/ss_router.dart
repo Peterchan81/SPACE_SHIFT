@@ -14,7 +14,7 @@ import '../screens/direct_draw_screen.dart';
 import '../screens/floor_plan_workspace_screen.dart';
 import '../screens/home_screen.dart';
 import '../screens/login_screen.dart';
-import '../screens/photo_select_screen.dart';
+import '../screens/photo_design_editor_screen.dart';
 import '../screens/project_creation_screen.dart';
 import '../screens/project_management_screen.dart';
 import '../screens/settings_screen.dart';
@@ -35,7 +35,7 @@ abstract final class SsRouter {
     SsStage.floorPlanReview: (_) => const FloorPlanWorkspaceScreen(),
     SsStage.cadConversion: (_) => const FloorPlanWorkspaceScreen(),
     SsStage.cadEditor: (_) => const FloorPlanWorkspaceScreen(),
-    SsStage.imageEditing: (_) => const PhotoSelectScreen(),
+    SsStage.imageEditing: (context) => PhotoDesignEditorScreen(projectId: ModalRoute.of(context)?.settings.arguments as String?),
   };
 
   /// MaterialApp.onGenerateRoute — 모르는 이름이면 null(기존 Navigator 동작 그대로).
