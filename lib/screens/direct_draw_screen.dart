@@ -510,21 +510,24 @@ class _ToolButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return InkWell(
-      key: Key('ssDrawTool_$toolKey'),
-      borderRadius: BorderRadius.circular(10),
-      onTap: onTap,
-      child: Container(
-        width: 64,
-        padding: const EdgeInsets.symmetric(vertical: 6),
-        decoration: BoxDecoration(gradient: selected ? SsMasterTheme.selectedItem : null, borderRadius: BorderRadius.circular(10)),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(icon, color: selected ? Colors.white : SsMasterTheme.textSecondary, size: 20),
-            const SizedBox(height: 4),
-            Text(label, style: TextStyle(fontSize: 11, color: selected ? Colors.white : SsMasterTheme.textSecondary)),
-          ],
+    return Material(
+      type: MaterialType.transparency,
+      child: InkWell(
+        key: Key('ssDrawTool_$toolKey'),
+        borderRadius: BorderRadius.circular(10),
+        onTap: onTap,
+        child: Container(
+          width: 64,
+          padding: const EdgeInsets.symmetric(vertical: 6),
+          decoration: BoxDecoration(gradient: selected ? SsMasterTheme.selectedItem : null, borderRadius: BorderRadius.circular(10)),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(icon, color: selected ? Colors.white : SsMasterTheme.textSecondary, size: 20),
+              const SizedBox(height: 4),
+              Text(label, style: TextStyle(fontSize: 11, color: selected ? Colors.white : SsMasterTheme.textSecondary)),
+            ],
+          ),
         ),
       ),
     );
