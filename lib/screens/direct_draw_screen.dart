@@ -40,6 +40,12 @@ enum _DrawLoad { loading, loaded, error }
 /// 문서(mm) 1mm를 화면 몇 px로 그릴지(기준 배율 — 실제 화면 배율은 여기에 [SsDrawEditorController.viewport].scale이 곱해진다).
 const double _pxPerMm = 0.15;
 
+/// 화면(손가락/마우스) 기준 "이 정도면 탭"으로 볼 최소 이동량(논리 픽셀) — [workspace_drawing_layer.dart]와
+/// 같은 생각: 탭과 드래그/확대를 같은 GestureDetector에 onTapUp+onScale*로 함께 걸면 제스처 arena에서
+/// 서로 충돌해 탭이 씹히는 문제가 실측으로 알려져 있어(§ cad_floor_plan_overlay.dart 같은 주석), 탭 여부는
+/// onScaleEnd에서 이동 거리로 직접 판정한다 — onTapUp을 쓰지 않는다.
+const double _tapSlopPx = 8.0;
+
 class _DirectDrawScreenState extends State<DirectDrawScreen> {
   _DrawLoad _state = _DrawLoad.loading;
   SsProjectStore? _store;
@@ -50,6 +56,7 @@ class _DirectDrawScreenState extends State<DirectDrawScreen> {
   PointerDeviceKind _pointerKind = PointerDeviceKind.mouse;
   SsGesture? _activeGesture;
   Offset _gestureStartLocal = Offset.zero;
+  Offset _lastLocalFocal = Offset.zero;
   WorkspaceViewportTransform _gestureStartViewport = WorkspaceViewportTransform.identity;
   SsDrawPoint _dragStartDoc = const SsDrawPoint(0, 0);
 
@@ -142,6 +149,7 @@ class _DirectDrawScreenState extends State<DirectDrawScreen> {
 
   void _onScaleStart(ScaleStartDetails d) {
     _gestureStartLocal = d.localFocalPoint;
+    _lastLocalFocal = d.localFocalPoint;
     _gestureStartViewport = _draw.viewport;
     if (d.pointerCount >= 2) {
       _activeGesture = SsGesture.pinchZoom;
@@ -173,6 +181,7 @@ class _DirectDrawScreenState extends State<DirectDrawScreen> {
   }
 
   void _onScaleUpdate(ScaleUpdateDetails d) {
+    _lastLocalFocal = d.localFocalPoint;
     if (_activeGesture == SsGesture.pinchZoom || d.pointerCount >= 2) {
       _applyPanZoom(d);
       return;
@@ -203,7 +212,8 @@ class _DirectDrawScreenState extends State<DirectDrawScreen> {
   }
 
   void _onScaleEnd(ScaleEndDetails d) {
-    switch (_activeGesture) {
+    final gesture = _activeGesture;
+    switch (gesture) {
       case SsGesture.draw:
         if (_draw.tool == SsDrawTool.wall) _draw.commitWallDraft();
       case SsGesture.drag:
@@ -215,11 +225,16 @@ class _DirectDrawScreenState extends State<DirectDrawScreen> {
       case null:
         break;
     }
+    // onTapUp을 따로 쓰지 않는다(위 _tapSlopPx 주석) — 거의 움직이지 않은 제스처만 "탭"으로 본다.
+    if (gesture != SsGesture.pinchZoom && (_gestureStartLocal - _lastLocalFocal).distance <= _tapSlopPx) {
+      _handleTap(_gestureStartLocal);
+    }
     _activeGesture = null;
   }
 
-  void _onTapUp(TapUpDetails d) {
-    final doc = _toDoc(d.localPosition);
+  /// 탭 판정(§ _tapSlopPx 주석) — onTapUp 대신 onScaleEnd에서 이동 거리로 직접 부른다.
+  void _handleTap(Offset local) {
+    final doc = _toDoc(local);
     final isTouch = SsInput.kindOf(_pointerKind) == SsInputKind.touch;
     switch (_draw.tool) {
       case SsDrawTool.wall:
@@ -290,7 +305,6 @@ class _DirectDrawScreenState extends State<DirectDrawScreen> {
                       onScaleStart: _onScaleStart,
                       onScaleUpdate: _onScaleUpdate,
                       onScaleEnd: _onScaleEnd,
-                      onTapUp: _onTapUp,
                       child: CustomPaint(
                         size: Size.infinite,
                         painter: _SsDrawPainter(
