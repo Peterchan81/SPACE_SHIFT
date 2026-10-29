@@ -23,6 +23,11 @@ class SsProjectStoreProvider {
   @visibleForTesting
   static void resetForTesting() => instance = SsProjectStoreProvider._();
 
+  /// 테스트에서 화면에 주입한 가짜 저장소를, 그 화면이 Route로 여는 다음 화면(예: 직접 그리기)도
+  /// 함께 쓰게 한다 — 실제 앱처럼 모든 화면이 같은 저장소 하나를 공유한다.
+  @visibleForTesting
+  static void useForTesting(SsProjectStore store) => instance = SsProjectStoreProvider._().._store = store;
+
   SsProjectStore? _store;
   Future<SsProjectStore>? _pending;
 

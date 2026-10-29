@@ -6,6 +6,7 @@ import 'package:ason_space/core/ss_project_store.dart';
 import 'package:ason_space/core/ss_router.dart';
 import 'package:ason_space/core/ss_stage.dart';
 import 'package:ason_space/screens/home_screen.dart';
+import 'package:ason_space/services/ss_project_store_provider.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -41,6 +42,9 @@ Future<void> _pumpHome(WidgetTester tester, SsProjectStore store) async {
   tester.view.physicalSize = const Size(2000, 1200);
   tester.view.devicePixelRatio = 1;
   addTearDown(tester.view.reset);
+  // 프로젝트를 고르면 Route로 열리는 다음 화면(예: 직접 그리기)도 같은 저장소를 쓰게 한다.
+  SsProjectStoreProvider.useForTesting(store);
+  addTearDown(SsProjectStoreProvider.resetForTesting);
   // HomeScreen의 InkWell(시작 카드 등)은 Material 조상이 필요하다(실제 앱 경로인
   // SsStageScreen은 Scaffold로 이미 그 조상을 제공한다) — 여기서는 Scaffold로 감싸
   // 같은 조건을 만든다.
@@ -95,10 +99,10 @@ void main() {
 
     await tester.tap(find.byKey(const Key('ssHomeProjectCard_inprog')));
     await tester.pumpAndSettle();
-    expect(find.byKey(const Key('ssStageTitle')), findsOneWidget);
+    // SS005부터 직접 그리기 단계는 MASTER UI 4-1 편집기(단계 제목 헤더 없음)로 열린다.
     expect(
-      tester.widget<Text>(find.byKey(const Key('ssStageTitle'))).data,
-      SsStage.directDrawing.title,
+      find.byKey(const Key('ssDrawScreen')),
+      findsOneWidget,
       reason: '직접 그리기 프로젝트를 고르면 저장된 단계(직접 그리기)에서 이어서 연다',
     );
   });

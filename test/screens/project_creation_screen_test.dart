@@ -3,6 +3,7 @@ import 'package:ason_space/core/ss_project_store.dart';
 import 'package:ason_space/core/ss_router.dart';
 import 'package:ason_space/core/ss_stage.dart';
 import 'package:ason_space/screens/project_creation_screen.dart';
+import 'package:ason_space/services/ss_project_store_provider.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -10,6 +11,9 @@ Future<void> _pump(WidgetTester tester, SsProjectStore store, {SsSourceType? rou
   tester.view.physicalSize = const Size(2000, 1200);
   tester.view.devicePixelRatio = 1;
   addTearDown(tester.view.reset);
+  // 생성 후 Route로 열리는 첫 단계 화면(예: 직접 그리기)도 같은 저장소를 쓰게 한다.
+  SsProjectStoreProvider.useForTesting(store);
+  addTearDown(SsProjectStoreProvider.resetForTesting);
   await tester.pumpWidget(
     MaterialApp(
       onGenerateRoute: SsRouter.onGenerateRoute,
@@ -62,7 +66,8 @@ void main() {
     await tester.enterText(find.byKey(const Key('ssCreateName')), '우리집');
     await _submit(tester);
 
-    expect(tester.widget<Text>(find.byKey(const Key('ssStageTitle'))).data, SsStage.directDrawing.title);
+    // SS005부터 직접 그리기 단계는 MASTER UI 4-1 편집기(단계 제목 헤더 없음)로 열린다.
+    expect(find.byKey(const Key('ssDrawScreen')), findsOneWidget);
     final ids = await store.list();
     expect(ids, hasLength(1));
     final saved = await store.load(ids.single);
@@ -88,7 +93,7 @@ void main() {
     expect(await store.list(), isEmpty);
 
     await _submit(tester);
-    expect(tester.widget<Text>(find.byKey(const Key('ssStageTitle'))).data, SsStage.directDrawing.title);
+    expect(find.byKey(const Key('ssDrawScreen')), findsOneWidget);
     final ids = await store.list();
     expect(ids, hasLength(1));
     expect((await store.load(ids.single))!.sourceType, SsSourceType.directDraw);
