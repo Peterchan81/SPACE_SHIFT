@@ -14,6 +14,8 @@ import '../screens/floor_plan_workspace_screen.dart';
 import '../screens/home_screen.dart';
 import '../screens/login_screen.dart';
 import '../screens/photo_select_screen.dart';
+import '../screens/project_creation_screen.dart';
+import '../screens/project_management_screen.dart';
 import '../screens/settings_screen.dart';
 import '../services/auth_service.dart';
 import '../theme/ss_master_theme.dart';
@@ -25,6 +27,8 @@ abstract final class SsRouter {
   static final Map<SsStage, WidgetBuilder> existing = {
     SsStage.login: (_) => const LoginScreen(),
     SsStage.home: (_) => const HomeScreen(),
+    SsStage.projectManagement: (_) => const ProjectManagementScreen(),
+    SsStage.projectCreation: (_) => const ProjectCreationScreen(),
     SsStage.floorPlanUpload: (_) => const FloorPlanWorkspaceScreen(),
     SsStage.floorPlanReview: (_) => const FloorPlanWorkspaceScreen(),
     SsStage.cadConversion: (_) => const FloorPlanWorkspaceScreen(),
