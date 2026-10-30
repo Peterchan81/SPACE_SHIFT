@@ -40,7 +40,16 @@ class SsPhotoRenderService {
   }
 
   Uint8List _compose(SsPhotoScene scene) {
-    final decoded = img.decodeImage(scene.imageBytes);
+    img.Image? decoded;
+    try {
+      decoded = img.decodeImage(scene.imageBytes);
+    } catch (e) {
+      // image 패키지는 손상된 헤더를 만나면 null을 돌려주지 않고 RangeError 등을 던질 수 있다 —
+      // 실제 원인(타입/메시지)은 로그로 남기고, 사용자/호출자에게는 같은 뜻의 FormatException으로
+      // 통일해 던진다(네트워크 오류 등 다른 원인으로 둔갑시키지 않는다).
+      debugPrint('SsPhotoRenderService 이미지 디코딩 실패 (${e.runtimeType}): $e');
+      throw FormatException('이미지를 해석할 수 없습니다: $e');
+    }
     if (decoded == null) throw const FormatException('이미지를 해석할 수 없습니다');
     var out = decoded.clone();
 
