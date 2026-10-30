@@ -13,6 +13,7 @@ import '../core/ss_project.dart';
 import '../core/ss_project_store.dart';
 import '../core/ss_router.dart';
 import '../core/ss_stage.dart';
+import '../models/ss_photo_scene.dart';
 import '../services/ss_image_export_service.dart';
 import '../services/ss_project_store_provider.dart';
 import '../theme/ss_master_theme.dart';
@@ -42,6 +43,7 @@ class _ImageResultScreenState extends State<ImageResultScreen> {
   Uint8List? _originalBytes;
   Uint8List? _resultBytes;
   bool _compareMode = false;
+  SsPhotoScene? _scene;
   SsExportFormat _format = SsExportFormat.png;
   double _jpgQuality = 90;
   bool _chooseLocation = false;
@@ -93,11 +95,13 @@ class _ImageResultScreenState extends State<ImageResultScreen> {
         return;
       }
       if (!mounted) return;
+      final scene = SsPhotoScene.fromEditJson(original, project.data[SsDataSlot.userCorrections]?.payload['edit']);
       setState(() {
         _store = store;
         _project = project;
         _originalBytes = original;
         _resultBytes = result;
+        _scene = scene;
         _state = _ResultLoad.loaded;
       });
     } catch (e, st) {
@@ -218,11 +222,24 @@ class _ImageResultScreenState extends State<ImageResultScreen> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        OutlinedButton.icon(
-          key: const Key('ssResultCompareToggle'),
-          onPressed: () => setState(() => _compareMode = !_compareMode),
-          icon: Icon(_compareMode ? Icons.visibility_outlined : Icons.compare_outlined, size: 18),
-          label: Text(_compareMode ? '결과만 보기' : '원본과 비교(Before/After)'),
+        Container(
+          key: const Key('ssResultToolbar'),
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+          decoration: BoxDecoration(color: SsMasterTheme.panel, borderRadius: BorderRadius.circular(12), border: Border.all(color: SsMasterTheme.panelBorder)),
+          child: Row(
+            children: [
+              const Icon(Icons.check_circle, color: Colors.greenAccent, size: 18),
+              const SizedBox(width: 8),
+              const Text('AI 렌더링 완료 · 최종 이미지', style: TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.w700)),
+              const Spacer(),
+              OutlinedButton.icon(
+                key: const Key('ssResultCompareToggle'),
+                onPressed: () => setState(() => _compareMode = !_compareMode),
+                icon: Icon(_compareMode ? Icons.visibility_outlined : Icons.compare_outlined, size: 18),
+                label: Text(_compareMode ? '결과만 보기' : '원본과 비교(Before/After)'),
+              ),
+            ],
+          ),
         ),
         const SizedBox(height: 12),
         Expanded(
@@ -272,6 +289,12 @@ class _ImageResultScreenState extends State<ImageResultScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
+            if (_scene != null) ...[
+              _buildEditSummary(_scene!),
+              const SizedBox(height: 16),
+              const Divider(color: SsMasterTheme.panelBorder),
+              const SizedBox(height: 16),
+            ],
             const Text('파일 내보내기', style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.w800)),
             const SizedBox(height: 12),
             const Text('형식', style: TextStyle(color: SsMasterTheme.textMuted, fontSize: 12, fontWeight: FontWeight.w700)),
@@ -347,6 +370,43 @@ class _ImageResultScreenState extends State<ImageResultScreen> {
             ),
           ],
         ),
+      ),
+    );
+  }
+
+  /// MASTER UI 4-2-2 — "수정 작업 내역/적용된 옵션" 요약. 편집 지시는 SS006의 [SsPhotoScene]을 그대로 읽기만
+  /// 한다(다시 구현하지 않음).
+  Widget _buildEditSummary(SsPhotoScene scene) {
+    final items = <String>[
+      if (scene.removedObjects.isNotEmpty) '객체 삭제 ${scene.removedObjects.length}건',
+      if (scene.finishes.isNotEmpty) '마감재·색상 변경 ${scene.finishes.length}건',
+      if (scene.openings.isNotEmpty) '개구부 추가 ${scene.openings.length}건',
+      if (scene.lighting != null) '조명 변경: ${scene.lighting!.label}',
+    ];
+    return Container(
+      key: const Key('ssResultEditSummary'),
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(color: const Color(0xFF081628), borderRadius: BorderRadius.circular(12), border: Border.all(color: SsMasterTheme.panelBorder)),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text('적용된 수정 작업', style: TextStyle(color: SsMasterTheme.textMuted, fontSize: 12, fontWeight: FontWeight.w700)),
+          const SizedBox(height: 8),
+          if (items.isEmpty)
+            const Text('수정 작업 없이 원본을 그대로 렌더링했습니다.', style: TextStyle(color: SsMasterTheme.textSecondary, fontSize: 12))
+          else
+            for (final it in items)
+              Padding(
+                padding: const EdgeInsets.symmetric(vertical: 3),
+                child: Row(
+                  children: [
+                    const Icon(Icons.check, size: 14, color: SsMasterTheme.neonBlue),
+                    const SizedBox(width: 6),
+                    Expanded(child: Text(it, style: const TextStyle(color: Colors.white, fontSize: 12))),
+                  ],
+                ),
+              ),
+        ],
       ),
     );
   }
