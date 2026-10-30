@@ -505,96 +505,107 @@ class _FloorPlanUploadScreenState extends State<FloorPlanUploadScreen> {
       for (final layer in SsRecognitionLayer.values)
         if (SsRecognitionLayers.alwaysShown.contains(layer) || (summary.counts[layer] ?? 0) > 0) layer,
     ];
-    return SingleChildScrollView(
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Container(
-            key: const Key('ssRecognitionOverlay'),
-            height: 260,
-            decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(8)),
-            clipBehavior: Clip.antiAlias,
-            child: Center(
-              child: AspectRatio(
-                aspectRatio: aspect,
-                child: CustomPaint(painter: _SsRecognitionPainter(model: model, visibleLayers: _visibleLayers)),
-              ),
-            ),
-          ),
-          const SizedBox(height: 14),
-          Row(
-            children: [
-              Expanded(
-                child: Text(
-                  '인식된 요소 (총 ${summary.totalCount}개)',
-                  key: const Key('ssRecognizedTotal'),
-                  style: const TextStyle(color: SsMasterTheme.textPrimary, fontWeight: FontWeight.w700),
-                ),
-              ),
-              IconButton(
-                key: const Key('ssLayerToggleAll'),
-                tooltip: '모두 보기/숨기기',
-                onPressed: () => _toggleAllLayers(shownLayers),
-                icon: Icon(
-                  _visibleLayers.containsAll(shownLayers) ? Icons.visibility : Icons.visibility_off,
-                  color: SsMasterTheme.textSecondary,
-                  size: 20,
-                ),
-              ),
-            ],
-          ),
-          for (final layer in shownLayers) _buildLayerRow(layer, summary.counts[layer] ?? 0),
-          if (summary.reviewItems.isNotEmpty) ...[
-            const SizedBox(height: 14),
-            Container(
-              key: const Key('ssReviewBanner'),
-              padding: const EdgeInsets.all(10),
-              decoration: BoxDecoration(
-                color: Colors.orange.withValues(alpha: 0.12),
-                border: Border.all(color: Colors.orangeAccent),
-                borderRadius: BorderRadius.circular(8),
-              ),
-              child: Row(
-                children: [
-                  const Icon(Icons.warning_amber_rounded, color: Colors.orangeAccent, size: 18),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: Text(
-                      '확인이 필요한 요소 ${summary.reviewItems.length}개 — "수정하기"에서 확인하세요',
-                      style: const TextStyle(color: Colors.orangeAccent, fontSize: 13),
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        // 레이어 목록·확인 배너는 내용이 길어질 수 있어 스크롤하되, "CAD 파일로 변환"
+        // 버튼은 스크롤 영역 밖에 고정해 항상 패널 하단에 온전히 보이고 눌릴 수 있게
+        // 한다(스크롤 내부에 있으면 내용이 넘칠 때 버튼이 뷰포트 경계에 걸려 탭이
+        // 빗나갈 수 있었다).
+        Expanded(
+          child: SingleChildScrollView(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Container(
+                  key: const Key('ssRecognitionOverlay'),
+                  height: 260,
+                  decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(8)),
+                  clipBehavior: Clip.antiAlias,
+                  child: Center(
+                    child: AspectRatio(
+                      aspectRatio: aspect,
+                      child: CustomPaint(painter: _SsRecognitionPainter(model: model, visibleLayers: _visibleLayers)),
                     ),
                   ),
-                ],
-              ),
-            ),
-            const SizedBox(height: 6),
-            for (final item in summary.reviewItems)
-              ListTile(
-                key: Key('ssReviewItem_${item.id}'),
-                dense: true,
-                contentPadding: EdgeInsets.zero,
-                leading: Container(
-                  width: 10,
-                  height: 10,
-                  margin: const EdgeInsets.only(top: 4),
-                  decoration: BoxDecoration(color: SsRecognitionLayers.all[item.layer]!.color, borderRadius: BorderRadius.circular(3)),
                 ),
-                title: Text(item.label, style: const TextStyle(color: SsMasterTheme.textPrimary, fontSize: 13)),
-                subtitle: Text(item.reason, style: const TextStyle(color: SsMasterTheme.textSecondary, fontSize: 12)),
-              ),
-          ],
-          const SizedBox(height: 16),
-          SizedBox(
-            width: double.infinity,
-            child: ElevatedButton(
-              key: const Key('ssUploadConvertButton'),
-              onPressed: _onConvertPressed,
-              style: ElevatedButton.styleFrom(backgroundColor: SsMasterTheme.neonBlue, padding: const EdgeInsets.symmetric(vertical: 14)),
-              child: const Text('CAD 파일로 변환'),
+                const SizedBox(height: 14),
+                Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        '인식된 요소 (총 ${summary.totalCount}개)',
+                        key: const Key('ssRecognizedTotal'),
+                        style: const TextStyle(color: SsMasterTheme.textPrimary, fontWeight: FontWeight.w700),
+                      ),
+                    ),
+                    IconButton(
+                      key: const Key('ssLayerToggleAll'),
+                      tooltip: '모두 보기/숨기기',
+                      onPressed: () => _toggleAllLayers(shownLayers),
+                      icon: Icon(
+                        _visibleLayers.containsAll(shownLayers) ? Icons.visibility : Icons.visibility_off,
+                        color: SsMasterTheme.textSecondary,
+                        size: 20,
+                      ),
+                    ),
+                  ],
+                ),
+                for (final layer in shownLayers) _buildLayerRow(layer, summary.counts[layer] ?? 0),
+                if (summary.reviewItems.isNotEmpty) ...[
+                  const SizedBox(height: 14),
+                  Container(
+                    key: const Key('ssReviewBanner'),
+                    padding: const EdgeInsets.all(10),
+                    decoration: BoxDecoration(
+                      color: Colors.orange.withValues(alpha: 0.12),
+                      border: Border.all(color: Colors.orangeAccent),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: Row(
+                      children: [
+                        const Icon(Icons.warning_amber_rounded, color: Colors.orangeAccent, size: 18),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            '확인이 필요한 요소 ${summary.reviewItems.length}개 — "수정하기"에서 확인하세요',
+                            style: const TextStyle(color: Colors.orangeAccent, fontSize: 13),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 6),
+                  for (final item in summary.reviewItems)
+                    ListTile(
+                      key: Key('ssReviewItem_${item.id}'),
+                      dense: true,
+                      contentPadding: EdgeInsets.zero,
+                      leading: Container(
+                        width: 10,
+                        height: 10,
+                        margin: const EdgeInsets.only(top: 4),
+                        decoration: BoxDecoration(color: SsRecognitionLayers.all[item.layer]!.color, borderRadius: BorderRadius.circular(3)),
+                      ),
+                      title: Text(item.label, style: const TextStyle(color: SsMasterTheme.textPrimary, fontSize: 13)),
+                      subtitle: Text(item.reason, style: const TextStyle(color: SsMasterTheme.textSecondary, fontSize: 12)),
+                    ),
+                ],
+              ],
             ),
           ),
-        ],
-      ),
+        ),
+        const SizedBox(height: 16),
+        SizedBox(
+          width: double.infinity,
+          child: ElevatedButton(
+            key: const Key('ssUploadConvertButton'),
+            onPressed: _onConvertPressed,
+            style: ElevatedButton.styleFrom(backgroundColor: SsMasterTheme.neonBlue, padding: const EdgeInsets.symmetric(vertical: 14)),
+            child: const Text('CAD 파일로 변환'),
+          ),
+        ),
+      ],
     );
   }
 
