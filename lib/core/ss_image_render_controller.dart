@@ -4,7 +4,6 @@
 /// 화면이 들고 있는 원본 프로젝트 데이터를 그대로 두면 되므로(§ 실패/중단/재시도 시 편집 데이터 보존).
 library;
 
-import 'dart:typed_data';
 
 import 'package:flutter/foundation.dart';
 
