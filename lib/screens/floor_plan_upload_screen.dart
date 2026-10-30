@@ -323,25 +323,28 @@ class _FloorPlanUploadScreenState extends State<FloorPlanUploadScreen> {
     if (_state == _FloorPlanUploadLoad.loading) {
       return const Center(child: CircularProgressIndicator(key: Key('ssUploadLoading')));
     }
-    return Padding(
-      key: const Key('ssUploadScreen'),
-      padding: const EdgeInsets.all(24),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const SsStageHeader(stage: SsStage.floorPlanUpload),
-          const SizedBox(height: 16),
-          Expanded(
-            child: Row(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                Expanded(child: _buildSourcePanel()),
-                const SizedBox(width: 16),
-                Expanded(child: _buildRecognitionPanel()),
-              ],
+    return Material(
+      type: MaterialType.transparency,
+      child: Padding(
+        key: const Key('ssUploadScreen'),
+        padding: const EdgeInsets.all(24),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const SsStageHeader(stage: SsStage.floorPlanUpload),
+            const SizedBox(height: 16),
+            Expanded(
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Expanded(child: _buildSourcePanel()),
+                  const SizedBox(width: 16),
+                  Expanded(child: _buildRecognitionPanel()),
+                ],
+              ),
             ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }
