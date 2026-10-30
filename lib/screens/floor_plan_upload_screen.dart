@@ -13,6 +13,10 @@
 ///   다음 단계로 진행한다(CAD 변환 자체의 실행은 SS009/SS010 범위).
 /// - 공통 상단바([SsTopBar])·좌측 메뉴([SsNavRail])는 [SsRouter]가
 ///   [SsStageScreen]으로 이미 감싸 준다 — 이 화면은 그 안쪽만 그린다.
+/// - MASTER UI 5 원본 패널 툴바(회전/자르기/확대-축소/전체화면)와 우측 결과
+///   패널의 "인식된 요소"/"레이어 표시" 2단 구성을 반영한다. 자르기는 아직
+///   실제 자르기 기능이 없으므로(§SS008 범위 밖) 도움말/알림 아이콘과 같은
+///   원칙으로 비활성(onPressed: null)만 두고 가짜 동작을 만들지 않는다.
 library;
 
 import 'dart:async';
@@ -76,9 +80,17 @@ class _FloorPlanUploadScreenState extends State<FloorPlanUploadScreen> {
   SSSpatialModel? _model;
   Set<SsRecognitionLayer> _visibleLayers = SsRecognitionLayer.values.toSet();
 
+  // MASTER UI 5 원본 패널 툴바(회전/확대-축소) 상태 — 보기 전용(분석에는 영향 없음).
+  int _rotationQuarters = 0;
+  double _zoomScale = 1.0;
+  final TransformationController _zoomController = TransformationController();
+
+  bool get _hasImage => _sourceFile != null && _sourceFile!.kind == FloorPlanFileKind.image && _sourceFile!.bytes != null;
+
   @override
   void initState() {
     super.initState();
+    _zoomController.addListener(_onZoomChanged);
     if (widget.projectId == null) {
       _state = _FloorPlanUploadLoad.loaded;
     } else {
@@ -88,8 +100,54 @@ class _FloorPlanUploadScreenState extends State<FloorPlanUploadScreen> {
 
   @override
   void dispose() {
+    _zoomController.removeListener(_onZoomChanged);
+    _zoomController.dispose();
     _autosave?.dispose();
     super.dispose();
+  }
+
+  void _onZoomChanged() {
+    final scale = _zoomController.value.getMaxScaleOnAxis();
+    if (!mounted || (scale - _zoomScale).abs() <= 0.001) return;
+    setState(() => _zoomScale = scale);
+  }
+
+  void _setZoom(double scale) {
+    final clamped = scale.clamp(0.5, 4.0);
+    setState(() {
+      _zoomScale = clamped;
+      _zoomController.value = Matrix4.identity()..scale(clamped);
+    });
+  }
+
+  void _rotateImage() {
+    setState(() => _rotationQuarters = (_rotationQuarters + 1) % 4);
+  }
+
+  void _resetViewTransform() {
+    _rotationQuarters = 0;
+    _zoomScale = 1.0;
+    _zoomController.value = Matrix4.identity();
+  }
+
+  Future<void> _showFullscreen() async {
+    final file = _sourceFile;
+    if (file == null || file.bytes == null) return;
+    await showDialog<void>(
+      context: context,
+      builder: (ctx) => Dialog(
+        key: const Key('ssFullscreenDialog'),
+        insetPadding: const EdgeInsets.all(16),
+        child: RotatedBox(
+          quarterTurns: _rotationQuarters,
+          child: InteractiveViewer(
+            minScale: 0.5,
+            maxScale: 6,
+            child: Image.memory(file.bytes!, fit: BoxFit.contain),
+          ),
+        ),
+      ),
+    );
   }
 
   Future<void> _load() async {
@@ -136,6 +194,7 @@ class _FloorPlanUploadScreenState extends State<FloorPlanUploadScreen> {
         _sourceFile = restoredFile;
         _model = restoredModel;
         _visibleLayers = SsRecognitionLayer.values.toSet();
+        _resetViewTransform();
         _state = _FloorPlanUploadLoad.loaded;
       });
 
@@ -171,6 +230,7 @@ class _FloorPlanUploadScreenState extends State<FloorPlanUploadScreen> {
         _sourceFile = picked;
         _model = null;
         _outcome = null;
+        _resetViewTransform();
       });
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('PDF는 미리보기만 지원합니다. 이미지(JPG/PNG)로 다시 올려주세요.', key: Key('ssPdfUnsupportedNotice'))),
@@ -204,6 +264,7 @@ class _FloorPlanUploadScreenState extends State<FloorPlanUploadScreen> {
       _sourceFile = picked;
       _model = null;
       _outcome = null;
+      _resetViewTransform();
     });
     await _runAnalysis(picked);
   }
@@ -363,13 +424,62 @@ class _FloorPlanUploadScreenState extends State<FloorPlanUploadScreen> {
             children: [
               const Icon(Icons.image_outlined, color: SsMasterTheme.textSecondary, size: 20),
               const SizedBox(width: 8),
-              const Text('업로드한 평면도', style: TextStyle(color: SsMasterTheme.textPrimary, fontWeight: FontWeight.w700, fontSize: 16)),
-              const Spacer(),
-              TextButton.icon(
-                key: const Key('ssUploadPickButton'),
-                onPressed: _pickFile,
-                icon: const Icon(Icons.upload_file, size: 18, color: SsMasterTheme.neonBlue),
-                label: Text(_sourceFile == null ? '평면도 업로드' : '다른 이미지 업로드', style: const TextStyle(color: SsMasterTheme.neonBlue)),
+              const Expanded(
+                child: Text('업로드한 평면도', style: TextStyle(color: SsMasterTheme.textPrimary, fontWeight: FontWeight.w700, fontSize: 16)),
+              ),
+              // MASTER UI 5 원본 패널 툴바 — 다른 이미지 업로드 + 회전/자르기(미구현은
+              // 비활성)/확대-축소/전체화면. 좁은 화면에서도 줄바꿈되게 Wrap을 쓴다.
+              Wrap(
+                spacing: 2,
+                runSpacing: 4,
+                crossAxisAlignment: WrapCrossAlignment.center,
+                children: [
+                  TextButton.icon(
+                    key: const Key('ssUploadPickButton'),
+                    onPressed: _pickFile,
+                    icon: const Icon(Icons.upload_file, size: 18, color: SsMasterTheme.neonBlue),
+                    label: Text(_sourceFile == null ? '평면도 업로드' : '다른 이미지 업로드', style: const TextStyle(color: SsMasterTheme.neonBlue)),
+                  ),
+                  IconButton(
+                    key: const Key('ssRotateButton'),
+                    tooltip: '회전',
+                    onPressed: _hasImage ? _rotateImage : null,
+                    icon: const Icon(Icons.rotate_90_degrees_ccw_outlined, color: SsMasterTheme.textSecondary, size: 20),
+                  ),
+                  IconButton(
+                    key: const Key('ssCropButton'),
+                    tooltip: '자르기',
+                    onPressed: null,
+                    icon: const Icon(Icons.crop_outlined, color: SsMasterTheme.textSecondary, size: 20),
+                  ),
+                  IconButton(
+                    key: const Key('ssZoomOutButton'),
+                    tooltip: '축소',
+                    onPressed: _hasImage ? () => _setZoom(_zoomScale - 0.25) : null,
+                    icon: const Icon(Icons.remove, color: SsMasterTheme.textSecondary, size: 18),
+                  ),
+                  SizedBox(
+                    width: 44,
+                    child: Text(
+                      '${(_zoomScale * 100).round()}%',
+                      key: const Key('ssZoomLevelText'),
+                      textAlign: TextAlign.center,
+                      style: const TextStyle(color: SsMasterTheme.textSecondary, fontSize: 13),
+                    ),
+                  ),
+                  IconButton(
+                    key: const Key('ssZoomInButton'),
+                    tooltip: '확대',
+                    onPressed: _hasImage ? () => _setZoom(_zoomScale + 0.25) : null,
+                    icon: const Icon(Icons.add, color: SsMasterTheme.textSecondary, size: 18),
+                  ),
+                  IconButton(
+                    key: const Key('ssFullscreenButton'),
+                    tooltip: '전체화면',
+                    onPressed: _hasImage ? _showFullscreen : null,
+                    icon: const Icon(Icons.fullscreen, color: SsMasterTheme.textSecondary, size: 20),
+                  ),
+                ],
               ),
             ],
           ),
@@ -418,7 +528,13 @@ class _FloorPlanUploadScreenState extends State<FloorPlanUploadScreen> {
           child: InteractiveViewer(
             minScale: 0.5,
             maxScale: 4,
-            child: Center(child: Image.memory(file.bytes!, key: const Key('ssUploadedImage'), fit: BoxFit.contain)),
+            transformationController: _zoomController,
+            child: Center(
+              child: RotatedBox(
+                quarterTurns: _rotationQuarters,
+                child: Image.memory(file.bytes!, key: const Key('ssUploadedImage'), fit: BoxFit.contain),
+              ),
+            ),
           ),
         ),
         if (_analyzing)
@@ -551,7 +667,41 @@ class _FloorPlanUploadScreenState extends State<FloorPlanUploadScreen> {
                     ),
                   ],
                 ),
-                for (final layer in shownLayers) _buildLayerRow(layer, summary.counts[layer] ?? 0),
+                const SizedBox(height: 8),
+                // MASTER UI 5 — "인식된 요소"(개수) 목록과 "레이어 표시"(체크박스) 목록을
+                // 좌우 두 박스로 나눠 보여준다(기능은 기존과 동일 — 레이어별 개수 확인 +
+                // 보이기/숨기기 전환).
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Expanded(
+                      flex: 3,
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [for (final layer in shownLayers) _buildLayerCountRow(layer, summary.counts[layer] ?? 0)],
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    Container(
+                      key: const Key('ssLayerVisibilityPanel'),
+                      width: 150,
+                      padding: const EdgeInsets.all(8),
+                      decoration: BoxDecoration(
+                        color: SsMasterTheme.background.withValues(alpha: 0.4),
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(color: SsMasterTheme.panelBorder),
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Text('레이어 표시', style: TextStyle(color: SsMasterTheme.textPrimary, fontWeight: FontWeight.w700, fontSize: 12)),
+                          const SizedBox(height: 6),
+                          for (final layer in shownLayers) _buildLayerCheckboxRow(layer),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
                 if (summary.reviewItems.isNotEmpty) ...[
                   const SizedBox(height: 14),
                   Container(
@@ -609,9 +759,8 @@ class _FloorPlanUploadScreenState extends State<FloorPlanUploadScreen> {
     );
   }
 
-  Widget _buildLayerRow(SsRecognitionLayer layer, int count) {
+  Widget _buildLayerCountRow(SsRecognitionLayer layer, int count) {
     final info = SsRecognitionLayers.all[layer]!;
-    final visible = _visibleLayers.contains(layer);
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 4),
       child: Row(
@@ -621,9 +770,21 @@ class _FloorPlanUploadScreenState extends State<FloorPlanUploadScreen> {
           const SizedBox(width: 8),
           Expanded(child: Text(info.label, style: const TextStyle(color: SsMasterTheme.textPrimary, fontSize: 13))),
           Text('$count개', style: const TextStyle(color: SsMasterTheme.textSecondary, fontSize: 13)),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildLayerCheckboxRow(SsRecognitionLayer layer) {
+    final info = SsRecognitionLayers.all[layer]!;
+    final visible = _visibleLayers.contains(layer);
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 2),
+      child: Row(
+        children: [
           SizedBox(
-            width: 28,
-            height: 28,
+            width: 24,
+            height: 24,
             child: Checkbox(
               key: Key('ssLayerCheckbox_${layer.name}'),
               value: visible,
@@ -637,6 +798,8 @@ class _FloorPlanUploadScreenState extends State<FloorPlanUploadScreen> {
               }),
             ),
           ),
+          const SizedBox(width: 4),
+          Expanded(child: Text(info.label, style: const TextStyle(color: SsMasterTheme.textSecondary, fontSize: 12))),
         ],
       ),
     );
