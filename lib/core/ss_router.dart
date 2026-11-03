@@ -10,6 +10,7 @@ library;
 
 import 'package:flutter/material.dart';
 
+import '../screens/cad_conversion_screen.dart';
 import '../screens/direct_draw_screen.dart';
 import '../screens/floor_plan_review_screen.dart';
 import '../screens/floor_plan_upload_screen.dart';
@@ -30,9 +31,10 @@ abstract final class SsRouter {
   /// 이미 있는 화면이 맡는 단계 — 화면을 새로 만들지 않고 연결만 한다.
   /// SS008부터 "평면도 업로드"는 신규 MASTER UI 5(원본·AI 인식 결과 비교) 전용 화면
   /// [FloorPlanUploadScreen]을, SS009부터 "평면도 확인·보정"은 신규 MASTER UI 6(펜/
-  /// 형광펜/지우개/선택 보정 도구) 전용 화면 [FloorPlanReviewScreen]을 쓴다. CAD 변환·
-  /// CAD 편집·DXF는 그 다음 Work Order가 MASTER UI로 옮기기 전까지 기존
-  /// [FloorPlanWorkspaceScreen] 한 화면이 그대로 한다.
+  /// 형광펜/지우개/선택 보정 도구) 전용 화면 [FloorPlanReviewScreen]을 쓴다. SS010부터
+  /// "CAD 변환"(MASTER UI 7)은 신규 [CadConversionScreen](Blue line-only 진행 화면)을
+  /// 쓴다 — "CAD 편집·내보내기"(MASTER UI 8)는 그 다음 Work Order(SS011)가 MASTER
+  /// UI로 옮기기 전까지 기존 [FloorPlanWorkspaceScreen] 화면이 그대로 한다.
   static final Map<SsStage, WidgetBuilder> existing = {
     SsStage.login: (_) => const LoginScreen(),
     SsStage.home: (_) => const HomeScreen(),
@@ -41,7 +43,7 @@ abstract final class SsRouter {
     SsStage.directDrawing: (context) => DirectDrawScreen(projectId: ModalRoute.of(context)?.settings.arguments as String?),
     SsStage.floorPlanUpload: (context) => FloorPlanUploadScreen(projectId: ModalRoute.of(context)?.settings.arguments as String?),
     SsStage.floorPlanReview: (context) => FloorPlanReviewScreen(projectId: ModalRoute.of(context)?.settings.arguments as String?),
-    SsStage.cadConversion: (_) => const FloorPlanWorkspaceScreen(),
+    SsStage.cadConversion: (context) => CadConversionScreen(projectId: ModalRoute.of(context)?.settings.arguments as String?),
     SsStage.cadEditor: (_) => const FloorPlanWorkspaceScreen(),
     SsStage.imageEditing: (context) => PhotoDesignEditorScreen(projectId: ModalRoute.of(context)?.settings.arguments as String?),
     SsStage.imageRendering: (context) => ImageRenderingScreen(projectId: ModalRoute.of(context)?.settings.arguments as String?),
