@@ -372,12 +372,23 @@ class _CadEditorScreenState extends State<CadEditorScreen> {
                     onScaleStart: (d) {
                       _zoomGestureStart = _zoom;
                       if (d.pointerCount >= 2) return;
-                      if (controller.tool == SsCadTool.addWall) wallDragStart = _toDoc(d.localFocalPoint, size);
-                      if (controller.tool == SsCadTool.calibrate) wallDragStart = _toDoc(d.localFocalPoint, size);
+                      final p = _toDoc(d.localFocalPoint, size);
+                      if (controller.tool == SsCadTool.addWall) wallDragStart = p;
+                      if (controller.tool == SsCadTool.calibrate) wallDragStart = p;
+                      if (controller.tool == SsCadTool.select) controller.selectAt(p);
                     },
                     onScaleUpdate: (d) {
                       if (d.pointerCount >= 2) {
                         setState(() => _zoom = (_zoomGestureStart * d.scale).clamp(0.5, 3.0));
+                        return;
+                      }
+                      if (controller.tool == SsCadTool.select) {
+                        final p = _toDoc(d.localFocalPoint, size);
+                        if (controller.selection.objectType == '벽') {
+                          controller.moveSelectedWallEndpoint(true, p);
+                        } else if (controller.selection.objectType == '가구') {
+                          controller.moveSelectedFurniture(p);
+                        }
                       }
                     },
                     onScaleEnd: (d) {
@@ -413,22 +424,6 @@ class _CadEditorScreenState extends State<CadEditorScreen> {
                       }
                       _onCanvasTap(controller, p);
                     },
-                    onPanStart: controller.tool != SsCadTool.select
-                        ? null
-                        : (d) {
-                            final p = _toDoc(d.localPosition, size);
-                            controller.selectAt(p);
-                          },
-                    onPanUpdate: controller.tool != SsCadTool.select
-                        ? null
-                        : (d) {
-                            final p = _toDoc(d.localPosition, size);
-                            if (controller.selection.objectType == '벽') {
-                              controller.moveSelectedWallEndpoint(true, p);
-                            } else if (controller.selection.objectType == '가구') {
-                              controller.moveSelectedFurniture(p);
-                            }
-                          },
                     child: CustomPaint(size: size, painter: _SsCadPainter(controller: controller)),
                   ),
               );
