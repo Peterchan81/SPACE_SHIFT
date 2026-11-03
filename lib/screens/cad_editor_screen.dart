@@ -13,11 +13,9 @@ library;
 
 import 'dart:async';
 
-import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 
 import '../core/ss_cad_editor_controller.dart';
-import '../core/ss_editing.dart';
 import '../core/ss_project.dart';
 import '../core/ss_project_store.dart';
 import '../core/ss_router.dart' show SsStageHeader;
@@ -58,13 +56,10 @@ enum _CadEditorLoad { loading, loaded, missing, error }
 
 class _CadEditorScreenState extends State<CadEditorScreen> {
   _CadEditorLoad _state = _CadEditorLoad.loading;
-  SsProjectStore? _store;
-  SsProject? _project;
   SsAutosaveController? _autosave;
   SsCadEditorController? _controller;
   double _zoom = 1.0;
   double _zoomGestureStart = 1.0;
-  PointerDeviceKind _pointerKind = PointerDeviceKind.mouse;
   final TextEditingController _calibrationInput = TextEditingController();
 
   static const CadFloorPlan _emptyPlan = CadFloorPlan(sourceWidthPx: 1000, sourceHeightPx: 800, walls: [], openings: [], rooms: [], warnings: []);
@@ -94,10 +89,7 @@ class _CadEditorScreenState extends State<CadEditorScreen> {
       final cadSlot = project.data[SsDataSlot.cadData];
       if (cadSlot == null) {
         if (!mounted) return;
-        setState(() {
-          _project = project;
-          _state = _CadEditorLoad.missing;
-        });
+        setState(() => _state = _CadEditorLoad.missing);
         return;
       }
       final scene = _sceneFromPayload(cadSlot.payload);
@@ -109,8 +101,6 @@ class _CadEditorScreenState extends State<CadEditorScreen> {
       if (!mounted) return;
       _setController(SsCadEditorController(initialScene: scene));
       setState(() {
-        _store = store;
-        _project = project;
         _autosave = SsAutosaveController(store: store, project: project);
         _state = _CadEditorLoad.loaded;
       });
@@ -175,7 +165,6 @@ class _CadEditorScreenState extends State<CadEditorScreen> {
       {'kind': 'ssCadScene', 'scene': controller.scene.toJson()},
       label: 'CAD 편집',
     );
-    _project = updated;
     autosave.update(updated);
     setState(() {});
   }
@@ -377,9 +366,7 @@ class _CadEditorScreenState extends State<CadEditorScreen> {
               final size = constraints.biggest;
               return Transform.scale(
                 scale: _zoom,
-                child: Listener(
-                  onPointerDown: (e) => _pointerKind = e.kind,
-                  child: GestureDetector(
+                child: GestureDetector(
                     key: const Key('ssCadCanvas'),
                     behavior: HitTestBehavior.opaque,
                     onScaleStart: (d) {
@@ -444,7 +431,6 @@ class _CadEditorScreenState extends State<CadEditorScreen> {
                           },
                     child: CustomPaint(size: size, painter: _SsCadPainter(controller: controller)),
                   ),
-                ),
               );
             },
           ),
