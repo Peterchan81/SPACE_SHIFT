@@ -159,7 +159,7 @@ void main() {
     await tester.tap(find.byKey(const Key('ssReviewConvertButton')));
     await tester.pumpAndSettle();
     await tester.tap(find.byKey(const Key('ssReviewConvertConfirm')));
-    await tester.pumpAndSettle();
+    await tester.pump();
     expect(observer.pushed, contains(SsStage.cadConversion.routeName));
   });
 }
