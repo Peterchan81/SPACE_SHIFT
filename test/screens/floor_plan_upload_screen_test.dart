@@ -258,4 +258,49 @@ void main() {
     expect(saved.data[SsDataSlot.recognitionData], isNotNull);
     expect(saved.data[SsDataSlot.recognitionData]!.payload['kind'], 'ssSpatialModel');
   });
+
+  testWidgets('Galaxy Tab 가로 화면(1280x800)에서 제목·툴바가 정상 표시되고 다른 요소를 가리지 않는다', (tester) async {
+    await tester.binding.setSurfaceSize(const Size(1280, 800));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+
+    await tester.pumpWidget(
+      MaterialApp(
+        onGenerateRoute: SsRouter.onGenerateRoute,
+        home: FloorPlanUploadScreen(
+          uploadService: _FakeUploadService([_fakeImageFile()]),
+          analysisService: const _FakeAnalysisService(FloorPlanAnalysisOutcome.success(_fakeAnalysisResult)),
+          spatialModelBuilder: const _FixedModelBuilder(_fixedModel),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const Key('ssUploadPickButton')));
+    await tester.pumpAndSettle();
+
+    // ① 제목이 한 줄 높이로 렌더링된다(글자 단위로 세로로 끊기지 않음 — 약 30px 미만).
+    final titleSize = tester.getSize(find.byKey(const Key('ssSourcePanelTitle')));
+    expect(titleSize.height, lessThan(30));
+
+    // ② 툴바 버튼 7개가 모두 화면에 있다(줄바꿈되어도 사라지지 않음).
+    for (final key in [
+      'ssUploadPickButton',
+      'ssRotateButton',
+      'ssCropButton',
+      'ssZoomOutButton',
+      'ssZoomLevelText',
+      'ssZoomInButton',
+      'ssFullscreenButton',
+    ]) {
+      expect(find.byKey(Key(key)), findsOneWidget, reason: key);
+    }
+
+    // ③ 툴바가 여러 줄이 되어도 본문 미리보기(원본 평면도)는 가려지지 않고 보인다.
+    expect(find.byKey(const Key('ssUploadedImage')), findsOneWidget);
+
+    // ④ 레이아웃 넘침 등 렌더링 오류가 없다.
+    expect(tester.takeException(), isNull);
+
+    await tester.pumpWidget(const SizedBox.shrink());
+  });
 }

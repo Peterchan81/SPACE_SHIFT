@@ -421,65 +421,83 @@ class _FloorPlanUploadScreenState extends State<FloorPlanUploadScreen> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
+            crossAxisAlignment: CrossAxisAlignment.center,
             children: [
               const Icon(Icons.image_outlined, color: SsMasterTheme.textSecondary, size: 20),
               const SizedBox(width: 8),
-              const Expanded(
-                child: Text('업로드한 평면도', style: TextStyle(color: SsMasterTheme.textPrimary, fontWeight: FontWeight.w700, fontSize: 16)),
+              // 제목은 더 이상 Expanded로 남는 폭을 전부 받지 않는다 — 좁은 화면(Galaxy Tab
+              // 가로 등)에서 툴바 Wrap에 밀려 한 글자씩 세로로 끊기던 문제(후속 수정 r3)를
+              // 막기 위해 한 줄(maxLines:1)·줄바꿈 없음(softWrap:false)으로 고정하고, 공간이
+              // 부족하면 제목이 아니라 아래 툴바 쪽이 다음 줄로 내려가게 한다.
+              const Text(
+                '업로드한 평면도',
+                key: Key('ssSourcePanelTitle'),
+                maxLines: 1,
+                softWrap: false,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(color: SsMasterTheme.textPrimary, fontWeight: FontWeight.w700, fontSize: 16),
               ),
+              const SizedBox(width: 8),
               // MASTER UI 5 원본 패널 툴바 — 다른 이미지 업로드 + 회전/자르기(미구현은
-              // 비활성)/확대-축소/전체화면. 좁은 화면에서도 줄바꿈되게 Wrap을 쓴다.
-              Wrap(
-                spacing: 2,
-                runSpacing: 4,
-                crossAxisAlignment: WrapCrossAlignment.center,
-                children: [
-                  TextButton.icon(
-                    key: const Key('ssUploadPickButton'),
-                    onPressed: _pickFile,
-                    icon: const Icon(Icons.upload_file, size: 18, color: SsMasterTheme.neonBlue),
-                    label: Text(_sourceFile == null ? '평면도 업로드' : '다른 이미지 업로드', style: const TextStyle(color: SsMasterTheme.neonBlue)),
+              // 비활성)/확대-축소/전체화면. 좁은 화면에서도 줄바꿈되게 Wrap을 쓴다. 남는
+              // 폭을 전부 받아(Expanded) 제목이 아니라 이 쪽이 먼저 줄바꿈되게 한다.
+              Expanded(
+                child: Align(
+                  alignment: Alignment.centerRight,
+                  child: Wrap(
+                    alignment: WrapAlignment.end,
+                    spacing: 2,
+                    runSpacing: 4,
+                    crossAxisAlignment: WrapCrossAlignment.center,
+                    children: [
+                      TextButton.icon(
+                        key: const Key('ssUploadPickButton'),
+                        onPressed: _pickFile,
+                        icon: const Icon(Icons.upload_file, size: 18, color: SsMasterTheme.neonBlue),
+                        label: Text(_sourceFile == null ? '평면도 업로드' : '다른 이미지 업로드', style: const TextStyle(color: SsMasterTheme.neonBlue)),
+                      ),
+                      IconButton(
+                        key: const Key('ssRotateButton'),
+                        tooltip: '회전',
+                        onPressed: _hasImage ? _rotateImage : null,
+                        icon: const Icon(Icons.rotate_90_degrees_ccw_outlined, color: SsMasterTheme.textSecondary, size: 20),
+                      ),
+                      IconButton(
+                        key: const Key('ssCropButton'),
+                        tooltip: '자르기',
+                        onPressed: null,
+                        icon: const Icon(Icons.crop_outlined, color: SsMasterTheme.textSecondary, size: 20),
+                      ),
+                      IconButton(
+                        key: const Key('ssZoomOutButton'),
+                        tooltip: '축소',
+                        onPressed: _hasImage ? () => _setZoom(_zoomScale - 0.25) : null,
+                        icon: const Icon(Icons.remove, color: SsMasterTheme.textSecondary, size: 18),
+                      ),
+                      SizedBox(
+                        width: 44,
+                        child: Text(
+                          '${(_zoomScale * 100).round()}%',
+                          key: const Key('ssZoomLevelText'),
+                          textAlign: TextAlign.center,
+                          style: const TextStyle(color: SsMasterTheme.textSecondary, fontSize: 13),
+                        ),
+                      ),
+                      IconButton(
+                        key: const Key('ssZoomInButton'),
+                        tooltip: '확대',
+                        onPressed: _hasImage ? () => _setZoom(_zoomScale + 0.25) : null,
+                        icon: const Icon(Icons.add, color: SsMasterTheme.textSecondary, size: 18),
+                      ),
+                      IconButton(
+                        key: const Key('ssFullscreenButton'),
+                        tooltip: '전체화면',
+                        onPressed: _hasImage ? _showFullscreen : null,
+                        icon: const Icon(Icons.fullscreen, color: SsMasterTheme.textSecondary, size: 20),
+                      ),
+                    ],
                   ),
-                  IconButton(
-                    key: const Key('ssRotateButton'),
-                    tooltip: '회전',
-                    onPressed: _hasImage ? _rotateImage : null,
-                    icon: const Icon(Icons.rotate_90_degrees_ccw_outlined, color: SsMasterTheme.textSecondary, size: 20),
-                  ),
-                  IconButton(
-                    key: const Key('ssCropButton'),
-                    tooltip: '자르기',
-                    onPressed: null,
-                    icon: const Icon(Icons.crop_outlined, color: SsMasterTheme.textSecondary, size: 20),
-                  ),
-                  IconButton(
-                    key: const Key('ssZoomOutButton'),
-                    tooltip: '축소',
-                    onPressed: _hasImage ? () => _setZoom(_zoomScale - 0.25) : null,
-                    icon: const Icon(Icons.remove, color: SsMasterTheme.textSecondary, size: 18),
-                  ),
-                  SizedBox(
-                    width: 44,
-                    child: Text(
-                      '${(_zoomScale * 100).round()}%',
-                      key: const Key('ssZoomLevelText'),
-                      textAlign: TextAlign.center,
-                      style: const TextStyle(color: SsMasterTheme.textSecondary, fontSize: 13),
-                    ),
-                  ),
-                  IconButton(
-                    key: const Key('ssZoomInButton'),
-                    tooltip: '확대',
-                    onPressed: _hasImage ? () => _setZoom(_zoomScale + 0.25) : null,
-                    icon: const Icon(Icons.add, color: SsMasterTheme.textSecondary, size: 18),
-                  ),
-                  IconButton(
-                    key: const Key('ssFullscreenButton'),
-                    tooltip: '전체화면',
-                    onPressed: _hasImage ? _showFullscreen : null,
-                    icon: const Icon(Icons.fullscreen, color: SsMasterTheme.textSecondary, size: 20),
-                  ),
-                ],
+                ),
               ),
             ],
           ),
