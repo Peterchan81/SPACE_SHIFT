@@ -11,6 +11,7 @@ library;
 import 'package:flutter/material.dart';
 
 import '../screens/direct_draw_screen.dart';
+import '../screens/floor_plan_upload_screen.dart';
 import '../screens/floor_plan_workspace_screen.dart';
 import '../screens/home_screen.dart';
 import '../screens/login_screen.dart';
@@ -26,14 +27,16 @@ import 'ss_stage.dart';
 
 abstract final class SsRouter {
   /// 이미 있는 화면이 맡는 단계 — 화면을 새로 만들지 않고 연결만 한다.
-  /// 평면도 업로드·AI 인식·보정·CAD 변환·CAD 편집·DXF는 기존 [FloorPlanWorkspaceScreen] 한 화면이 한다.
+  /// SS008부터 "평면도 업로드"는 신규 MASTER UI 5(원본·AI 인식 결과 비교) 전용 화면
+  /// [FloorPlanUploadScreen]을 쓴다. 평면도 확인·보정(SS009)·CAD 변환·CAD 편집·DXF는
+  /// 그 다음 Work Order가 MASTER UI로 옮기기 전까지 기존 [FloorPlanWorkspaceScreen] 한 화면이 그대로 한다.
   static final Map<SsStage, WidgetBuilder> existing = {
     SsStage.login: (_) => const LoginScreen(),
     SsStage.home: (_) => const HomeScreen(),
     SsStage.projectManagement: (_) => const ProjectManagementScreen(),
     SsStage.projectCreation: (_) => const ProjectCreationScreen(),
     SsStage.directDrawing: (context) => DirectDrawScreen(projectId: ModalRoute.of(context)?.settings.arguments as String?),
-    SsStage.floorPlanUpload: (_) => const FloorPlanWorkspaceScreen(),
+    SsStage.floorPlanUpload: (context) => FloorPlanUploadScreen(projectId: ModalRoute.of(context)?.settings.arguments as String?),
     SsStage.floorPlanReview: (_) => const FloorPlanWorkspaceScreen(),
     SsStage.cadConversion: (_) => const FloorPlanWorkspaceScreen(),
     SsStage.cadEditor: (_) => const FloorPlanWorkspaceScreen(),
