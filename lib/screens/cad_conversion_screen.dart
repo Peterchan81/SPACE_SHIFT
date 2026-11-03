@@ -20,6 +20,7 @@ import '../core/ss_project_store.dart';
 import '../core/ss_router.dart' show SsStageHeader;
 import '../core/ss_stage.dart';
 import '../models/cad_conversion_result.dart';
+import '../models/cad_floor_plan.dart' show buildCadFloorPlanFromSpatialModel;
 import '../models/ss_spatial_model_json.dart';
 import '../services/cad_conversion_input_builder.dart';
 import '../services/cad_conversion_service.dart';
@@ -241,13 +242,22 @@ class _CadConversionScreenState extends State<CadConversionScreen> {
     );
   }
 
+  /// MASTER UI 7은 변환이 끝나기 전(진행 중)에도 좌측 패널에 Blue line 평면도를 보여준다 — 완료
+  /// 전까지 빈 격자만 보이면 3초 법칙(지금 무엇을 변환 중인지)을 어긴다. 변환 결과
+  /// ([lastGoodResult])가 아직 없으면 SS009/SS005가 이미 확정해 넘겨준 입력 모델([_input.model])을
+  /// 기존 [buildCadFloorPlanFromSpatialModel](CadConversionService가 쓰는 바로 그 함수, Geometry
+  /// Validation 이전 변환)로 미리 그려 보여준다 — 화면 전용 geometry나 엔진을 새로 만들지 않는다
+  /// (§구현 원칙 "기존 엔진 재사용").
   Widget _buildPreview() {
     final result = _controller.task.lastGoodResult;
+    final input = _input;
+    final previewPlan = result?.plan ?? (input == null ? null : buildCadFloorPlanFromSpatialModel(input.model));
+    final previewScale = result?.scale ?? input?.knownScale;
     return Container(
       key: const Key('ssCadConversionPreview'),
       decoration: BoxDecoration(color: const Color(0xFF081628), borderRadius: BorderRadius.circular(16), border: Border.all(color: SsMasterTheme.panelBorder)),
       clipBehavior: Clip.antiAlias,
-      child: result == null
+      child: previewPlan == null
           ? Stack(
               fit: StackFit.expand,
               children: [
@@ -255,7 +265,7 @@ class _CadConversionScreenState extends State<CadConversionScreen> {
                 const Center(child: Icon(Icons.blur_on, color: SsMasterTheme.neonBlue, size: 64)),
               ],
             )
-          : BlueLineCadPreview(plan: result.plan, scale: result.scale),
+          : BlueLineCadPreview(plan: previewPlan, scale: previewScale),
     );
   }
 
