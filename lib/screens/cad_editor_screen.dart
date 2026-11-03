@@ -749,8 +749,14 @@ class _CadEditorScreenState extends State<CadEditorScreen> {
   }
 }
 
-/// 2D CAD 캔버스 — 벽/문·창/공간/가구를 그리고 선택 강조·측정선·Calibration
+/// 2D CAD 캔버스 — 벽/문·창/공간/가구를 그리고 치수선·선택 강조·측정선·Calibration
 /// 선택을 겹쳐 그린다. 좌표는 전부 정규화(0~1) — [CadFloorPlan]과 같은 좌표계.
+///
+/// MASTER UI 8(CAD 수정 및 내보내기) 반영 보완 — 전체 폭/높이 치수선(상단·좌측)과
+/// 공간 이름/면적 라벨, 문(호)·창(X) 구분 기호를 추가로 그린다. 값은 전부 기존
+/// [CadFloorPlan.realMmBetween]/[roomAreaM2]/[displayRoomName]을 그대로 호출해서
+/// 얻는다 — 치수를 새로 계산하지 않는다. 실측(Calibration) 전이면 mm 텍스트 없이
+/// 선만 그려 값을 지어내지 않는다.
 class _SsCadPainter extends CustomPainter {
   const _SsCadPainter({required this.controller});
   final SsCadEditorController controller;
@@ -762,7 +768,8 @@ class _SsCadPainter extends CustomPainter {
     final plan = controller.plan;
     canvas.drawRect(Offset.zero & size, Paint()..color = Colors.white);
 
-    for (final room in plan.rooms) {
+    for (var i = 0; i < plan.rooms.length; i++) {
+      final room = plan.rooms[i];
       if (room.polygon.length < 3) continue;
       final path = Path()..moveTo(_pt(room.polygon.first, size).dx, _pt(room.polygon.first, size).dy);
       for (final p in room.polygon.skip(1)) {
@@ -772,6 +779,7 @@ class _SsCadPainter extends CustomPainter {
       path.close();
       final selected = controller.selection.objectType == '공간' && controller.selection.objectId == room.id;
       canvas.drawPath(path, Paint()..color = (selected ? SsMasterTheme.neonBlue : const Color(0xFFBEE3F8)).withValues(alpha: 0.5));
+      _drawRoomLabel(canvas, size, plan, room, i);
     }
 
     for (final wall in plan.walls) {
@@ -785,8 +793,22 @@ class _SsCadPainter extends CustomPainter {
 
     for (final opening in plan.openings) {
       final selected = controller.selection.objectId == opening.id && (controller.selection.objectType == '문' || controller.selection.objectType == '창');
-      final paint = Paint()..color = selected ? SsMasterTheme.neonBlue : (opening.type == OpeningType.door ? SsMasterTheme.neonOrange : SsMasterTheme.neonCyan);
-      canvas.drawCircle(_pt(opening.center, size), selected ? 7 : 5, paint);
+      final center = _pt(opening.center, size);
+      if (opening.type == OpeningType.door) {
+        final paint = Paint()
+          ..color = selected ? SsMasterTheme.neonBlue : SsMasterTheme.neonOrange
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = selected ? 3 : 2;
+        canvas.drawArc(Rect.fromCircle(center: center, radius: selected ? 11 : 9), 0, 1.5708, false, paint);
+      } else if (opening.type == OpeningType.window) {
+        final paint = Paint()
+          ..color = selected ? SsMasterTheme.neonBlue : SsMasterTheme.neonCyan
+          ..strokeWidth = selected ? 3 : 2;
+        canvas.drawLine(center.translate(-8, -4), center.translate(8, 4), paint);
+        canvas.drawLine(center.translate(-8, 4), center.translate(8, -4), paint);
+      } else {
+        canvas.drawCircle(center, selected ? 7 : 5, Paint()..color = selected ? SsMasterTheme.neonBlue : SsMasterTheme.textMuted);
+      }
     }
 
     for (final f in controller.scene.furniture) {
@@ -799,6 +821,8 @@ class _SsCadPainter extends CustomPainter {
       canvas.drawRect(rect, Paint()..color = (selected ? SsMasterTheme.neonBlue : SsMasterTheme.neonPurple).withValues(alpha: 0.75));
       canvas.restore();
     }
+
+    _drawOverallDimensions(canvas, size, plan, controller.scale);
 
     final cs = controller.calibrationStart;
     final ce = controller.calibrationEnd;
@@ -815,6 +839,77 @@ class _SsCadPainter extends CustomPainter {
         canvas.drawCircle(_pt(me, size), 4, Paint()..color = SsMasterTheme.neonCyan);
       }
     }
+  }
+
+  /// 공간 이름 + 면적(㎡) 라벨 — MASTER UI 8처럼 각 공간 중심에 보여준다(기존
+  /// [displayRoomName]/[roomAreaM2]을 그대로 호출 — 새로 계산하지 않는다).
+  void _drawRoomLabel(Canvas canvas, Size size, CadFloorPlan plan, CadRoom room, int index) {
+    if (room.polygon.isEmpty) return;
+    var sx = 0.0, sy = 0.0;
+    for (final p in room.polygon) {
+      sx += p.x;
+      sy += p.y;
+    }
+    final centroid = _pt(Point2(sx / room.polygon.length, sy / room.polygon.length), size);
+    final areaM2 = roomAreaM2(plan, room, controller.scale);
+    final label = areaM2 == null ? displayRoomName(room, index) : '${displayRoomName(room, index)}\n${areaM2.toStringAsFixed(1)} m²';
+    final tp = TextPainter(
+      text: TextSpan(
+        text: label,
+        style: const TextStyle(color: Color(0xFF14324D), fontSize: 12, fontWeight: FontWeight.w700, height: 1.3),
+      ),
+      textAlign: TextAlign.center,
+      textDirection: TextDirection.ltr,
+    )..layout();
+    tp.paint(canvas, centroid - Offset(tp.width / 2, tp.height / 2));
+  }
+
+  /// 전체 폭(상단)·전체 높이(좌측) 치수선 — MASTER UI 8의 상단/좌측 치수 표기와 같은
+  /// 생각(실측 [scale]이 있으면 실제 mm, 없으면 선만 — 값을 지어내지 않는다). 벽
+  /// 꼭짓점들의 정규화 좌표 bounding box를 기존 [CadFloorPlan.realMmBetween]로 mm
+  /// 변환한다 — 치수 계산 로직을 새로 만들지 않는다.
+  void _drawOverallDimensions(Canvas canvas, Size size, CadFloorPlan plan, FloorPlanScale? scale) {
+    if (plan.walls.isEmpty) return;
+    var minX = 1.0, minY = 1.0, maxX = 0.0, maxY = 0.0;
+    for (final w in plan.walls) {
+      for (final p in [w.start, w.end]) {
+        if (p.x < minX) minX = p.x;
+        if (p.x > maxX) maxX = p.x;
+        if (p.y < minY) minY = p.y;
+        if (p.y > maxY) maxY = p.y;
+      }
+    }
+    if (maxX <= minX || maxY <= minY) return;
+    final dimPaint = Paint()
+      ..color = SsMasterTheme.textSecondary
+      ..strokeWidth = 1;
+    String mmLabel(double? mm) => mm == null ? '' : '${mm.round()}mm';
+    void text(String s, Offset at) {
+      if (s.isEmpty) return;
+      final tp = TextPainter(
+        text: TextSpan(text: s, style: const TextStyle(color: Color(0xFF203A5C), fontSize: 11, fontWeight: FontWeight.w700)),
+        textDirection: TextDirection.ltr,
+      )..layout();
+      tp.paint(canvas, at - Offset(tp.width / 2, tp.height / 2));
+    }
+
+    final topY = (minY - 0.06).clamp(0.0, 1.0) * size.height;
+    final leftX = minX * size.width;
+    final rightX = maxX * size.width;
+    canvas.drawLine(Offset(leftX, topY), Offset(rightX, topY), dimPaint);
+    canvas.drawLine(Offset(leftX, topY - 4), Offset(leftX, topY + 4), dimPaint);
+    canvas.drawLine(Offset(rightX, topY - 4), Offset(rightX, topY + 4), dimPaint);
+    final widthMm = plan.realMmBetween(Point2(minX, minY), Point2(maxX, minY), scale);
+    text(mmLabel(widthMm), Offset((leftX + rightX) / 2, topY - 10));
+
+    final leftLineX = (minX - 0.06).clamp(0.0, 1.0) * size.width;
+    final topYd = minY * size.height;
+    final bottomYd = maxY * size.height;
+    canvas.drawLine(Offset(leftLineX, topYd), Offset(leftLineX, bottomYd), dimPaint);
+    canvas.drawLine(Offset(leftLineX - 4, topYd), Offset(leftLineX + 4, topYd), dimPaint);
+    canvas.drawLine(Offset(leftLineX - 4, bottomYd), Offset(leftLineX + 4, bottomYd), dimPaint);
+    final heightMm = plan.realMmBetween(Point2(minX, minY), Point2(minX, maxY), scale);
+    text(mmLabel(heightMm), Offset(leftLineX - 2, (topYd + bottomYd) / 2));
   }
 
   @override
