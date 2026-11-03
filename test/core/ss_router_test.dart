@@ -1,7 +1,7 @@
 // SS001 §4.2/§15/§16 — 단계 이름으로 화면이 열리고(기존 화면 재사용), 아직 없는 단계는 3초 법칙 머리말이 있는 공통 화면.
 import 'package:ason_space/core/ss_router.dart';
 import 'package:ason_space/core/ss_stage.dart';
-import 'package:ason_space/screens/floor_plan_workspace_screen.dart';
+import 'package:ason_space/screens/cad_editor_screen.dart';
 import 'package:ason_space/screens/login_screen.dart';
 import 'package:ason_space/screens/settings_screen.dart';
 import 'package:flutter/material.dart';
@@ -66,7 +66,7 @@ void main() {
       expect(tester.widget<Text>(find.byKey(const Key('ssStageTitle'))).data, SsStage.home.title);
     });
 
-    testWidgets('"2D" 메뉴를 선택하면 기존 CAD 편집 화면(FloorPlanWorkspaceScreen)으로 이동한다(새 화면을 만들지 않음)', (tester) async {
+    testWidgets('"2D" 메뉴를 선택하면 SS011 CAD 편집 화면(CadEditorScreen)으로 이동한다', (tester) async {
       tester.view.physicalSize = const Size(2000, 1200);
       tester.view.devicePixelRatio = 1;
       addTearDown(tester.view.reset);
@@ -74,7 +74,7 @@ void main() {
       await tester.pumpAndSettle();
       await tester.tap(find.byKey(const Key('ssNav_view2d')));
       await tester.pumpAndSettle();
-      expect(find.byType(FloorPlanWorkspaceScreen), findsOneWidget);
+      expect(find.byType(CadEditorScreen), findsOneWidget);
     });
 
     testWidgets('"설정" 메뉴를 선택하면 기존 SettingsScreen을 연다(재사용, 새로 만들지 않음)', (tester) async {
