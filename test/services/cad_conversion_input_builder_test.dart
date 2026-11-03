@@ -2,6 +2,7 @@
 // 결과와 SS005(직접 그리기)의 'directDraw' 결과를 모두 CAD 변환 엔진의 공통 입력으로 통일하는지,
 // 확정된 데이터가 전혀 없으면 null을 돌려주는지 확인한다.
 import 'package:ason_space/core/ss_project.dart';
+import 'package:ason_space/core/ss_stage.dart' show SsSourceType;
 import 'package:ason_space/models/cad_floor_plan.dart' show ScaleSource;
 import 'package:ason_space/models/floor_plan_geometry.dart';
 import 'package:ason_space/models/ss_draw_scene.dart';

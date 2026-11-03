@@ -12,7 +12,6 @@ import 'package:flutter/foundation.dart' show debugPrint;
 import '../core/ss_cad_conversion_step.dart';
 import '../models/cad_conversion_result.dart';
 import '../models/cad_floor_plan.dart';
-import '../models/floor_plan_geometry.dart';
 import '../models/ss_spatial_model.dart';
 import 'e2e_dxf_exporter.dart';
 import 'topology_validator.dart';
