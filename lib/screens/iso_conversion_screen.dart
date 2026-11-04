@@ -22,11 +22,14 @@ import '../core/ss_project.dart';
 import '../core/ss_project_store.dart';
 import '../core/ss_router.dart' show SsStageHeader;
 import '../core/ss_stage.dart';
+import '../models/cad_floor_plan.dart' show resolveAutoScale;
 import '../models/iso_conversion_result.dart';
+import '../models/space_scene_v2.dart';
 import '../models/ss_cad_scene.dart';
 import '../models/ss_iso_camera_state.dart';
 import '../services/iso_conversion_input_builder.dart';
 import '../services/iso_conversion_service.dart';
+import '../services/space_scene_builder_v2.dart';
 import '../services/ss_project_store_provider.dart';
 import '../theme/ss_master_theme.dart';
 import '../widgets/iso_conversion/blue_neon_iso_preview.dart';
@@ -58,6 +61,13 @@ class _IsoConversionScreenState extends State<IsoConversionScreen> {
   Map<String, Object?>? _previousIsoPayload;
   bool _alreadyUpToDate = false;
   final SsIsoConversionController _controller = SsIsoConversionController();
+
+  /// MASTER UI 9 — 변환이 끝나기 전에도(아직 [SsAiTask.lastGoodResult]가 없을 때) 이미 확정된 CAD
+  /// 입력으로부터 즉시 계산할 수 있는 미리보기([buildSpaceSceneV2]는 결정적 순수 함수라 몇 번을 다시
+  /// 불러도 안전하다 — 새 3D 엔진을 만들지 않는다, §구현 원칙). 단계 진행 중에도 Blue neon wireframe이
+  /// 빈 화면이 아니라 실제 건물 형태를 보여주게 한다(MASTER UI 9 원본 — 변환 중에도 아이소 모델이
+  /// 이미 보인다).
+  SpaceSceneV2? _previewScene;
 
   @override
   void initState() {
@@ -100,6 +110,7 @@ class _IsoConversionScreenState extends State<IsoConversionScreen> {
         _previousCamera = previousCamera;
         _previousIsoPayload = isoSlot?.payload;
         _alreadyUpToDate = upToDate;
+        _previewScene = _tryBuildPreviewScene(input);
         _state = _IsoConversionLoad.loaded;
       });
       if (!upToDate) unawaited(_startConversion(input, previousCamera));
@@ -109,6 +120,22 @@ class _IsoConversionScreenState extends State<IsoConversionScreen> {
       debugPrint('IsoConversionScreen._load 실패 (${e.runtimeType}): $e\n$st');
       if (!mounted) return;
       setState(() => _state = _IsoConversionLoad.error);
+    }
+  }
+
+  /// [IsoConversionService.convert]가 내부적으로 하는 것과 같은 계산(CAD→3D)을 지연 없이 한 번 더
+  /// 해서 미리보기 전용으로 쓴다 — 결과를 저장하지 않고 화면에만 쓰므로 실패해도(벽/공간이 없거나
+  /// geometry 계산이 실패해도) 조용히 null을 돌려주고 기존 "스캔 중" 격자로 넘어간다(지어내지 않는다).
+  SpaceSceneV2? _tryBuildPreviewScene(SsCadScene cadScene) {
+    final plan = cadScene.plan;
+    if (plan.walls.isEmpty && plan.rooms.isEmpty) return null;
+    try {
+      final scale = cadScene.scale ?? resolveAutoScale(plan, null);
+      final scene = buildSpaceSceneV2(plan: plan, scale: scale, ceilingHeightMm: kIsoDefaultCeilingHeightMm);
+      return scene.isEmpty ? null : scene;
+    } catch (e, st) {
+      debugPrint('IsoConversionScreen._tryBuildPreviewScene 실패 (${e.runtimeType}): $e\n$st');
+      return null;
     }
   }
 
@@ -296,11 +323,12 @@ class _IsoConversionScreenState extends State<IsoConversionScreen> {
     );
   }
 
-  /// 결과가 아직 없을 때(변환 전/진행 중 첫 프레임)는 스캔 중 격자를 보여주고, 결과(또는 재생성 전
-  /// lastGoodResult)가 생기면 [BlueNeonIsoPreview]로 실제 생성된 geometry를 보여준다
-  /// (CadConversionScreen._buildPreview와 같은 생각).
+  /// MASTER UI 9 원본 — 진행 중에도 이미 건물 형태가 보인다. 아직 확정 결과가 없으면([SsAiTask.
+  /// lastGoodResult]가 null — 변환 전/진행 중) CAD로부터 즉시 계산한 미리보기([_previewScene])를
+  /// 먼저 쓰고, 그것도 없으면(벽/공간이 없는 등) 마지막으로 "스캔 중" 격자를 보여준다. 확정 결과가
+  /// 생기면(또는 재생성 전 lastGoodResult) 그 값을 그대로 쓴다.
   Widget _buildPreview() {
-    final scene = _controller.task.lastGoodResult?.scene;
+    final scene = _controller.task.lastGoodResult?.scene ?? _previewScene;
     return Container(
       key: const Key('ssIsoConversionPreview'),
       decoration: BoxDecoration(color: const Color(0xFF081628), borderRadius: BorderRadius.circular(16), border: Border.all(color: SsMasterTheme.panelBorder)),
