@@ -16,6 +16,7 @@ import '../screens/direct_draw_screen.dart';
 import '../screens/floor_plan_review_screen.dart';
 import '../screens/floor_plan_upload_screen.dart';
 import '../screens/floor_plan_workspace_screen.dart';
+import '../screens/iso_conversion_screen.dart';
 import '../screens/home_screen.dart';
 import '../screens/login_screen.dart';
 import '../screens/image_rendering_screen.dart';
@@ -46,6 +47,7 @@ abstract final class SsRouter {
     SsStage.floorPlanReview: (context) => FloorPlanReviewScreen(projectId: ModalRoute.of(context)?.settings.arguments as String?),
     SsStage.cadConversion: (context) => CadConversionScreen(projectId: ModalRoute.of(context)?.settings.arguments as String?),
     SsStage.cadEditor: (context) => CadEditorScreen(projectId: ModalRoute.of(context)?.settings.arguments as String?),
+    SsStage.isoConversion: (context) => IsoConversionScreen(projectId: ModalRoute.of(context)?.settings.arguments as String?),
     SsStage.imageEditing: (context) => PhotoDesignEditorScreen(projectId: ModalRoute.of(context)?.settings.arguments as String?),
     SsStage.imageRendering: (context) => ImageRenderingScreen(projectId: ModalRoute.of(context)?.settings.arguments as String?),
     SsStage.imageResult: (context) => ImageResultScreen(projectId: ModalRoute.of(context)?.settings.arguments as String?),
