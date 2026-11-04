@@ -184,6 +184,10 @@ void main() {
       await tester.tap(find.byKey(const Key('ssFinalResultExportButton')));
       await tester.pumpAndSettle();
     });
+    // runAsync 블록이 '더 이상 예약된 프레임이 없다'고 보고 반환한 바로 그 경계에서 실제 비동기(toImage
+    // 콜백~저장 실패~catch의 setState)가 막 끝났을 수 있어, 그 리빌드가 아직 위젯 트리에 반영되지 않은
+    // 채로 다음 단언이 실행될 수 있다 — runAsync 밖에서 한 번 더 pumpAndSettle해 그 막판 리빌드를 확실히 반영한다.
+    await tester.pumpAndSettle();
 
     final statusText = tester.widget<Text>(find.descendant(of: find.byKey(const Key('ssFinalResultExportStatus')), matching: find.byType(Text)));
     expect(statusText.data, isNot(contains('네트워크')));
