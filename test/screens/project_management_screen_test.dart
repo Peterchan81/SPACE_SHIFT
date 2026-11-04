@@ -3,7 +3,10 @@ import 'package:ason_space/core/ss_project.dart';
 import 'package:ason_space/core/ss_project_store.dart';
 import 'package:ason_space/core/ss_router.dart';
 import 'package:ason_space/core/ss_stage.dart';
+import 'package:ason_space/models/cad_floor_plan.dart';
+import 'package:ason_space/models/ss_cad_scene.dart';
 import 'package:ason_space/screens/project_management_screen.dart';
+import 'package:ason_space/services/ss_project_store_provider.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -28,13 +31,30 @@ class _BreakableStore implements SsProjectStore {
   Future<String?> lastOpened() => inner.lastOpened();
 }
 
-SsProject _a() => SsProject.create(id: 'a', name: '우리집 리모델링', sourceType: SsSourceType.directDraw, now: DateTime(2026, 1, 1)).moveTo(SsStage.isoEditor, now: DateTime(2026, 3, 1));
+SsProject _a() => SsProject.create(id: 'a', name: '우리집 리모델링', sourceType: SsSourceType.directDraw, now: DateTime(2026, 1, 1))
+    // isoEditor로 이동한 프로젝트는 SS013부터 실제 [IsoEditorScreen]이 CAD 데이터를 읽는다 —
+    // 벽이 없는 빈 CAD라 3D GPU 위젯은 마운트되지 않고(scene3d.isEmpty) 안내만 보인다.
+    .withStageData(
+      SsDataSlot.cadData,
+      {
+        'kind': 'ssCadScene',
+        'scene': const SsCadScene(plan: CadFloorPlan(sourceWidthPx: 1000, sourceHeightPx: 1000, walls: [], openings: [], rooms: [], warnings: [])).toJson(),
+      },
+      label: 'CAD 완료',
+      now: DateTime(2026, 2, 1),
+    )
+    .moveTo(SsStage.isoEditor, now: DateTime(2026, 3, 1));
 SsProject _b() => SsProject.create(id: 'b', name: '상가 인테리어', sourceType: SsSourceType.imageTransform, now: DateTime(2026, 2, 1));
 
 Future<void> _pump(WidgetTester tester, SsProjectStore store) async {
   tester.view.physicalSize = const Size(2000, 1200);
   tester.view.devicePixelRatio = 1;
   addTearDown(tester.view.reset);
+  // 프로젝트를 열면 Route(SsRouter)로 이동하는 다음 화면(SS013부터 3D ISO 편집 포함)도 같은
+  // 테스트 저장소를 쓰게 한다 — 그렇지 않으면 실제 path_provider 플랫폼 채널을 타서(테스트
+  // 환경에는 응답이 없음) pumpAndSettle이 끝나지 않는다(home_screen_test.dart와 같은 패턴).
+  SsProjectStoreProvider.useForTesting(store);
+  addTearDown(SsProjectStoreProvider.resetForTesting);
   await tester.pumpWidget(MaterialApp(onGenerateRoute: SsRouter.onGenerateRoute, home: Scaffold(body: ProjectManagementScreen(projectStore: store))));
   await tester.pumpAndSettle();
 }
