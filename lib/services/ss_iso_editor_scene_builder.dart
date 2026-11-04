@@ -7,7 +7,7 @@ library;
 import 'package:flutter/material.dart' show Color;
 import 'package:vector_math/vector_math_64.dart' show Vector3;
 
-import '../models/cad_floor_plan.dart' show resolveAutoScale;
+import '../models/cad_floor_plan.dart' show CadFloorPlan, CadRoom, FloorPlanScale, resolveAutoScale;
 import '../models/floor_plan_geometry.dart';
 import '../models/space_scene_v2.dart';
 import '../models/ss_cad_scene.dart';
