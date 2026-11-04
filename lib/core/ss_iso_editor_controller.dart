@@ -112,6 +112,16 @@ class SsIsoEditorController extends ChangeNotifier {
     return null;
   }
 
+  /// SS014 — 정면도(elevation) 화면이 "이 문/창을 선택했다"를 알려줄 때 쓴다. 3D ISO pickable
+  /// 객체([selectObjectIdentity])와는 별도다(문/창은 3D에서 벽 mesh의 구멍일 뿐 독립된 객체가
+  /// 아니다).
+  CadOpening? _findOpening(String id) {
+    for (final o in plan.openings) {
+      if (o.id == id) return o;
+    }
+    return null;
+  }
+
   // ---------------- 선택(3D 피킹 → 압축 속성 패널) ----------------
 
   /// [Space3DViewGpuV2.onObjectSelected] 콜백 — 화면이 그대로 넘긴다. null이면 선택 해제.
@@ -202,6 +212,20 @@ class SsIsoEditorController extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// SS014 — 정면도 캔버스에서 탭한 문/창을 선택한다(§위 [_findOpening] 주석 참고).
+  void selectOpening(String id) {
+    final o = _findOpening(id);
+    if (o == null) return;
+    selectedObjectId3d = null;
+    final s = scale;
+    selection = SsSelection(
+      objectType: o.type == OpeningType.door ? '문' : '창',
+      objectId: id,
+      properties: {'widthMm': s == null ? null : plan.realMmForNormalizedLength(o.widthNormalized, s), 'wallId': o.wallId},
+    );
+    notifyListeners();
+  }
+
   void clearSelection() {
     if (selection.isEmpty && selectedObjectId3d == null) return;
     selection = SsSelection.none;
@@ -253,6 +277,32 @@ class SsIsoEditorController extends ChangeNotifier {
     final created = createOpeningOnWall(plan, wall, type: type, scale: scale);
     _push(state.copyWith(cad: cad.copyWith(plan: _planWithOpenings([...plan.openings, created]))), label: type == OpeningType.door ? '문 추가' : '창문 추가');
     _selectWall(wall.id);
+  }
+
+  /// SS014 — 정면도에서 선택한 문/창을 같은 벽을 따라 [deltaMm]만큼 옮긴다. 항상
+  /// [CadWall.projectPoint]로 벽 중심선 위에 투영해 허공에 뜬 opening을 만들지 않는다.
+  void moveSelectedOpeningAlongWallByMm(double deltaMm) {
+    final isOpening = selection.objectType == '문' || selection.objectType == '창';
+    final opening = isOpening ? _findOpening(selection.objectId) : null;
+    final wall = opening?.wallId == null ? null : _findWall(opening!.wallId!);
+    final s = scale;
+    if (opening == null || wall == null || s == null) return;
+    final wallLengthMm = plan.realMmBetween(wall.start, wall.end, s);
+    if (wallLengthMm == null || wallLengthMm <= 0) return;
+    final currentT = wall.projectPoint(opening.center).t;
+    final newCenterMm = (currentT * wallLengthMm + deltaMm).clamp(0.0, wallLengthMm);
+    final newT = newCenterMm / wallLengthMm;
+    final newCenter = Point2(wall.start.x + (wall.end.x - wall.start.x) * newT, wall.start.y + (wall.end.y - wall.start.y) * newT);
+    final edited = opening.copyWith(center: newCenter, edited: true, source: CadElementSource.userEdited);
+    _push(state.copyWith(cad: cad.copyWith(plan: _planWithOpenings([for (final o in plan.openings) if (o.id == opening.id) edited else o]))), label: '${selection.objectType} 위치 이동');
+    selectOpening(opening.id);
+  }
+
+  /// SS014 — 정면도에서 선택한 문/창을 지운다(ISO의 [deleteSelectedWall]과 같은 패턴).
+  void deleteSelectedOpening() {
+    final id = selection.objectId;
+    _push(state.copyWith(cad: cad.copyWith(plan: _planWithOpenings(plan.openings.where((o) => o.id != id).toList()))), label: '${selection.objectType} 삭제');
+    clearSelection();
   }
 
   CadFloorPlan _planWithOpenings(List<CadOpening> openings) => CadFloorPlan(
@@ -420,6 +470,9 @@ class SsIsoEditorController extends ChangeNotifier {
     switch (selection.objectType) {
       case '벽':
         deleteSelectedWall();
+      case '문':
+      case '창':
+        deleteSelectedOpening();
       case '가구':
         deleteSelectedFurniture();
       case '가구(자동)':
