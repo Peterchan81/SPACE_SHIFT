@@ -243,7 +243,16 @@ class _Space3DViewGpuV2State extends State<Space3DViewGpuV2> {
 
   @override
   void dispose() {
-    _threeJs.dispose();
+    try {
+      _threeJs.dispose();
+    } on LateInitializationError catch (e) {
+      // three_js의 scene/camera는 setup()이 끝나야(_setup 안에서 _threeJs.scene = ... 줄이
+      // 실행된 뒤) 값이 들어가는 late final 필드다(three_js_angle_renderer/three_viewer.dart).
+      // 위젯 테스트처럼 실제 GPU 초기화가 끝나기 전에 이 위젯이 dispose되면(예: 화면 전환)
+      // ThreeJS.dispose()가 그 필드에 접근해 이 예외를 던진다 — 그 시점엔 아직 쓰인 GPU 리소스가
+      // 없으므로 안전하게 넘어간다. 다른 예외는 그대로 전파해 일반 오류를 숨기지 않는다.
+      debugPrint('Space3DViewGpuV2.dispose: three_js setup 완료 전 dispose됨: $e');
+    }
     super.dispose();
   }
 
