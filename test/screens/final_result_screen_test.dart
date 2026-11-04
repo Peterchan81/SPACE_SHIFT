@@ -182,7 +182,17 @@ void main() {
     // 짧게 실제 이벤트 루프를 돌려 캡처~저장 실패~catch까지 실제로 끝나게 한다.
     await tester.runAsync(() async {
       await tester.tap(find.byKey(const Key('ssFinalResultExportButton')));
-      await tester.pumpAndSettle();
+      await tester.pump();
+      // pumpAndSettle()은 '새로 예약된 프레임이 없다'는 것만 보고 돌아올 수 있어, RenderRepaintBoundary.toImage()
+      // 같은 실제 네이티브 콜백(toImage~저장 실패~catch의 setState)이 아직 끝나지 않은 채로 빠져나갈 수 있다 —
+      // 버튼이 다시 눌릴 수 있는 상태(onPressed != null, 곧 _exporting == false)로 돌아올 때까지 짧게 실제
+      // 이벤트 루프를 반복해서 돌려 그 비동기 체인이 실제로 끝나게 한다.
+      for (var i = 0; i < 50; i++) {
+        final button = tester.widget<ElevatedButton>(find.byKey(const Key('ssFinalResultExportButton')));
+        if (button.onPressed != null) break;
+        await Future<void>.delayed(const Duration(milliseconds: 20));
+        await tester.pump();
+      }
     });
     // runAsync 블록이 '더 이상 예약된 프레임이 없다'고 보고 반환한 바로 그 경계에서 실제 비동기(toImage
     // 콜백~저장 실패~catch의 setState)가 막 끝났을 수 있어, 그 리빌드가 아직 위젯 트리에 반영되지 않은
