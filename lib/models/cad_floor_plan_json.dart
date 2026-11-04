@@ -5,6 +5,8 @@
 /// 패턴(점2/목록을 각각 변환해 합치는 방식)이다.
 library;
 
+import 'package:flutter/painting.dart' show Color;
+
 import 'cad_floor_plan.dart';
 import 'floor_plan_geometry.dart';
 import 'ss_spatial_model.dart' show SSRoomType;
@@ -19,6 +21,10 @@ Point2? _point2FromJson(Object? j) {
   return Point2(x.toDouble(), y.toDouble());
 }
 
+int _colorToArgb(Color c) => ((c.a * 255).round() & 0xFF) << 24 | ((c.r * 255).round() & 0xFF) << 16 | ((c.g * 255).round() & 0xFF) << 8 | ((c.b * 255).round() & 0xFF);
+
+Color _colorFromArgb(int v) => Color(v);
+
 Map<String, Object?> cadWallToJson(CadWall w) => {
   'id': w.id,
   'start': _point2ToJson(w.start),
@@ -31,6 +37,7 @@ Map<String, Object?> cadWallToJson(CadWall w) => {
   if (w.heightMm != null) 'heightMm': w.heightMm,
   'reviewNeeded': w.reviewNeeded,
   'reviewReasons': w.reviewReasons,
+  if (w.materialOverride != null) 'materialOverride': _colorToArgb(w.materialOverride!),
 };
 
 CadWall? cadWallFromJson(Object? j) {
@@ -56,6 +63,7 @@ CadWall? cadWallFromJson(Object? j) {
     heightMm: j['heightMm'] is num ? (j['heightMm'] as num).toDouble() : null,
     reviewNeeded: j['reviewNeeded'] == true,
     reviewReasons: reasons is List ? [for (final r in reasons) '$r'] : const [],
+    materialOverride: j['materialOverride'] is int ? _colorFromArgb(j['materialOverride'] as int) : null,
   );
 }
 
@@ -107,6 +115,8 @@ Map<String, Object?> cadRoomToJson(CadRoom r) => {
   'reviewNeeded': r.reviewNeeded,
   'reviewReasons': r.reviewReasons,
   'roomType': r.roomType.name,
+  if (r.materialOverride != null) 'materialOverride': _colorToArgb(r.materialOverride!),
+  if (r.ceilingMaterialOverride != null) 'ceilingMaterialOverride': _colorToArgb(r.ceilingMaterialOverride!),
 };
 
 CadRoom? cadRoomFromJson(Object? j) {
@@ -132,6 +142,8 @@ CadRoom? cadRoomFromJson(Object? j) {
     reviewNeeded: j['reviewNeeded'] == true,
     reviewReasons: reasons is List ? [for (final r in reasons) '$r'] : const [],
     roomType: roomType,
+    materialOverride: j['materialOverride'] is int ? _colorFromArgb(j['materialOverride'] as int) : null,
+    ceilingMaterialOverride: j['ceilingMaterialOverride'] is int ? _colorFromArgb(j['ceilingMaterialOverride'] as int) : null,
   );
 }
 
