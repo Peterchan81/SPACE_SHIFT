@@ -11,9 +11,19 @@ import 'package:ason_space/models/iso_render_result.dart';
 import 'package:ason_space/models/space_scene_v2.dart';
 import 'package:ason_space/models/ss_iso_camera_state.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:vector_math/vector_math_64.dart';
 
 const _camera = SsIsoCameraState(targetXMm: 0, targetYMm: 0, targetZMm: 0, distanceMm: 5000, azimuthRadians: 0.1, polarRadians: 0.2);
-const _emptyScene = SpaceSceneV2();
+// SpaceSceneV2의 minBounds/maxBounds는 Vector3(vector_math_64) — Vector3는 const 생성자가 없으므로
+// 이 값은 const로 만들 수 없다(기존 SpaceSceneV2 선언 그대로, lib/models/space_scene_v2.dart 참고).
+final _emptyScene = SpaceSceneV2(
+  wallMeshes: const [],
+  floorMeshes: const [],
+  openings: const [],
+  minBounds: Vector3.zero(),
+  maxBounds: Vector3.zero(),
+  warnings: const [],
+);
 
 void main() {
   test('렌더링 단계가 순서대로 진행되고 완료되면 결과를 돌려준다', () async {
@@ -25,7 +35,7 @@ void main() {
         onStep(step);
         seenSteps.add(step);
       }
-      return const IsoRenderResult(scene: _emptyScene, camera: _camera);
+      return IsoRenderResult(scene: _emptyScene, camera: _camera);
     });
 
     expect(status, SsAiStatus.completed);
@@ -43,7 +53,7 @@ void main() {
       attempt++;
       onStep(SsIsoRenderStep.imageQualityProcessing);
       if (attempt == 1) throw Exception('렌더링 실패(시험)');
-      return const IsoRenderResult(scene: _emptyScene, camera: _camera);
+      return IsoRenderResult(scene: _emptyScene, camera: _camera);
     }
 
     final first = await controller.start(call);
@@ -96,7 +106,7 @@ void main() {
     expect(secondStatus, SsAiStatus.processing);
     expect(callCount, 1, reason: '처리 중에는 렌더 호출이 다시 일어나지 않아야 한다');
 
-    completer.complete(const IsoRenderResult(scene: _emptyScene, camera: _camera));
+    completer.complete(IsoRenderResult(scene: _emptyScene, camera: _camera));
     final firstStatus = await firstFuture;
     expect(firstStatus, SsAiStatus.completed);
   });
