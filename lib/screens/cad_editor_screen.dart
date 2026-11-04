@@ -173,6 +173,14 @@ class _CadEditorScreenState extends State<CadEditorScreen> {
     await _autosave?.saveNow();
   }
 
+  /// SS012 — CAD 편집을 마치면 3D ISO 변환(MASTER UI 9, SS012)으로 넘어간다. 저장 대기 중인 변경이
+  /// 있으면 autosave 지연을 기다리지 않고 먼저 저장해, 변환 화면이 최신 CAD로 시작하게 한다.
+  Future<void> _goToIsoConversion() async {
+    await _autosave?.saveNow();
+    if (!mounted) return;
+    await Navigator.of(context).pushNamed(SsStage.isoConversion.routeName, arguments: widget.projectId);
+  }
+
   Future<void> _exportDxf() async {
     final controller = _controller;
     if (controller == null) return;
@@ -486,11 +494,41 @@ class _CadEditorScreenState extends State<CadEditorScreen> {
               ),
             ],
           ),
+          const SizedBox(height: 10),
+          Row(
+            children: [
+              Expanded(
+                child: ElevatedButton.icon(
+                  key: const Key('ssCadGoToIsoButton'),
+                  onPressed: () => unawaited(_goToIsoConversion()),
+                  style: ElevatedButton.styleFrom(backgroundColor: SsMasterTheme.neonBlue, padding: const EdgeInsets.symmetric(vertical: 14)),
+                  icon: const Icon(Icons.view_in_ar_outlined, size: 18),
+                  label: const Text('3D ISO 변환하기'),
+                ),
+              ),
+            ],
+          ),
           if (_autosave != null) ...[
             const SizedBox(height: 10),
             ListenableBuilder(
               listenable: _autosave!,
-              builder: (context, _) => Text(_autosave!.state.label, key: const Key('ssCadSaveState'), style: const TextStyle(color: SsMasterTheme.textMuted, fontSize: 12)),
+              builder: (context, _) {
+                final stale = _autosave!.project.staleNotices().any((n) => n.stale == SsDataSlot.isoData);
+                return Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(_autosave!.state.label, key: const Key('ssCadSaveState'), style: const TextStyle(color: SsMasterTheme.textMuted, fontSize: 12)),
+                    if (stale) ...[
+                      const SizedBox(height: 6),
+                      const Text(
+                        '3D 모델 업데이트 필요 — CAD가 변경되었습니다.',
+                        key: Key('ssCadIsoStaleNotice'),
+                        style: TextStyle(color: SsMasterTheme.neonOrange, fontSize: 12, fontWeight: FontWeight.w700),
+                      ),
+                    ],
+                  ],
+                );
+              },
             ),
           ],
         ],
