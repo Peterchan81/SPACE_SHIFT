@@ -163,8 +163,13 @@ void main() {
   testWidgets('내보내기를 누르면 성공 상태가 표시된다', (tester) async {
     await pump(tester, exportService: const _FakeExportService());
 
-    await tester.tap(find.byKey(const Key('ssFinalResultExportButton')));
-    await tester.pumpAndSettle();
+    // RenderRepaintBoundary.toImage()는 실제 엔진 콜백으로 완료되는 진짜 비동기라, 기본 testWidgets()의
+    // FakeAsync 안에서는 그 Future가 끝까지 끝나지 않는다 — tester.runAsync로 짧게 실제 이벤트 루프를
+    // 돌려 _export()가 캡처~저장까지 실제로 끝나게 한다.
+    await tester.runAsync(() async {
+      await tester.tap(find.byKey(const Key('ssFinalResultExportButton')));
+      await tester.pumpAndSettle();
+    });
 
     expect(find.byKey(const Key('ssFinalResultExportStatus')), findsOneWidget);
   });
@@ -172,8 +177,13 @@ void main() {
   testWidgets('내보내기가 실패해도 네트워크 오류로 표시하지 않고 다시 시도할 수 있다', (tester) async {
     await pump(tester, exportService: const _FakeExportService(fail: true));
 
-    await tester.tap(find.byKey(const Key('ssFinalResultExportButton')));
-    await tester.pumpAndSettle();
+    // RenderRepaintBoundary.toImage()는 실제 엔진 콜백으로 완료되는 진짜 비동기라, 기본 testWidgets()의
+    // FakeAsync 안에서는 그 Future가 끝까지 끝나지 않아 _exporting이 true로 멈춰 버린다 — tester.runAsync로
+    // 짧게 실제 이벤트 루프를 돌려 캡처~저장 실패~catch까지 실제로 끝나게 한다.
+    await tester.runAsync(() async {
+      await tester.tap(find.byKey(const Key('ssFinalResultExportButton')));
+      await tester.pumpAndSettle();
+    });
 
     final statusText = tester.widget<Text>(find.descendant(of: find.byKey(const Key('ssFinalResultExportStatus')), matching: find.byType(Text)));
     expect(statusText.data, isNot(contains('네트워크')));
