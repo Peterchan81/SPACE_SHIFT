@@ -109,6 +109,9 @@ void main() {
   });
 
   testWidgets('SsRouter가 elevationFaceEditor 단계를 ElevationFaceEditorScreen으로 연결한다', (tester) async {
+    tester.view.physicalSize = const Size(2000, 1200);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
     await tester.pumpWidget(
       MaterialApp(
         onGenerateRoute: SsRouter.onGenerateRoute,
