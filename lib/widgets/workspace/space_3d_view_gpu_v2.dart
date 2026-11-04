@@ -245,15 +245,10 @@ class _Space3DViewGpuV2State extends State<Space3DViewGpuV2> {
   void dispose() {
     try {
       _threeJs.dispose();
-    } on LateError catch (e) {
-      // three_js_angle_renderer의 ThreeJS.dispose()는 `scene` getter(late
-      // 필드)를 읽는다. 위젯이 _setup()이 scene을 대입하기 전에(예: 위젯
-      // 트리 조립 중 바로 이동/교체되는 테스트 등) dispose되면 scene이
-      // 아직 초기화되지 않아 LateError가 던져진다 — 이 경우는 "정리할
-      // 자원이 아직 없다"는 뜻이므로 조용히 넘어간다. 다른 원인으로 생긴
-      // 예외는 여기서 잡지 않고 그대로 전파되게 두어, 실제 원인을 숨기지
-      // 않는다. 디버그 목적으로 실제 메시지는 로그로 남긴다.
-      debugPrint('Space3DViewGpuV2.dispose: ThreeJS가 아직 초기화되지 않아 정리를 건너뜀 ($e)');
+    } on LateInitializationError {
+      // setup()이 끝나기 전에 위젯이 dispose된 경우 — three_js_angle_renderer의
+      // ThreeJS.scene은 late 필드라 아직 할당되지 않았으면 내부 dispose()가 이
+      // 오류를 던진다. 아직 생성된 GPU 리소스가 없으므로 무시해도 안전하다.
     }
     super.dispose();
   }
