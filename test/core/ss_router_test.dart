@@ -23,12 +23,14 @@ void main() {
     tester.view.physicalSize = const Size(2000, 1200);
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.reset);
-    await tester.pumpWidget(MaterialApp(onGenerateRoute: SsRouter.onGenerateRoute, initialRoute: SsStage.isoEditor.routeName));
+    // SS013부터 isoEditor는 실제 화면([IsoEditorScreen])이 있으므로, 공통 "아직 없는 단계" 화면은
+    // 여전히 세부 화면이 없는 finalResult로 확인한다.
+    await tester.pumpWidget(MaterialApp(onGenerateRoute: SsRouter.onGenerateRoute, initialRoute: SsStage.finalResult.routeName));
     await tester.pumpAndSettle();
-    expect(find.text('3D ISO 디자인'), findsOneWidget);
+    expect(find.text(SsStage.finalResult.title), findsOneWidget);
     expect(find.byKey(const Key('ssStageWhat')), findsOneWidget);
-    expect(find.text('다음: ${SsStage.isoEditor.whatNext}'), findsOneWidget);
-    expect(find.textContaining('SS013'), findsOneWidget);
+    expect(find.text('다음: ${SsStage.finalResult.whatNext}'), findsOneWidget);
+    expect(find.textContaining('SS016'), findsOneWidget);
     expect(find.byKey(const Key('ssNav_view3d')), findsOneWidget, reason: '단계에 맞는 메뉴 항목만 보인다(쓸 수 없는 항목은 흐리게가 아니라 아예 보이지 않음)');
   });
 
