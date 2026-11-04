@@ -243,13 +243,7 @@ class _Space3DViewGpuV2State extends State<Space3DViewGpuV2> {
 
   @override
   void dispose() {
-    try {
-      _threeJs.dispose();
-    } on LateInitializationError {
-      // setup()이 끝나기 전에 위젯이 dispose된 경우 — three_js_angle_renderer의
-      // ThreeJS.scene은 late 필드라 아직 할당되지 않았으면 내부 dispose()가 이
-      // 오류를 던진다. 아직 생성된 GPU 리소스가 없으므로 무시해도 안전하다.
-    }
+    _threeJs.dispose();
     super.dispose();
   }
 
