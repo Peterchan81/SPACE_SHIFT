@@ -68,6 +68,10 @@ class _IsoRenderingScreenState extends State<IsoRenderingScreen> {
   SsIsoCameraState? _previousCamera;
   Map<String, Object?>? _previousRenderPayload;
   bool _alreadyUpToDate = false;
+  // 사용자가 이미 수동으로 다른 화면으로 이동했으면(예: 뒤로가기), 백그라운드에서 막 끝난 렌더링
+  // 완료 콜백이 그 이동을 조용히 최종 결과 화면으로 덮어쓰지 않게 한다(렌더링 완료와 사용자 이동이
+  // 겹치는 경쟁 상태 방지).
+  bool _leftScreen = false;
   final SsIsoRenderController _controller = SsIsoRenderController();
 
   /// MASTER UI 11 — 렌더링이 끝나기 전에도(아직 [SsAiTask.lastGoodResult]가 없을 때) 이미 확정된
@@ -171,6 +175,7 @@ class _IsoRenderingScreenState extends State<IsoRenderingScreen> {
   }
 
   Future<void> _onRenderCompleted() async {
+    if (_leftScreen || !mounted) return;
     final project = _project;
     final store = _store;
     final result = _controller.task.lastGoodResult;
@@ -211,6 +216,9 @@ class _IsoRenderingScreenState extends State<IsoRenderingScreen> {
     final project = _project;
     final previous = project == null ? null : SsFlows.previous(project.sourceType, SsStage.isoRendering);
     final navigator = Navigator.of(context);
+    // 사용자가 지금 직접 다른 화면으로 이동한다 — 이후 늦게 끝나는 렌더링 완료 콜백이 이 이동을
+    // 덮어쓰지 않게 막는다(위 _leftScreen 선언 참고).
+    _leftScreen = true;
     if (previous == null) {
       if (navigator.canPop()) navigator.pop();
       return;
