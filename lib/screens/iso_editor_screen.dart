@@ -15,6 +15,7 @@ import '../core/ss_router.dart' show SsStageHeader;
 import '../core/ss_stage.dart';
 import '../models/cad_floor_plan.dart';
 import '../models/floor_plan_geometry.dart';
+import '../models/space_scene_v2.dart';
 import '../models/ss_cad_scene.dart';
 import '../models/ss_iso_design_extras.dart';
 import '../models/ss_spatial_model_json.dart';
@@ -138,10 +139,47 @@ class _IsoEditorScreenState extends State<IsoEditorScreen> {
     await _autosave?.saveNow();
   }
 
-  void _goToElevationEditor() {
+  Future<void> _goToElevationEditor() async {
     final wallId = _controller?.selectedWallIdForElevationHandoff;
     if (wallId == null) return;
-    Navigator.of(context).pushNamed(SsStage.elevationFaceEditor.routeName, arguments: {'projectId': widget.projectId, 'wallId': wallId});
+    await Navigator.of(context).pushNamed(SsStage.elevationFaceEditor.routeName, arguments: {'projectId': widget.projectId, 'wallId': wallId});
+    // SS014 완료조건 "데이터 충돌 시 최신 상태를 명확히 표시" — 정면도 화면은 새 데이터 칸을 만들지
+    // 않고 이 화면과 똑같은 [SsDataSlot.cadData]/[SsDataSlot.isoData] 칸에 직접 저장한다(§완료조건
+    // "같은 3D 모델에 정확히 반영"). 그 화면이 저장소에 쓴 뒤 돌아오면, 지금 메모리에 남아있는(정면도
+    // 편집 전) 오래된 복사본을 계속 쓰지 않고 저장소에서 다시 읽어 최신 상태로 맞춘다. 사용자가 보던
+    // 벽은 그대로 다시 선택해(§완료조건 "선택 상태 유지") Space3DViewGpuV2의 카메라도 그대로 둔다
+    // (같은 State 트리 안에서 scene만 새로 넘기므로 Orbit 카메라는 바뀌지 않는다).
+    if (!mounted) return;
+    await _reloadAfterElevationReturn(wallId);
+  }
+
+  Future<void> _reloadAfterElevationReturn(String wallId) async {
+    final pid = widget.projectId;
+    if (pid == null) return;
+    try {
+      final store = widget.projectStore ?? await SsProjectStoreProvider.instance.store();
+      final project = await store.load(pid);
+      if (project == null || !mounted) return;
+      final cadSlot = project.data[SsDataSlot.cadData];
+      if (cadSlot == null) return;
+      final cadScene = _cadSceneFromPayload(cadSlot.payload);
+      if (cadScene == null) return;
+      final isoSlot = project.data[SsDataSlot.isoData];
+      final extras = SsIsoDesignExtras.tryFromJson(isoSlot?.payload['design']);
+      _setController(SsIsoEditorController(initialState: SsIsoEditorState(cad: cadScene, extras: extras)));
+      _controller!.selectObjectIdentity(SpaceObjectIdentityV2(objectId: 'wall:$wallId', sourceKind: SpaceElementKindV2.wall, sourceId: wallId, wallId: wallId));
+      if (!mounted) return;
+      _autosave?.dispose();
+      setState(() {
+        _autosave = SsAutosaveController(store: store, project: project);
+        _previousIsoPayload = isoSlot?.payload;
+      });
+      ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+        const SnackBar(content: Text('정면도에서 편집한 내용이 반영되었습니다', key: Key('ssIsoElevationSyncNotice')), duration: Duration(seconds: 2)),
+      );
+    } catch (e, st) {
+      debugPrint('IsoEditorScreen._reloadAfterElevationReturn 실패 (${e.runtimeType}): $e\n$st');
+    }
   }
 
   @override
