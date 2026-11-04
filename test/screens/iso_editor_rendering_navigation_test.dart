@@ -63,11 +63,16 @@ void main() {
     project = project.moveTo(SsStage.isoEditor);
     await store.save(project);
 
+    // IsoEditorScreen은 CAD 데이터가 있으면 three_js 기반 Space3DViewGpuV2(매 프레임 다시 그리는
+    // GPU 뷰)를 그리므로 pumpAndSettle()은 절대 settle되지 않는다 — 기존 iso_editor_screen_test.dart의
+    // 모든 테스트와 같이 명시적인 pump()만 쓴다.
     await _pump(tester, store);
-    await tester.pumpAndSettle();
+    await tester.pump();
+    await tester.pump();
 
     await tester.tap(find.byKey(const Key('ssIsoGoToRenderButton')));
-    await tester.pumpAndSettle();
+    await tester.pump();
+    await tester.pump();
 
     expect(find.byKey(const Key('ssFakeIsoRenderingScreen')), findsOneWidget);
   });

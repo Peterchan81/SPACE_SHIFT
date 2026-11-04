@@ -3,6 +3,8 @@
 // 그 외 일반 오류는 다시 시도할 수 있는지, 완성된 ISO 디자인이 아예 없으면 안내만 보이는지, 이미
 // 최신 렌더링 결과가 있으면 다시 렌더링하지 않는지, 3D 디자인이 바뀌어 낡으면 자동으로 다시
 // 렌더링하면서 기존 Orbit 카메라 시점을 보존하는지 확인한다.
+import 'dart:async';
+
 import 'package:ason_space/core/ss_iso_render_step.dart';
 import 'package:ason_space/core/ss_project.dart';
 import 'package:ason_space/core/ss_project_store.dart';
@@ -82,6 +84,24 @@ class _AlwaysFailService extends IsoRenderService {
   }) async {
     onStep?.call(SsIsoRenderStep.imageQualityProcessing);
     throw Exception('3D ISO 렌더링 실패(시험)');
+  }
+}
+
+/// 뒤로가기 테스트 전용 — 렌더링이 끝나 완료 콜백이 최종 결과 화면으로 자동 이동하는 것과 경쟁하지
+/// 않도록, 이 가짜 서비스는 절대 끝나지 않는 Future를 돌려준다(이미 처리 중 상태를 안정적으로 유지).
+class _PendingIsoRenderService extends IsoRenderService {
+  const _PendingIsoRenderService() : super(stepDelay: Duration.zero);
+
+  @override
+  Future<IsoRenderResult> render(
+    SsCadScene cad, {
+    SsIsoDesignExtras extras = SsIsoDesignExtras.empty,
+    SsIsoCameraState? previousCamera,
+    SsIsoRenderQuality quality = SsIsoRenderQuality.full,
+    void Function(SsIsoRenderStep step)? onStep,
+  }) {
+    onStep?.call(SsIsoRenderStep.imageQualityProcessing);
+    return Completer<IsoRenderResult>().future;
   }
 }
 
@@ -247,7 +267,9 @@ void main() {
   });
 
   testWidgets('뒤로가기를 누르면 정면도·측면도 편집 화면으로 돌아간다(Map 인자로)', (tester) async {
-    await pump(tester);
+    // 렌더링이 끝나 최종 결과 화면으로 자동 이동하는 것과 경쟁하지 않도록, 절대 끝나지 않는 가짜
+    // 렌더 서비스를 써서 "아직 렌더링 중" 상태를 안정적으로 유지한 채 뒤로가기만 확인한다.
+    await pump(tester, renderService: const _PendingIsoRenderService());
     await tester.pump();
 
     await tester.tap(find.byKey(const Key('ssIsoRenderBack')));
