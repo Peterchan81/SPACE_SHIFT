@@ -233,8 +233,24 @@ class _IsoEditorScreenState extends State<IsoEditorScreen> {
         IconButton(key: const Key('ssIsoRedo'), tooltip: '다시실행', onPressed: controller.canRedo ? controller.redo : null, icon: const Icon(Icons.redo), color: SsMasterTheme.textSecondary),
         const SizedBox(width: 8),
         ElevatedButton.icon(key: const Key('ssIsoSaveButton'), onPressed: () => unawaited(_saveNow()), icon: const Icon(Icons.save_outlined, size: 16), label: const Text('저장')),
+        const SizedBox(width: 8),
+        ElevatedButton.icon(
+          key: const Key('ssIsoGoToRenderButton'),
+          onPressed: () => unawaited(_goToRendering()),
+          icon: const Icon(Icons.auto_awesome, size: 16),
+          label: const Text('렌더링 시작'),
+        ),
       ],
     );
+  }
+
+  /// SS015 — MASTER UI 11(3D 아이소 랜더링)로 넘어간다. 먼저 지금까지 편집을 저장해, 렌더링 화면이
+  /// 읽을 [SsDataSlot.cadData]/[SsDataSlot.isoData]가 최신 상태이게 한다(§완료조건 "렌더 완료 후
+  /// SS016으로 연결"의 앞단).
+  Future<void> _goToRendering() async {
+    await _saveNow();
+    if (!mounted) return;
+    await Navigator.of(context).pushNamed(SsStage.isoRendering.routeName, arguments: widget.projectId);
   }
 
   /// CAD 스타일 상단 Ribbon — MASTER UI 10 그룹(구조/개구부/가구/조명/설비)을 그대로 둔다. 전체
