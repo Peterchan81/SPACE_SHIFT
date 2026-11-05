@@ -78,7 +78,10 @@ class SsAiTask<R> extends ChangeNotifier {
     SsAiOutcome<R> o;
     try {
       o = await _last!();
-    } catch (e) {
+    } catch (e, st) {
+      // catch-all이 실패 원인을 하나로 둔갑시키지 않는다 — 화면에는 일반 "다시 시도 가능" 안내만
+      // 보이지만, 실제 예외 종류/메시지는 개발자가 원인을 알 수 있게 debugPrint로 남긴다(SS017).
+      debugPrint('SsAiTask($name) 실행 중 예외: ${e.runtimeType}: $e\n$st');
       o = SsAiOutcome.retryable('$name 중 오류가 났습니다. 다시 시도할 수 있습니다.');
     }
     if (o.result != null) _lastGood = o.result;
