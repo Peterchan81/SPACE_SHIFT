@@ -14,6 +14,7 @@ import '../screens/cad_conversion_screen.dart';
 import '../screens/cad_editor_screen.dart';
 import '../screens/direct_draw_screen.dart';
 import '../screens/elevation_face_editor_screen.dart';
+import '../screens/final_result_screen.dart';
 import '../screens/floor_plan_review_screen.dart';
 import '../screens/floor_plan_upload_screen.dart';
 import '../screens/floor_plan_workspace_screen.dart';
@@ -58,6 +59,7 @@ abstract final class SsRouter {
       return ElevationFaceEditorScreen(projectId: map['projectId'] as String?, wallId: map['wallId'] as String?);
     },
     SsStage.isoRendering: (context) => IsoRenderingScreen(projectId: ModalRoute.of(context)?.settings.arguments as String?),
+    SsStage.finalResult: (context) => FinalResultScreen(projectId: ModalRoute.of(context)?.settings.arguments as String?),
     SsStage.imageEditing: (context) => PhotoDesignEditorScreen(projectId: ModalRoute.of(context)?.settings.arguments as String?),
     SsStage.imageRendering: (context) => ImageRenderingScreen(projectId: ModalRoute.of(context)?.settings.arguments as String?),
     SsStage.imageResult: (context) => ImageResultScreen(projectId: ModalRoute.of(context)?.settings.arguments as String?),

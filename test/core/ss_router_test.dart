@@ -23,9 +23,11 @@ void main() {
     tester.view.physicalSize = const Size(2000, 1200);
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.reset);
-    // SS013부터 isoEditor는 실제 화면([IsoEditorScreen])이 있으므로, 공통 "아직 없는 단계" 화면은
-    // 여전히 세부 화면이 없는 finalResult로 확인한다.
-    await tester.pumpWidget(MaterialApp(onGenerateRoute: SsRouter.onGenerateRoute, initialRoute: SsStage.finalResult.routeName));
+    // SS016부터 finalResult도 실제 화면([FinalResultScreen])을 쓰므로(그 화면은 projectId 없이 열리면
+    // 에러 안내만 보여 이 공통 틀을 더 이상 거치지 않는다), 공통 "아직 없는 단계" 화면([SsStageScreen],
+    // child 없이)을 직접 pump해 같은 내용을 확인한다 — 어떤 단계든 세부 화면이 없을 때 이 틀을 쓴다는
+    // 사실 자체는 이번 작업으로 바뀌지 않는다.
+    await tester.pumpWidget(MaterialApp(home: SsStageScreen(stage: SsStage.finalResult)));
     await tester.pumpAndSettle();
     expect(find.text(SsStage.finalResult.title), findsOneWidget);
     expect(find.byKey(const Key('ssStageWhat')), findsOneWidget);

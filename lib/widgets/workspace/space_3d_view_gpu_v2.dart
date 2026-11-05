@@ -14,7 +14,7 @@ import '../../theme/space_shift_colors.dart';
 /// 시점, [perspective]는 방 안 눈높이에서 보는 초기 시점이다 — 둘 다
 /// 자유롭게 회전/확대할 수 있어 사용자가 두 모드를 완전히 다른 화면으로
 /// 느끼지 않는다(같은 재질 변경이 양쪽에 그대로 반영된다).
-enum Space3DCameraMode { isometric, perspective }
+enum Space3DCameraMode { isometric, perspective, plan, front, side }
 
 /// SpaceScene V2 GPU 렌더러 — Windows 실기 재조사(3D) 결론에 따른
 /// renderer architecture 교체. CPU coarse-tile z-buffer([space_3d_view_v2.dart],
@@ -750,6 +750,20 @@ class _Space3DViewGpuV2State extends State<Space3DViewGpuV2> {
         // 시작점만 다르고 이후 자유 회전/확대는 동일).
         final distance = radius * 1.4;
         _setOrbitFromOffset(distance * 0.85, radius * 0.22 + 1600, distance * 0.85);
+      case Space3DCameraMode.plan:
+        // SS016 — 평면(Top-down) 뷰: 모델 전체를 바로 위에서 내려다본다(평면도와
+        // 같은 각도). 완전한 수직(0도)은 방위각이 정의되지 않아(짐벌락) 아주 작은
+        // 수평 성분만 섞어 안정적으로 둔다. 회전/확대는 다른 모드와 동일하게 자유롭다.
+        final distance = radius * 2.6;
+        _setOrbitFromOffset(distance * 0.001, distance, distance * 0.001);
+      case Space3DCameraMode.front:
+        // SS016 — 정면 뷰: Z축 방향에서 눈높이로 바라본다(정면도 감각의 초기 시점).
+        final distance = radius * 2.2;
+        _setOrbitFromOffset(distance * 0.001, radius * 0.5 + 800, distance);
+      case Space3DCameraMode.side:
+        // SS016 — 측면 뷰: X축 방향에서 눈높이로 바라본다(측면도 감각의 초기 시점).
+        final distance = radius * 2.2;
+        _setOrbitFromOffset(distance, radius * 0.5 + 800, distance * 0.001);
     }
     _updateCameraFromOrbit();
   }
