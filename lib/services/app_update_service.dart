@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import 'package:open_filex/open_filex.dart';
 import 'package:package_info_plus/package_info_plus.dart';
@@ -132,10 +133,31 @@ class AppUpdateService {
         currentVersionName: currentVersionName,
         currentVersionCode: currentVersionCode,
       );
-    } catch (_) {
+    } on SocketException catch (e) {
+      // 실제 연결 문제(DNS 실패/연결 거부 등)로 확인된 예외만 네트워크 오류로 안내한다(SS002 §6과 같은 원칙).
+      debugPrint('AppUpdateService.checkForUpdate 네트워크 오류: ${e.runtimeType}: $e');
       return AppUpdateCheck(
         result: AppUpdateCheckResult.error,
-        errorMessage: '업데이트 확인 중 오류가 발생했습니다 — 네트워크 연결을 확인해 주세요.',
+        errorMessage: '업데이트 서버에 연결할 수 없습니다 — 네트워크 연결을 확인해 주세요.',
+        currentVersionName: currentVersionName,
+        currentVersionCode: currentVersionCode,
+      );
+    } on http.ClientException catch (e) {
+      debugPrint('AppUpdateService.checkForUpdate 네트워크 오류: ${e.runtimeType}: $e');
+      return AppUpdateCheck(
+        result: AppUpdateCheckResult.error,
+        errorMessage: '업데이트 서버에 연결할 수 없습니다 — 네트워크 연결을 확인해 주세요.',
+        currentVersionName: currentVersionName,
+        currentVersionCode: currentVersionCode,
+      );
+    } catch (e, st) {
+      // 네트워크 문제로 확인되지 않은 그 밖의 모든 예외(JSON 파싱 실패 등 우리 코드의 버그 포함)는 네트워크
+      // 오류로 둔갑시키지 않고 일반 오류로 안내한다(SS017 — catch-all이 모든 실패를 하나의 원인으로 보고하지
+      // 않게 한다). 실제 예외 종류/메시지는 debugPrint로 남겨 개발자가 원인을 알 수 있게 한다.
+      debugPrint('AppUpdateService.checkForUpdate 예상치 못한 오류(네트워크 아님): ${e.runtimeType}: $e\n$st');
+      return AppUpdateCheck(
+        result: AppUpdateCheckResult.error,
+        errorMessage: '업데이트 확인 중 오류가 발생했습니다.',
         currentVersionName: currentVersionName,
         currentVersionCode: currentVersionCode,
       );
@@ -169,7 +191,11 @@ class AppUpdateService {
         await sink.close();
       }
       return file.path;
-    } catch (_) {
+    } catch (e, st) {
+      // 실패 원인(네트워크 오류, 디스크 쓰기 실패 등)을 하나로 둔갑시키지 않는다 — 호출부에는 기존과
+      // 같이 null로만 알리지만(예외를 밖으로 던지지 않는다), 실제 예외 종류는 개발자가 확인할 수
+      // 있게 debugPrint로 남긴다(SS017).
+      debugPrint('AppUpdateService.downloadApk 실패: ${e.runtimeType}: $e\n$st');
       return null;
     }
   }
