@@ -76,6 +76,29 @@ class AsonSpaceApp extends StatelessWidget {
           bodyColor: SpaceShiftColors.textPrimary,
           displayColor: SpaceShiftColors.textPrimary,
         ),
+        // SS-BUG-001 — 기본 Zoom 전환(ZoomPageTransitionsBuilder)은 전환 중
+        // 나가는/들어오는 화면을 이미지로 스냅샷(SnapshotWidget)한다. 3D 뷰
+        // (IsoEditorScreen/Space3DViewGpuV2)는 flutter_angle의 외부 텍스처
+        // (D3D 공유 표면)를 쓰므로, 그 화면을 스냅샷하는 순간
+        // flutter_windows.dll 안에서 access violation이 나 앱이 즉시
+        // 종료된다(PC2 2026-11-05, 4/4 재현, 스냅샷 끄면 20/20 정상).
+        // 전환 모양(Zoom)은 그대로 두고 스냅샷만 끈다.
+        pageTransitionsTheme: const PageTransitionsTheme(
+          builders: {
+            TargetPlatform.windows: ZoomPageTransitionsBuilder(
+              allowSnapshotting: false,
+            ),
+            TargetPlatform.android: ZoomPageTransitionsBuilder(
+              allowSnapshotting: false,
+            ),
+            TargetPlatform.linux: ZoomPageTransitionsBuilder(
+              allowSnapshotting: false,
+            ),
+            TargetPlatform.macOS: ZoomPageTransitionsBuilder(
+              allowSnapshotting: false,
+            ),
+          },
+        ),
         inputDecorationTheme: InputDecorationTheme(
           filled: true,
           fillColor: Colors.white,
