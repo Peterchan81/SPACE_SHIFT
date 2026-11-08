@@ -20,14 +20,20 @@ import 'signup_screen.dart';
 /// 배경과 부드러운 흰 빛 번짐(halo)으로 섞인다(검토 §1 지적) — 중앙 정렬 +
 /// 검은 그림자 박스 대신 좌측 치우침 Align + 흰 halo로 맞춘다.
 ///
-/// SS-수정001(2026-11-08) — 고정 크기를 그대로 쌓은 SingleChildScrollView가
-/// 창 높이가 낮으면 카드 아래쪽(구분선·회원가입 버튼)을 화면 밖으로 밀어내던
-/// 문제를 고친다. [LayoutBuilder]로 받은 실제 사용 가능한 높이·너비에 맞춰
-/// 로고·제목·문구·간격을 비율로 줄이고(§2), 입력창·버튼은 최소 터치 높이
-/// (44px)를 지키며 세로 스크롤 없이 모두 한 창 안에 보이게 한다. MASTER 1번
-/// 디자인(배경 사진 BoxFit.cover, 반투명 흰 카드+halo, 무지개 제목, 좌측·
-/// 아래 치우침 Alignment(-0.35, 0.35), 색상)은 그대로 둔다 — 새 이미지·색은
-/// 쓰지 않는다.
+/// SS-수정001(2026-11-08 재작업) — 고정된 "최소값까지만" 줄어드는 비율
+/// 축소 방식은 Windows 640x480(실 사용 영역 약 624x441)처럼 낮은 창에서
+/// 회원가입 버튼까지 다 합친 최소 높이(약 460px)보다 창이 더 낮으면 여전히
+/// 넘쳤다. 이번에는 로고·제목·안내 문구 묶음만 [Flexible] +
+/// [FittedBox](fit: BoxFit.scaleDown)로 감싸 남은 높이에 맞춰 비율 그대로
+/// 끝까지 줄어들게 하고, 입력창·로그인·회원가입 버튼이 든 흰 카드는 크기를
+/// 고정한다(§2 "입력·버튼은 마지막까지 유지"). 아주 작은 창(사용 가능한
+/// 높이 520px 미만)에서는 로고의 기준 크기를 56에서 40으로 낮춰 제목 글자가
+/// 지나치게 작아지기 전에 로고부터 줄인다. MASTER 1번 디자인(배경 사진
+/// BoxFit.cover, 반투명 흰 카드+halo, 무지개 제목, 좌측·아래 치우침
+/// Alignment(-0.35, 0.35), 색상)은 그대로 둔다 — 새 이미지·색은 쓰지 않는다.
+///
+/// 시작 화면(lib/main.dart _AuthGate)의 로딩 화면은 이미 Scaffold+Center로
+/// 가운데 정렬되어 있어 이번 수정 대상이 아니다.
 ///
 /// 인증은 [AuthService] 인터페이스(§2) 뒤에서 [AuthController]가 담당한다.
 class LoginScreen extends StatefulWidget {
@@ -173,12 +179,17 @@ class _LoginScreenState extends State<LoginScreen> {
   }
 }
 
-/// SS-수정001 — 로고부터 회원가입 버튼까지 세로 스크롤 없이 한 창 안에 담는
-/// 카드. [availableHeight]가 기준 높이(900 — 기존 고정 레이아웃이 그대로
-/// 보였던 높이 근사값)보다 낮으면 로고·제목·문구·간격을 비율로 줄인다(§2).
-/// 입력창·회원가입 버튼은 최소 44px 터치 높이를 지킨다(로그인 버튼은
-/// [GradientCtaButton]의 고정 56px이라 항상 만족한다). MASTER 1번 디자인
-/// (배경 사진·반투명 카드+halo·무지개 제목·색상)은 바꾸지 않는다.
+/// SS-수정001(2026-11-08 재작업) — 로고·제목·안내 문구 묶음은 [Flexible] +
+/// [FittedBox](fit: BoxFit.scaleDown)로 감싸 남은 높이(흰 카드를 그린 뒤
+/// 남는 공간)에 맞춰 비율 그대로 줄어들게 하고, 입력창·로그인·회원가입
+/// 버튼이 들어 있는 흰 카드는 크기를 고정한다(§2 "입력·버튼은 마지막까지
+/// 유지"). 바깥 [Column]은 mainAxisSize.min이라 [availableHeight]가 충분히
+/// 큰 창(1920x1080, 800x1280 등)에서는 FittedBox가 확대하지 않으므로 기존
+/// 모습 그대로 보인다 — 변화는 카드 위쪽 묶음이 들어갈 자리가 부족할 때만
+/// 생긴다. [availableHeight]가 520px보다 낮은 아주 작은 창에서는 로고의
+/// 기준(스케일 전) 크기를 56에서 40으로 낮춰, 제목 글자가 지나치게 작아지기
+/// 전에 로고부터 줄인다. MASTER 1번 디자인(배경 사진·반투명 카드+halo·
+/// 무지개 제목·색상)은 바꾸지 않는다.
 class _LoginCard extends StatelessWidget {
   const _LoginCard({
     required this.availableHeight,
@@ -204,91 +215,99 @@ class _LoginCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // 기준 높이 — 기존 고정 레이아웃(로고 14%, 제목42, 문구22, 입력/버튼52,
-    // 간격 합계 750px 이상)이 세로 스크롤 없이 그대로 보였던 창 높이
-    // 근사값. 그보다 높은 창(예: 1920x1080, 800x1280)에서는 원래 크기를
-    // 그대로 쓰고, 낮은 창(1280x720·1024x640·800x600)에서는 이 비율대로
-    // 줄인다 — 각 요소의 최소값은 아래에서 보장한다(§2).
-    const referenceHeight = 900.0;
-    final heightScale = (availableHeight / referenceHeight).clamp(0.5, 1.0).toDouble();
-
     final cardMaxWidth = availableWidth < 48 ? availableWidth : (availableWidth - 48).clamp(0.0, 420.0).toDouble();
 
-    final logoSize = (cardMaxWidth * 0.14 * heightScale).clamp(56.0, 220.0).toDouble();
-    final titleSize = (42.0 * heightScale).clamp(24.0, 42.0).toDouble();
-    final subtitleSize = (22.0 * heightScale).clamp(15.0, 22.0).toDouble();
-    final captionSize = (13.0 * heightScale).clamp(11.0, 13.0).toDouble();
-    final fieldVerticalPadding = (16.0 * heightScale).clamp(10.0, 16.0).toDouble();
-    final signupButtonHeight = (52.0 * heightScale).clamp(44.0, 52.0).toDouble();
+    // §2 "아주 작은 창에서는 설명 줄·로고부터 줄인다" — 사용 가능한 높이가
+    // 520px보다 낮을 때만 로고의 기준(스케일 전) 크기를 56에서 40으로
+    // 낮춘다. 그 밖의(기존 1280x720·1024x640·800x600·1920x1080·800x1280
+    // 포함) 모든 경우는 그대로 56이다 — 1920x1080·800x1280에서는 변화가
+    // 없다.
+    final logoMinSize = availableHeight < 520 ? 40.0 : 56.0;
+    final logoSize = (cardMaxWidth * 0.14).clamp(logoMinSize, 220.0).toDouble();
 
-    final outerVerticalPadding = (16.0 * heightScale).clamp(8.0, 16.0).toDouble();
-    final gapAfterLogo = (16.0 * heightScale).clamp(6.0, 16.0).toDouble();
-    final gapAfterTitle = (14.0 * heightScale).clamp(6.0, 14.0).toDouble();
-    final gapBeforeCaption = (6.0 * heightScale).clamp(2.0, 6.0).toDouble();
-    final gapAfterCaption = (26.0 * heightScale).clamp(10.0, 26.0).toDouble();
-    final cardPaddingTop = (24.0 * heightScale).clamp(14.0, 24.0).toDouble();
-    final cardPaddingBottom = (20.0 * heightScale).clamp(12.0, 20.0).toDouble();
-    final gapBetweenFields = (14.0 * heightScale).clamp(8.0, 14.0).toDouble();
-    final gapBeforeLoginButton = (18.0 * heightScale).clamp(8.0, 18.0).toDouble();
-    final gapBeforeDivider = (18.0 * heightScale).clamp(8.0, 18.0).toDouble();
-    final gapAfterDivider = (18.0 * heightScale).clamp(8.0, 18.0).toDouble();
+    // ② 흰 카드(이메일·비밀번호 입력, 로그인 버튼, "또는", 회원가입 버튼)는
+    // 크기를 고정한다(§2 "입력·버튼은 마지막까지 유지") — 기존 고정
+    // 레이아웃(heightScale=1.0일 때)과 같은 값이라 큰 창에서는 변화가 없다.
+    const cardPaddingTop = 24.0;
+    const cardPaddingBottom = 20.0;
+    const fieldVerticalPadding = 16.0;
+    const gapBetweenFields = 14.0;
+    const gapBeforeLoginButton = 18.0;
+    const gapBeforeDivider = 18.0;
+    const gapAfterDivider = 18.0;
+    const signupButtonHeight = 52.0;
 
     return Padding(
-      padding: EdgeInsets.symmetric(horizontal: 24, vertical: outerVerticalPadding),
+      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
       child: ConstrainedBox(
         constraints: BoxConstraints(maxWidth: cardMaxWidth),
         child: Column(
           mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.center,
           children: [
-            SizedBox(
-              width: logoSize,
-              height: logoSize,
-              child: Image.asset('assets/icons/space_shift_symbol.png', fit: BoxFit.contain),
-            ),
-            SizedBox(height: gapAfterLogo),
-            ShaderMask(
-              shaderCallback: (bounds) => SsMasterTheme.rainbow.createShader(bounds),
-              child: Text(
-                'SPACE SHIFT',
-                key: const Key('loginTitle'),
-                style: TextStyle(fontSize: titleSize, fontWeight: FontWeight.w900, color: Colors.white, letterSpacing: 1),
+            // ① 로고·제목 SPACE SHIFT·안내 문구 2줄·설명 1줄 묶음 — 남은
+            // 높이에 맞춰 비율 그대로 줄어든다(§2). 큰 창에서는
+            // BoxFit.scaleDown이 확대하지 않으므로 지금 모습 그대로다.
+            Flexible(
+              child: FittedBox(
+                fit: BoxFit.scaleDown,
+                child: ConstrainedBox(
+                  constraints: BoxConstraints(maxWidth: cardMaxWidth),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      SizedBox(
+                        key: const Key('loginLogo'),
+                        width: logoSize,
+                        height: logoSize,
+                        child: Image.asset('assets/icons/space_shift_symbol.png', fit: BoxFit.contain),
+                      ),
+                      const SizedBox(height: 16),
+                      ShaderMask(
+                        shaderCallback: (bounds) => SsMasterTheme.rainbow.createShader(bounds),
+                        child: const Text(
+                          'SPACE SHIFT',
+                          key: Key('loginTitle'),
+                          style: TextStyle(fontSize: 42, fontWeight: FontWeight.w900, color: Colors.white, letterSpacing: 1),
+                        ),
+                      ),
+                      const SizedBox(height: 14),
+                      const Text(
+                        '공간의 변화를 만드는',
+                        textAlign: TextAlign.center,
+                        style: TextStyle(fontSize: 22, fontWeight: FontWeight.w800, color: Colors.white, height: 1.25),
+                      ),
+                      Wrap(
+                        alignment: WrapAlignment.center,
+                        crossAxisAlignment: WrapCrossAlignment.center,
+                        children: [
+                          const Text('새로운 가능성, ', style: TextStyle(fontSize: 22, fontWeight: FontWeight.w800, color: Colors.white)),
+                          ShaderMask(
+                            shaderCallback: (bounds) => SsMasterTheme.rainbow.createShader(bounds),
+                            child: const Text('SPACE SHIFT', style: TextStyle(fontSize: 22, fontWeight: FontWeight.w800, color: Colors.white)),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 6),
+                      const Text(
+                        'AI와 함께, 당신의 공간을 새롭게 디자인하세요.',
+                        textAlign: TextAlign.center,
+                        style: TextStyle(fontSize: 13, color: Color(0xFFCBD5E1)),
+                      ),
+                      const SizedBox(height: 26),
+                    ],
+                  ),
+                ),
               ),
             ),
-            SizedBox(height: gapAfterTitle),
-            Text(
-              '공간의 변화를 만드는',
-              textAlign: TextAlign.center,
-              style: TextStyle(fontSize: subtitleSize, fontWeight: FontWeight.w800, color: Colors.white, height: 1.25),
-            ),
-            Wrap(
-              alignment: WrapAlignment.center,
-              crossAxisAlignment: WrapCrossAlignment.center,
-              children: [
-                Text('새로운 가능성, ', style: TextStyle(fontSize: subtitleSize, fontWeight: FontWeight.w800, color: Colors.white)),
-                ShaderMask(
-                  shaderCallback: (bounds) => SsMasterTheme.rainbow.createShader(bounds),
-                  child: Text('SPACE SHIFT', style: TextStyle(fontSize: subtitleSize, fontWeight: FontWeight.w800, color: Colors.white)),
-                ),
-              ],
-            ),
-            SizedBox(height: gapBeforeCaption),
-            Text(
-              'AI와 함께, 당신의 공간을 새롭게 디자인하세요.',
-              textAlign: TextAlign.center,
-              style: TextStyle(fontSize: captionSize, color: const Color(0xFFCBD5E1)),
-            ),
-            SizedBox(height: gapAfterCaption),
+            // ② 흰 카드 — 크기를 고정한다. MASTER 원본처럼 카드 배경이 완전한
+            // 불투명 흰색이 아니라 뒤 배경이 살짝 비치는 반투명 흰색이고,
+            // 카드 주위가 배경과 부드러운 흰 빛 번짐(halo)으로 섞인다.
             Container(
-              padding: EdgeInsets.fromLTRB(24, cardPaddingTop, 24, cardPaddingBottom),
+              padding: const EdgeInsets.fromLTRB(24, cardPaddingTop, 24, cardPaddingBottom),
               decoration: BoxDecoration(
-                // MASTER 원본처럼 카드 배경이 완전한 불투명 흰색이
-                // 아니라 뒤 배경이 살짝 비치는 반투명 흰색이다
-                // (2026-10-28 추가 지시).
                 color: Colors.white.withValues(alpha: 0.88),
                 borderRadius: BorderRadius.circular(20),
-                // MASTER 원본처럼 카드 주위가 배경과 부드러운 흰 빛
-                // 번짐(halo)으로 섞이도록 한다 — 검은 그림자만으로는
-                // 원본과 달리 카드가 딱딱한 박스처럼 떠 보인다.
                 boxShadow: [
                   BoxShadow(color: Colors.white.withValues(alpha: 0.45), blurRadius: 48, offset: const Offset(0, 0)),
                   BoxShadow(color: Colors.black.withValues(alpha: 0.12), blurRadius: 20, offset: const Offset(0, 10)),
@@ -297,7 +316,7 @@ class _LoginCard extends StatelessWidget {
               child: Theme(
                 data: Theme.of(context).copyWith(
                   inputDecorationTheme: Theme.of(context).inputDecorationTheme.copyWith(
-                    contentPadding: EdgeInsets.symmetric(horizontal: 16, vertical: fieldVerticalPadding),
+                    contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: fieldVerticalPadding),
                   ),
                 ),
                 child: Column(
@@ -311,7 +330,7 @@ class _LoginCard extends StatelessWidget {
                         prefixIcon: Icon(Icons.mail_outline_rounded),
                       ),
                     ),
-                    SizedBox(height: gapBetweenFields),
+                    const SizedBox(height: gapBetweenFields),
                     TextField(
                       controller: passwordController,
                       obscureText: obscurePassword,
@@ -324,13 +343,13 @@ class _LoginCard extends StatelessWidget {
                         ),
                       ),
                     ),
-                    SizedBox(height: gapBeforeLoginButton),
+                    const SizedBox(height: gapBeforeLoginButton),
                     GradientCtaButton(
                       label: '로그인',
                       onPressed: submitting ? null : onLogin,
                       trailingIcon: Icons.arrow_forward_rounded,
                     ),
-                    SizedBox(height: gapBeforeDivider),
+                    const SizedBox(height: gapBeforeDivider),
                     Row(
                       children: [
                         const Expanded(child: Divider(color: Color(0xFFE2E8F0))),
@@ -341,7 +360,7 @@ class _LoginCard extends StatelessWidget {
                         const Expanded(child: Divider(color: Color(0xFFE2E8F0))),
                       ],
                     ),
-                    SizedBox(height: gapAfterDivider),
+                    const SizedBox(height: gapAfterDivider),
                     SizedBox(
                       height: signupButtonHeight,
                       child: OutlinedButton(

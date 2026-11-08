@@ -4,6 +4,15 @@
 // signedOut/tokenRefreshed 이벤트가 오면 각각 로그인 화면·세션 교체로
 // 반영한다. 실제 네트워크 없이 기존 FakeAuthService/MockClient 방식 그대로
 // 검증한다.
+//
+// SS-수정002(2026-11-08 후속 지시) — "실행 중 인증 만료(refresh token
+// 갱신 실패)" 흐름을 직접 재현하는 테스트를 '실행 중 세션 변화' 그룹에
+// 추가한다. gotrue-2.27.3 소스(gotrue_client.dart _doRefresh, 약
+// 1627~1636행)를 보면, refreshSession()이 재시도 불가능한 AuthException으로
+// 실패하면(여기서는 grant_type=refresh_token 요청에 400 +
+// error_code=refresh_token_not_found로 흉내낸다) 로컬 세션을 지우고
+// signedOut 이벤트를 보낸다 — 앱 코드는 바꾸지 않고 이 동작을 그대로
+// 증명한다.
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
@@ -182,6 +191,48 @@ void main() {
 
       expect(controller.session?.accessToken, 'at-2');
       expect(controller.isAuthenticated, isTrue);
+    });
+
+    test('실행 중 refresh token 만료(갱신 실패) → 세션 삭제 + 로그인 화면으로 강제 이동', () async {
+      final client = _testClient((request) async {
+        if (request.url.queryParameters['grant_type'] == 'refresh_token') {
+          // gotrue-2.27.3 fetch.dart _handleError — statusCode<500이면 응답
+          // 본문을 JSON으로 읽어 error_code로 분류한다(API 버전 헤더가 없을
+          // 때는 'error_code' 키를 본다). 실제 Supabase가 만료·무효·취소된
+          // refresh token에 돌려주는 모양 그대로 흉내낸다.
+          return http.Response(
+            jsonEncode({
+              'error': 'invalid_grant',
+              'error_description': 'Invalid Refresh Token: Refresh Token Not Found',
+              'error_code': 'refresh_token_not_found',
+            }),
+            400,
+          );
+        }
+        return http.Response(
+          jsonEncode(_sessionJson(accessToken: 'at-expire', refreshToken: 'rt-expire', userId: 'u-expire', email: 'expire@example.com')),
+          200,
+        );
+      });
+      final controller = AuthController(service: SupabaseAuthService(client: client));
+      controller.attachAuthStateListener(client.auth);
+
+      await client.auth.signInWithPassword(email: 'expire@example.com', password: 'password1');
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+      expect(controller.isAuthenticated, isTrue);
+
+      var forcedCalled = false;
+      controller.onForcedSignOut = () => forcedCalled = true;
+
+      await expectLater(
+        () => client.auth.refreshSession(),
+        throwsA(isA<supa.AuthException>()),
+        reason: '만료·무효·취소된 refresh token으로 갱신하면 AuthException이 던져진다',
+      );
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+
+      expect(controller.isAuthenticated, isFalse, reason: '세션이 삭제되어 비인증 상태가 된다');
+      expect(forcedCalled, isTrue, reason: 'signedOut 이벤트로 로그인 화면까지 강제 이동하는 콜백이 불린다');
     });
   });
 
