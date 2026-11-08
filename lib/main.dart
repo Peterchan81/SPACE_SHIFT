@@ -1,7 +1,7 @@
 import 'dart:async';
 import 'dart:io';
 
-import 'package:flutter/foundation.dart' show kIsWeb;
+import 'package:flutter/foundation.dart' show debugPrint, kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart' as supa;
 
@@ -11,6 +11,7 @@ import 'screens/home_screen.dart';
 import 'screens/login_screen.dart';
 import 'services/app_update_store.dart';
 import 'services/auth_service.dart';
+import 'services/secure_session_storage.dart';
 import 'theme/space_shift_colors.dart';
 
 /// SS002 §2 — 빌드 설정(`--dart-define`)으로만 읽는다. lib/services/auth_service.dart
@@ -28,14 +29,37 @@ Future<void> main() async {
   // 은 Supabase.instance.client.auth.currentSession만 읽으면 된다(자동 로그인).
   // 설정이 없으면 호출하지 않는다 — §2 "인증 설정이 없습니다" 안내가 그대로 동작한다.
   if (_supabaseUrl.isNotEmpty && _supabaseAnonKey.isNotEmpty) {
+    // SS-수정002 §2 — 세션을 OS 보안 저장소(flutter_secure_storage)에 둔다.
+    // 이 기기·플랫폼에서 쓸 수 없으면(웹 포함) supabase_flutter 기본
+    // 저장소(SharedPreferences)로 그대로 동작한다 — 이유는 debugPrint로
+    // 남기고 토큰 값은 남기지 않는다. 기존 SharedPreferences에 저장된
+    // 세션이 있으면 한 번만 보안 저장소로 옮기고, 그 키만 지운다.
+    supa.LocalStorage? secureLocalStorage;
+    if (!kIsWeb) {
+      final secureAvailable = await SecureSessionStorage.isAvailable();
+      if (secureAvailable) {
+        final secureStorage = SecureSessionStorage();
+        await migrateSessionStorage(from: legacySharedPreferencesStorage(_supabaseUrl), to: secureStorage);
+        secureLocalStorage = secureStorage;
+      } else {
+        debugPrint('SS-수정002: 보안 저장소를 쓸 수 없어 기본 저장소(SharedPreferences)로 동작합니다.');
+      }
+    }
     // SS002 §2(2026-10-28 #2 후속 지시) — anonKey는 설치된 supabase_flutter가
     // deprecated 안내하는 이름이다. 같은 SUPABASE_ANON_KEY 빌드 설정 값을
     // publishableKey로 넘긴다(빌드 설정 키 이름은 그대로).
-    await supa.Supabase.initialize(url: _supabaseUrl, publishableKey: _supabaseAnonKey);
+    await supa.Supabase.initialize(
+      url: _supabaseUrl,
+      publishableKey: _supabaseAnonKey,
+      authOptions: secureLocalStorage == null
+          ? const supa.FlutterAuthClientOptions()
+          : supa.FlutterAuthClientOptions(localStorage: secureLocalStorage),
+    );
     // SS002 §5 — 이메일 인증 메일의 콜백 링크(딥링크)가 PKCE 코드 교환까지
     // 끝내 세션을 만들면(signedIn) AuthController가 그 신호를 받아 홈으로
     // 이동할 수 있게, 전역 Supabase 클라이언트의 인증 상태 스트림을 구독해
-    // 둔다(설정이 없는 빌드에는 영향 없음).
+    // 둔다(설정이 없는 빌드에는 영향 없음). SS-수정002 §4 — signedOut·
+    // tokenRefreshed·userDeleted도 같은 리스너가 함께 반영한다.
     AuthController.instance.attachAuthStateListener();
   }
 
