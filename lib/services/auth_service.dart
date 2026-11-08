@@ -167,6 +167,39 @@ const String kAuthNotConfiguredMessage = '인증 설정이 없습니다.';
 /// 네트워크와 무관한 예상치 못한 오류일 때 보여줄 일반 안내(§6, 2026-10-28 추가 지시).
 const String kAuthUnknownErrorMessage = '알 수 없는 오류가 발생했습니다. 잠시 후 다시 시도해주세요.';
 
+/// SS-수정002 §3·§5 — [AuthService.restoreSessionChecked] 결과의 종류.
+/// [AuthController.bootstrap]이 이 결과로 홈/로그인을 고른다. [AuthService.restoreSession]
+/// (만료 여부를 보지 않는 기존 동작)과 달리, 만료된 세션은 refresh token으로
+/// 갱신까지 시도한 뒤의 결과다.
+enum SessionRestoreKind {
+  /// 저장된 세션이 없다 — 로그인 화면(안내 없음).
+  none,
+
+  /// 바로 쓸 수 있는 세션이다(만료 전, 또는 만료됐지만 갱신 성공) — 홈.
+  ready,
+
+  /// refresh token이 만료·무효·취소되어 더 이상 쓸 수 없다 — 저장된 세션을
+  /// 지우고 로그인 화면(실제 앱에서는 supabase_flutter가 signedOut 이벤트로
+  /// 저장소도 비운다).
+  invalid,
+
+  /// 네트워크 오류로 만료 여부·갱신 결과를 확인하지 못했다 — 로그인 화면 +
+  /// "네트워크 연결을 확인해주세요" 안내.
+  networkError,
+}
+
+@immutable
+class SessionRestoreOutcome {
+  const SessionRestoreOutcome._(this.kind, this.session);
+  const SessionRestoreOutcome.none() : this._(SessionRestoreKind.none, null);
+  const SessionRestoreOutcome.ready(AuthSession session) : this._(SessionRestoreKind.ready, session);
+  const SessionRestoreOutcome.invalid() : this._(SessionRestoreKind.invalid, null);
+  const SessionRestoreOutcome.networkError() : this._(SessionRestoreKind.networkError, null);
+
+  final SessionRestoreKind kind;
+  final AuthSession? session;
+}
+
 /// 화면이 바라보는 인증 인터페이스 — Supabase 구현과 테스트용 Fake가 이를 구현한다.
 abstract class AuthService {
   /// SUPABASE_URL/SUPABASE_ANON_KEY가 모두 있어야 true(§2) — 없으면 회원가입/
@@ -180,6 +213,11 @@ abstract class AuthService {
   /// 앱 시작 시 저장된 세션을 복원한다(§5) — supabase_flutter가 복원해 둔
   /// 세션이 있으면 그대로 돌려주고, 없으면 null(로그인 화면으로).
   Future<AuthSession?> restoreSession();
+
+  /// SS-수정002 §3·§5 — [restoreSession]과 달리 만료 여부를 직접 판단해
+  /// 만료된 세션은 refresh token으로 갱신까지 시도한다. [AuthController.bootstrap]
+  /// 이 자동 로그인 여부를 가를 때 쓴다.
+  Future<SessionRestoreOutcome> restoreSessionChecked();
 
   /// 확인 메일을 다시 보낸다(§3·§6 "요청 제한 및 이메일 발송 한도",
   /// 2026-10-28 #2 후속 지시 "인증 메일 다시 보내기").
@@ -309,6 +347,55 @@ class SupabaseAuthService implements AuthService {
     }
   }
 
+  /// SS-수정002 §3·§5 — 저장된 세션이 만료됐으면 refresh token으로 갱신을
+  /// 시도한다. gotrue의 [supa.GoTrueClient.refreshSession]이 실패하면
+  /// 내부적으로 로컬 세션을 지우고 signedOut 이벤트를 보내므로(실제 앱에서는
+  /// supabase_flutter가 그 이벤트를 받아 저장소도 비운다), 여기서는 그
+  /// 결과만 분류해 돌려준다. 오류 분류는 이 파일 상단에 적은 규칙(실제
+  /// 연결 문제만 네트워크 오류로 안내, 그 밖은 일반 실패 + debugPrint)을
+  /// 그대로 따른다.
+  @override
+  Future<SessionRestoreOutcome> restoreSessionChecked() async {
+    if (!isConfigured) return const SessionRestoreOutcome.none();
+    supa.Session? current;
+    try {
+      current = _client.auth.currentSession;
+    } catch (e, st) {
+      debugPrint('SupabaseAuthService.restoreSessionChecked currentSession 조회 실패: ${e.runtimeType}: $e\n$st');
+      return const SessionRestoreOutcome.none();
+    }
+    final mapped = _mapSession(current);
+    if (mapped == null) return const SessionRestoreOutcome.none();
+    if (!mapped.isExpired) return SessionRestoreOutcome.ready(mapped);
+    try {
+      final res = await _client.auth.refreshSession().timeout(const Duration(seconds: 20));
+      final refreshed = _mapSession(res.session, fallbackEmail: mapped.email);
+      if (refreshed == null) return const SessionRestoreOutcome.invalid();
+      return SessionRestoreOutcome.ready(refreshed);
+    } on supa.AuthRetryableFetchException catch (e) {
+      debugPrint('SupabaseAuthService.restoreSessionChecked 네트워크 오류(AuthRetryableFetchException): ${e.message}');
+      return const SessionRestoreOutcome.networkError();
+    } on supa.AuthException catch (e) {
+      // refresh token이 만료·무효·취소됨 — 더 이상 쓸 수 없는 세션이다.
+      debugPrint('SupabaseAuthService.restoreSessionChecked refresh 실패: ${e.runtimeType}: ${e.message}');
+      return const SessionRestoreOutcome.invalid();
+    } on SocketException catch (e) {
+      debugPrint('SupabaseAuthService.restoreSessionChecked 네트워크 오류: ${e.runtimeType}: $e');
+      return const SessionRestoreOutcome.networkError();
+    } on http.ClientException catch (e) {
+      debugPrint('SupabaseAuthService.restoreSessionChecked 네트워크 오류: ${e.runtimeType}: $e');
+      return const SessionRestoreOutcome.networkError();
+    } on TimeoutException catch (e) {
+      debugPrint('SupabaseAuthService.restoreSessionChecked 네트워크 오류: ${e.runtimeType}: $e');
+      return const SessionRestoreOutcome.networkError();
+    } catch (e, st) {
+      // 네트워크 원인으로 확인되지 않은 예외는 네트워크 오류로 둔갑시키지
+      // 않는다 — 세션을 더 신뢰할 수 없다고 보고 로그인 화면으로 보낸다.
+      debugPrint('SupabaseAuthService.restoreSessionChecked 예상치 못한 오류(네트워크 아님): ${e.runtimeType}: $e\n$st');
+      return const SessionRestoreOutcome.invalid();
+    }
+  }
+
   @override
   Future<AuthResult> resendConfirmation({required String email}) async {
     if (!isConfigured) return const AuthResult.failure(kAuthNotConfiguredMessage, AuthErrorKind.notConfigured);
@@ -405,12 +492,32 @@ class SupabaseAuthService implements AuthService {
 /// 비밀번호 정책(최소 8자, §3), 이메일 형식 검증, 중복 가입, 이메일 확인
 /// 필요 여부, 네트워크 오류 시뮬레이션 등을 생성자 플래그로 조절할 수 있다.
 class FakeAuthService implements AuthService {
-  FakeAuthService({this.configured = true, this.requireEmailConfirmation = false, this.simulateNetworkError = false, this.signInDelay = Duration.zero});
+  FakeAuthService({
+    this.configured = true,
+    this.requireEmailConfirmation = false,
+    this.simulateNetworkError = false,
+    this.signInDelay = Duration.zero,
+    this.sessionExpired = false,
+    this.refreshSucceeds = true,
+    this.refreshNetworkError = false,
+  });
 
   final bool configured;
   final bool requireEmailConfirmation;
   bool simulateNetworkError;
   final Duration signInDelay;
+
+  /// SS-수정002 §8 테스트 지원 — true면 저장된 세션이 만료된 것으로 취급해
+  /// [restoreSessionChecked]가 갱신을 시도한다.
+  bool sessionExpired;
+
+  /// 만료된 세션을 갱신할 때 성공할지(기본 true) — false면 refresh token이
+  /// 무효·만료·취소된 것으로 취급한다.
+  bool refreshSucceeds;
+
+  /// 만료된 세션 갱신 중 네트워크 오류를 흉내낼지(§5 "네트워크 연결을
+  /// 확인해주세요"). true면 [refreshSucceeds]는 무시된다.
+  bool refreshNetworkError;
 
   final Map<String, String> _users = {};
   final Map<String, bool> _confirmed = {};
@@ -476,6 +583,32 @@ class FakeAuthService implements AuthService {
   @override
   Future<AuthSession?> restoreSession() async => _session;
 
+  /// SS-수정002 §3·§8 — [sessionExpired]가 false면 저장된 세션을 그대로
+  /// 돌려준다(기존 [restoreSession]과 같은 동작). true면 만료된 것으로 보고
+  /// [refreshNetworkError]/[refreshSucceeds]에 따라 네트워크 오류·갱신
+  /// 성공·갱신 실패(무효 세션)를 흉내낸다.
+  @override
+  Future<SessionRestoreOutcome> restoreSessionChecked() async {
+    final current = _session;
+    if (current == null) return const SessionRestoreOutcome.none();
+    if (!sessionExpired) return SessionRestoreOutcome.ready(current);
+    if (refreshNetworkError) return const SessionRestoreOutcome.networkError();
+    if (!refreshSucceeds) {
+      _session = null;
+      return const SessionRestoreOutcome.invalid();
+    }
+    _idSeq++;
+    final refreshed = AuthSession(
+      userId: current.userId,
+      email: current.email,
+      accessToken: 'fake-access-$_idSeq',
+      refreshToken: 'fake-refresh-$_idSeq',
+      expiresAt: DateTime.now().toUtc().add(const Duration(hours: 1)),
+    );
+    _session = refreshed;
+    return SessionRestoreOutcome.ready(refreshed);
+  }
+
   @override
   Future<AuthResult> resendConfirmation({required String email}) async {
     if (!isConfigured) return const AuthResult.failure(kAuthNotConfiguredMessage, AuthErrorKind.notConfigured);
@@ -527,6 +660,11 @@ class AuthController extends ChangeNotifier {
 
   StreamSubscription<supa.AuthState>? _authStateSub;
 
+  /// SS-수정002 §4 — 실행 중 로그아웃(signedOut)이나 세션 무효화가 일어나면
+  /// 호출된다. main.dart가 전역 Navigator로 로그인 화면까지 보내는 콜백을
+  /// 등록한다. 비워 두면(테스트 등) 아무 것도 하지 않는다.
+  VoidCallback? onForcedSignOut;
+
   /// 이메일 인증 콜백 딥링크 처리 중 발생한 안내(§6, 2026-10-28 #2 후속
   /// 지시) — 만료/오류 링크나 다른 기기에서 연 링크 등. 홈으로 보내지
   /// 않는다. [EmailConfirmationScreen] 등이 구독해서 보여준다.
@@ -541,14 +679,39 @@ class AuthController extends ChangeNotifier {
   bool get isConfigured => service.isConfigured;
 
   /// 앱 시작 시 한 번 — 저장된 세션을 복원한다(§5 자동 로그인). 여러 번
-  /// 불려도 한 번만 동작한다.
+  /// 불려도 한 번만 동작한다. SS-수정002 §3 — 만료된 세션은 갱신을
+  /// 시도하고, 네트워크 오류로 확인하지 못했으면 로그인 화면에 안내를 한
+  /// 번 보여줄 메시지를 남긴다([consumeBootstrapMessage]).
   Future<void> bootstrap() async {
     if (_initialized) return;
     if (service.isConfigured) {
-      _session = await service.restoreSession();
+      final outcome = await service.restoreSessionChecked();
+      switch (outcome.kind) {
+        case SessionRestoreKind.ready:
+          _session = outcome.session;
+          break;
+        case SessionRestoreKind.invalid:
+        case SessionRestoreKind.none:
+          _session = null;
+          break;
+        case SessionRestoreKind.networkError:
+          _session = null;
+          _bootstrapMessage = '네트워크 연결을 확인해주세요.';
+          break;
+      }
     }
     _initialized = true;
     notifyListeners();
+  }
+
+  String? _bootstrapMessage;
+
+  /// SS-수정002 §3 — 부팅 시 세션 갱신을 네트워크 오류로 확인하지 못했을 때
+  /// 로그인 화면이 한 번 보여줄 안내. 읽으면 비워진다(다시 보이지 않게).
+  String? consumeBootstrapMessage() {
+    final message = _bootstrapMessage;
+    _bootstrapMessage = null;
+    return message;
   }
 
   /// SS002 §5(2026-10-28 #2 후속 지시) — 이메일 인증 메일의 콜백 링크를
@@ -567,20 +730,31 @@ class AuthController extends ChangeNotifier {
     unawaited(_authStateSub?.cancel());
     _authStateSub = client.onAuthStateChange.listen(
       (state) {
-        if (state.event != supa.AuthChangeEvent.signedIn || state.session == null) return;
-        final s = state.session!;
-        _emailLinkError = null;
-        _session = AuthSession(
-          userId: s.user.id,
-          email: s.user.email ?? '',
-          accessToken: s.accessToken,
-          refreshToken: s.refreshToken ?? '',
-          expiresAt: s.expiresAt != null
-              ? DateTime.fromMillisecondsSinceEpoch(s.expiresAt! * 1000, isUtc: true)
-              : DateTime.now().toUtc().add(const Duration(hours: 1)),
-        );
-        _initialized = true;
-        notifyListeners();
+        // SS-수정002 §4 — signedIn 외에 tokenRefreshed(세션을 새 값으로
+        // 교체)와 signedOut(보호 화면에 머물지 않도록 세션을 지우고 로그인
+        // 화면으로 돌려보낸다)도 반영한다. userDeleted는 deprecated로 실제
+        // supabase_flutter/gotrue가 더 이상 보내지 않지만(§4 요구를 그대로
+        // 지키기 위해 deprecated 열거값을 직접 참조하지 않고 event.name
+        // 문자열로 비교해 같은 값이 오더라도 안전하게 처리한다.
+        if (state.event == supa.AuthChangeEvent.signedIn && state.session != null) {
+          final s = state.session!;
+          _emailLinkError = null;
+          _session = _mapSupaSession(s);
+          _initialized = true;
+          notifyListeners();
+          return;
+        }
+        if (state.event == supa.AuthChangeEvent.tokenRefreshed && state.session != null) {
+          _session = _mapSupaSession(state.session!);
+          notifyListeners();
+          return;
+        }
+        if (state.event == supa.AuthChangeEvent.signedOut || state.event.name == 'userDeleted') {
+          if (_session == null) return;
+          _session = null;
+          notifyListeners();
+          onForcedSignOut?.call();
+        }
       },
       onError: (Object error, StackTrace stackTrace) {
         _emailLinkError = describeDeeplinkError(error, stackTrace);
@@ -588,6 +762,16 @@ class AuthController extends ChangeNotifier {
       },
     );
   }
+
+  AuthSession _mapSupaSession(supa.Session s) => AuthSession(
+    userId: s.user.id,
+    email: s.user.email ?? '',
+    accessToken: s.accessToken,
+    refreshToken: s.refreshToken ?? '',
+    expiresAt: s.expiresAt != null
+        ? DateTime.fromMillisecondsSinceEpoch(s.expiresAt! * 1000, isUtc: true)
+        : DateTime.now().toUtc().add(const Duration(hours: 1)),
+  );
 
   supa.GoTrueClient? _supabaseAuthClientOrNull() {
     try {

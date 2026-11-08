@@ -68,6 +68,20 @@ dependencies:
   # 인증/세션 저장·복원 패키지. lib/services/auth_service.dart의
   # SupabaseAuthService를 이 패키지 기반으로 전환해야 한다(후속 작업).
   supabase_flutter: ^2.8.0
+  # SS-수정002 §2 — 작업지시서가 이름으로 지정한 보안 저장소 패키지.
+  # Supabase 세션(access/refresh token)을 supabase_flutter 기본값
+  # (SharedPreferences, Windows에서는 평문 JSON 파일)이 아니라 OS 보안
+  # 저장소(Android Keystore·iOS/macOS Keychain·Windows DPAPI·Linux
+  # libsecret)에 둔다(lib/services/secure_session_storage.dart).
+  # share_plus ^13.3.0과 win32 버전이 맞는 ^11.2.0을 쓴다(1차 실행 실패
+  # 원인 — PC2에서 ^9.2.2는 pub get이 실패했다).
+  flutter_secure_storage: ^11.2.0
+  # SS-수정002 §2 — 작업지시서가 이름으로 말한 기존 저장소(SharedPreferences)
+  # 에 남은 세션을 보안 저장소로 한 번 이전하려면 이 패키지를 테스트에서
+  # 직접 초기화해야 한다(이전 자체는 supabase_flutter가 공개하는
+  # SharedPreferencesLocalStorage로 한다 — 이미 간접 의존하던 패키지를
+  # 직접 의존성으로 승격).
+  shared_preferences: ^2.5.6
 
 dev_dependencies:
   flutter_test:
