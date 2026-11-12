@@ -82,11 +82,8 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.byType(LoginScreen), findsNothing);
-    expect(find.byKey(const Key('ssStageTitle')), findsOneWidget);
-    expect(
-      tester.widget<Text>(find.byKey(const Key('ssStageTitle'))).data,
-      SsStage.home.title,
-    );
+    // SS-수정003 — 홈은 공통 머리말 대신 MASTER UI 2 히어로를 쓴다.
+    expect(find.byKey(const Key('ssHomeHero')), findsOneWidget, reason: '로그인 뒤 ${SsStage.home.title} 화면');
   });
 
   testWidgets('잘못된 비밀번호로 로그인하면 오류를 안내하고 화면에 머문다', (tester) async {

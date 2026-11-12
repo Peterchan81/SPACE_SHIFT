@@ -92,11 +92,8 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.byType(SignupScreen), findsNothing);
-    expect(find.byKey(const Key('ssStageTitle')), findsOneWidget);
-    expect(
-      tester.widget<Text>(find.byKey(const Key('ssStageTitle'))).data,
-      SsStage.home.title,
-    );
+    // SS-수정003 — 홈은 공통 머리말 대신 MASTER UI 2 히어로를 쓴다.
+    expect(find.byKey(const Key('ssHomeHero')), findsOneWidget, reason: '가입 뒤 ${SsStage.home.title} 화면');
   });
 
   testWidgets('비밀번호 필드의 보기/숨기기 아이콘이 각각 독립적으로 동작한다', (tester) async {

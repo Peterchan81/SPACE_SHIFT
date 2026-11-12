@@ -31,7 +31,7 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text(SsStage.finalResult.title), findsOneWidget);
     expect(find.byKey(const Key('ssStageWhat')), findsOneWidget);
-    expect(find.text('다음: ${SsStage.finalResult.whatNext}'), findsOneWidget);
+    expect(find.textContaining('다음:'), findsNothing, reason: 'SS-수정003 — 개발용 "다음:" 표시 대신 한 줄 안내 문장으로 3초 법칙을 지킨다');
     expect(find.textContaining('SS016'), findsOneWidget);
     expect(find.byKey(const Key('ssNav_view3d')), findsOneWidget, reason: '단계에 맞는 메뉴 항목만 보인다(쓸 수 없는 항목은 흐리게가 아니라 아예 보이지 않음)');
   });
@@ -67,7 +67,8 @@ void main() {
       await tester.pumpAndSettle();
       await tester.tap(find.byKey(const Key('ssNav_home')));
       await tester.pumpAndSettle();
-      expect(tester.widget<Text>(find.byKey(const Key('ssStageTitle'))).data, SsStage.home.title);
+      // SS-수정003 — 홈은 공통 머리말 대신 MASTER UI 2 히어로를 쓴다.
+      expect(find.byKey(const Key('ssHomeHero')), findsOneWidget);
     });
 
     testWidgets('"2D" 메뉴를 선택하면 SS011 CAD 편집 화면(CadEditorScreen)으로 이동한다', (tester) async {
@@ -93,7 +94,7 @@ void main() {
       await tester.pageBack();
       await tester.pumpAndSettle();
       expect(find.byType(SettingsScreen), findsNothing);
-      expect(tester.widget<Text>(find.byKey(const Key('ssStageTitle'))).data, SsStage.home.title);
+      expect(find.byKey(const Key('ssHomeHero')), findsOneWidget);
     });
 
     testWidgets('"현재 프로젝트" 메뉴는 이미 있는 화면에 머문다(같은 단계로는 다시 이동하지 않음)', (tester) async {

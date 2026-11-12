@@ -1,15 +1,16 @@
 /// SS003 — MASTER UI 2(홈 화면). "3초 법칙": 화면에 들어오면 곧바로 3가지 시작 카드와
 /// 최근/진행 중 프로젝트를 보여줘, 사용자가 무엇을 할 수 있는지 바로 알 수 있게 한다.
 ///
+/// - 맨 위는 공통 머리말 대신 MASTER UI 2의 히어로 문구 배치(작은 SPACE SHIFT 표시, 두 줄 제목,
+///   무지개색 큰 "SPACE SHIFT", 설명)를 쓴다(SS-수정003). 사진·배경 이미지는 다음 작업에서 자산을 추가한다.
 /// - 3가지 시작 카드(평면도 업로드·직접 그리기·이미지 변환) → 그 sourceType을 들고
-///   프로젝트 생성 단계([SsStage.projectCreation], SS004)로 이동한다 — 그 화면이 아직
-///   없어도(공통 "준비 중" 화면) 인자를 전달하는 연결 구조는 그대로 유지한다.
+///   프로젝트 생성 단계([SsStage.projectCreation], SS004)로 이동한다.
 /// - 최근/진행 중 프로젝트는 [SsProjectStore]에서 읽는다(기본은 앱 공용
 ///   [SsProjectStoreProvider], 테스트는 [projectStore]로 주입). 프로젝트를 고르면 그
-///   프로젝트에 저장된 현재 단계([SsProject.currentStage])로 그대로 이어서 연다(§6
-///   자동저장/복원과 같은 생각 — "마지막 저장 단계 재개").
+///   프로젝트에 저장된 현재 단계([SsProject.currentStage])로 그대로 이어서 연다.
 /// - AI 분석 미리보기는 실제 프로젝트에 AI 결과 데이터(ISO/렌더링)가 있으면 그
 ///   프로젝트로 연결하고, 없으면 자리만 유지한다(실제 썸네일 자산은 아직 없음).
+/// - 맨 아래 안내 카드 3개(가이드·추천·팁)는 앱 안 고정 내용 화면을 연다(SS-BUG-011).
 library;
 
 import 'dart:async';
@@ -18,10 +19,12 @@ import 'package:flutter/material.dart';
 
 import '../core/ss_project.dart';
 import '../core/ss_project_store.dart';
-import '../core/ss_router.dart';
 import '../core/ss_stage.dart';
 import '../services/ss_project_store_provider.dart';
 import '../theme/ss_master_theme.dart';
+import 'ss_guide_screen.dart';
+import 'ss_recommendation_screen.dart';
+import 'ss_tips_screen.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key, this.projectStore});
@@ -85,6 +88,10 @@ class _HomeScreenState extends State<HomeScreen> {
     Navigator.of(context).pushNamed(project.currentStage.routeName, arguments: project.info.id);
   }
 
+  void _openPage(Widget page) {
+    Navigator.of(context).push<void>(MaterialPageRoute<void>(builder: (_) => page));
+  }
+
   @override
   Widget build(BuildContext context) {
     return SingleChildScrollView(
@@ -93,8 +100,6 @@ class _HomeScreenState extends State<HomeScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const SsStageHeader(stage: SsStage.home),
-          const SizedBox(height: 20),
           const _HeroBanner(),
           const SizedBox(height: 20),
           _StartCardsRow(onSelect: _startFlow),
@@ -113,13 +118,18 @@ class _HomeScreenState extends State<HomeScreen> {
             },
           ),
           const SizedBox(height: 24),
-          const _TipCardsRow(),
+          _TipCardsRow(
+            onGuide: () => _openPage(const SsGuideScreen()),
+            onRecommend: () => _openPage(const SsRecommendationScreen()),
+            onTips: () => _openPage(const SsTipsScreen()),
+          ),
         ],
       ),
     );
   }
 }
 
+/// MASTER UI 2 히어로 문구 — 작은 SPACE SHIFT 표시, 두 줄 제목, 무지개색 큰 "SPACE SHIFT", 설명.
 class _HeroBanner extends StatelessWidget {
   const _HeroBanner();
 
@@ -128,7 +138,7 @@ class _HeroBanner extends StatelessWidget {
     return Container(
       key: const Key('ssHomeHero'),
       width: double.infinity,
-      padding: const EdgeInsets.all(28),
+      padding: const EdgeInsets.fromLTRB(28, 24, 28, 28),
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(20),
         gradient: const LinearGradient(
@@ -138,30 +148,55 @@ class _HeroBanner extends StatelessWidget {
         ),
         border: Border.all(color: SsMasterTheme.panelBorder),
       ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final compact = constraints.maxWidth < 520;
+          final titleSize = compact ? 22.0 : 30.0;
+          final brandSize = compact ? 34.0 : 52.0;
+          final titleStyle = TextStyle(color: Colors.white, fontSize: titleSize, fontWeight: FontWeight.w800, height: 1.25);
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              ShaderMask(
-                shaderCallback: (bounds) => SsMasterTheme.rainbow.createShader(bounds),
-                child: const Icon(Icons.auto_awesome, color: Colors.white, size: 18),
+              Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  ShaderMask(
+                    shaderCallback: (bounds) => SsMasterTheme.rainbow.createShader(bounds),
+                    child: const Icon(Icons.auto_awesome, color: Colors.white, size: 16),
+                  ),
+                  const SizedBox(width: 8),
+                  const Text(
+                    'SPACE SHIFT',
+                    key: Key('ssHomeHeroBadge'),
+                    style: TextStyle(color: SsMasterTheme.textSecondary, fontSize: 12, fontWeight: FontWeight.w700, letterSpacing: 2),
+                  ),
+                ],
               ),
-              const SizedBox(width: 8),
+              const SizedBox(height: 16),
+              Text('공간의 변화를 만드는', key: const Key('ssHomeHeroTitle1'), style: titleStyle),
+              Text('새로운 가능성,', key: const Key('ssHomeHeroTitle2'), style: titleStyle),
+              const SizedBox(height: 4),
+              FittedBox(
+                fit: BoxFit.scaleDown,
+                alignment: Alignment.centerLeft,
+                child: ShaderMask(
+                  shaderCallback: (bounds) => SsMasterTheme.rainbow.createShader(bounds),
+                  child: Text(
+                    'SPACE SHIFT',
+                    key: const Key('ssHomeHeroBrand'),
+                    style: TextStyle(color: Colors.white, fontSize: brandSize, fontWeight: FontWeight.w900, letterSpacing: 1.5, height: 1.15),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 12),
               const Text(
-                'SPACE SHIFT AI',
-                style: TextStyle(color: SsMasterTheme.textSecondary, fontSize: 12, fontWeight: FontWeight.w700, letterSpacing: 1.2),
+                'AI와 함께, 당신의 공간을 새롭게 디자인하세요.',
+                key: Key('ssHomeHeroDescription'),
+                style: TextStyle(color: SsMasterTheme.textSecondary, fontSize: 15),
               ),
             ],
-          ),
-          const SizedBox(height: 14),
-          const Text(
-            '공간의 변화를 만드는\n새로운 가능성, SPACE SHIFT',
-            style: TextStyle(color: Colors.white, fontSize: 26, fontWeight: FontWeight.w800, height: 1.3),
-          ),
-          const SizedBox(height: 10),
-          const Text('AI와 함께, 당신의 공간을 새롭게 디자인하세요.', style: TextStyle(color: SsMasterTheme.textSecondary, fontSize: 14)),
-        ],
+          );
+        },
       ),
     );
   }
@@ -429,45 +464,75 @@ class _AiPreviewSection extends StatelessWidget {
   }
 }
 
+/// MASTER UI 2 맨 아래 안내 카드 3개 — 카드마다 강조색(파랑·보라·분홍) 아이콘 원과 같은 색 버튼.
 class _TipCardsRow extends StatelessWidget {
-  const _TipCardsRow();
-
-  static const _tips = [
-    (icon: Icons.menu_book_outlined, title: '처음 사용하시나요?', desc: '간단한 가이드로 빠르게 시작해보세요.', cta: '가이드 보기 →'),
-    (icon: Icons.lightbulb_outline, title: '오늘의 추천', desc: 'AI가 제안하는 인테리어 스타일을 확인해보세요.', cta: '추천 보기 →'),
-    (icon: Icons.chat_bubble_outline, title: '공간 디자인 팁', desc: '더 좋은 결과를 위한 팁을 확인하세요.', cta: '팁 보기 →'),
-  ];
+  const _TipCardsRow({required this.onGuide, required this.onRecommend, required this.onTips});
+  final VoidCallback onGuide;
+  final VoidCallback onRecommend;
+  final VoidCallback onTips;
 
   @override
   Widget build(BuildContext context) {
+    final tips = [
+      (id: 'guide', icon: Icons.menu_book_outlined, accent: SsMasterTheme.neonBlue, title: '처음 사용하시나요?', desc: '간단한 가이드로 빠르게 시작해보세요.', cta: '가이드 보기', onTap: onGuide),
+      (id: 'recommend', icon: Icons.lightbulb_outline, accent: SsMasterTheme.neonPurple, title: '오늘의 추천', desc: '추천 인테리어 스타일을 확인해보세요.', cta: '추천 보기', onTap: onRecommend),
+      (id: 'tips', icon: Icons.chat_bubble_outline, accent: SsMasterTheme.neonPink, title: '공간 디자인 팁', desc: '더 좋은 결과를 위한 팁을 확인하세요.', cta: '팁 보기', onTap: onTips),
+    ];
     return LayoutBuilder(
       builder: (context, constraints) {
-        final cards = [for (final t in _tips) _TipCard(icon: t.icon, title: t.title, description: t.desc, cta: t.cta)];
+        final cards = [
+          for (final t in tips) _TipCard(id: t.id, icon: t.icon, accent: t.accent, title: t.title, description: t.desc, cta: t.cta, onTap: t.onTap),
+        ];
         if (constraints.maxWidth < 760) {
           return Column(children: [for (final c in cards) Padding(padding: const EdgeInsets.only(bottom: 12), child: c)]);
         }
-        return Row(children: [for (final c in cards) Expanded(child: Padding(padding: const EdgeInsets.symmetric(horizontal: 6), child: c))]);
+        return Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [for (final c in cards) Expanded(child: Padding(padding: const EdgeInsets.symmetric(horizontal: 6), child: c))],
+        );
       },
     );
   }
 }
 
 class _TipCard extends StatelessWidget {
-  const _TipCard({required this.icon, required this.title, required this.description, required this.cta});
+  const _TipCard({
+    required this.id,
+    required this.icon,
+    required this.accent,
+    required this.title,
+    required this.description,
+    required this.cta,
+    required this.onTap,
+  });
+  final String id;
   final IconData icon;
+  final Color accent;
   final String title;
   final String description;
   final String cta;
+  final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
     return Container(
+      key: Key('ssHomeTipCard_$id'),
       padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(color: SsMasterTheme.panel, borderRadius: BorderRadius.circular(14), border: Border.all(color: SsMasterTheme.panelBorder)),
+      decoration: BoxDecoration(
+        color: SsMasterTheme.panel,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: accent.withValues(alpha: 0.4)),
+      ),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Icon(icon, color: SsMasterTheme.neonCyan),
+          Container(
+            width: 40,
+            height: 40,
+            alignment: Alignment.center,
+            decoration: BoxDecoration(color: accent.withValues(alpha: 0.18), shape: BoxShape.circle),
+            child: Icon(icon, color: accent, size: 22),
+          ),
           const SizedBox(width: 12),
           Expanded(
             child: Column(
@@ -477,10 +542,19 @@ class _TipCard extends StatelessWidget {
                 const SizedBox(height: 4),
                 Text(description, style: const TextStyle(color: SsMasterTheme.textSecondary, fontSize: 12)),
                 const SizedBox(height: 8),
-                // 아직 실제로 연결된 기능(가이드/추천/팁 화면)이 없으므로 눌러도 동작하지
-                // 않게 비활성으로만 둔다(가짜 동작을 만들지 않는다 — 도움말/알림
-                // 아이콘과 같은 원칙, lib/core/ss_router.dart의 SsTopBar 참고).
-                TextButton(onPressed: null, child: Text(cta)),
+                TextButton(
+                  key: Key('ssHomeTip_$id'),
+                  style: TextButton.styleFrom(foregroundColor: accent, padding: const EdgeInsets.symmetric(horizontal: 8)),
+                  onPressed: onTap,
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(cta, style: const TextStyle(fontWeight: FontWeight.w700)),
+                      const SizedBox(width: 4),
+                      const Icon(Icons.arrow_forward, size: 16),
+                    ],
+                  ),
+                ),
               ],
             ),
           ),
