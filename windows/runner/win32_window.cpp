@@ -37,7 +37,8 @@ int Scale(int source, double scale_factor) {
   return static_cast<int>(source * scale_factor);
 }
 
-// SS-수정001 보완 — 창 바깥 크기(제목 표시줄 포함) 최소값, 논리 픽셀(96 DPI 기준).
+// SS-fix001 supplement - minimum outer window size (including title bar),
+// in logical pixels (96 DPI baseline).
 constexpr int kMinWindowWidth = 640;
 constexpr int kMinWindowHeight = 480;
 
@@ -222,8 +223,8 @@ Win32Window::MessageHandler(HWND hwnd,
       return 0;
 
     case WM_GETMINMAXINFO: {
-      // SS-수정001 보완 — 창을 640x480(창 바깥 크기)보다 작게 줄일 수 없게
-      // 한다. 현재 창이 있는 모니터의 DPI 배율을 반영한다.
+      // SS-fix001 supplement - prevent shrinking the window below 640x480
+      // (outer size), scaled by the DPI of the monitor the window is on.
       auto min_max_info = reinterpret_cast<MINMAXINFO*>(lparam);
       HMONITOR monitor = MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST);
       UINT dpi = FlutterDesktopGetDpiForMonitor(monitor);
