@@ -37,6 +37,10 @@ int Scale(int source, double scale_factor) {
   return static_cast<int>(source * scale_factor);
 }
 
+// SS-수정001 보완 — 창 바깥 크기(제목 표시줄 포함) 최소값, 논리 픽셀(96 DPI 기준).
+constexpr int kMinWindowWidth = 640;
+constexpr int kMinWindowHeight = 480;
+
 // Dynamically loads the |EnableNonClientDpiScaling| from the User32 module.
 // This API is only needed for PerMonitor V1 awareness mode.
 void EnableFullDpiSupportIfAvailable(HWND hwnd) {
@@ -216,6 +220,18 @@ Win32Window::MessageHandler(HWND hwnd,
     case WM_DWMCOLORIZATIONCOLORCHANGED:
       UpdateTheme(hwnd);
       return 0;
+
+    case WM_GETMINMAXINFO: {
+      // SS-수정001 보완 — 창을 640x480(창 바깥 크기)보다 작게 줄일 수 없게
+      // 한다. 현재 창이 있는 모니터의 DPI 배율을 반영한다.
+      auto min_max_info = reinterpret_cast<MINMAXINFO*>(lparam);
+      HMONITOR monitor = MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST);
+      UINT dpi = FlutterDesktopGetDpiForMonitor(monitor);
+      double scale_factor = (dpi > 0 ? dpi : 96) / 96.0;
+      min_max_info->ptMinTrackSize.x = Scale(kMinWindowWidth, scale_factor);
+      min_max_info->ptMinTrackSize.y = Scale(kMinWindowHeight, scale_factor);
+      return 0;
+    }
   }
 
   return DefWindowProc(window_handle_, message, wparam, lparam);
