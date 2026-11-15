@@ -37,6 +37,11 @@ int Scale(int source, double scale_factor) {
   return static_cast<int>(source * scale_factor);
 }
 
+// SS-fix001 supplement - minimum outer window size (including title bar),
+// in logical pixels (96 DPI baseline).
+constexpr int kMinWindowWidth = 640;
+constexpr int kMinWindowHeight = 480;
+
 // Dynamically loads the |EnableNonClientDpiScaling| from the User32 module.
 // This API is only needed for PerMonitor V1 awareness mode.
 void EnableFullDpiSupportIfAvailable(HWND hwnd) {
@@ -216,6 +221,18 @@ Win32Window::MessageHandler(HWND hwnd,
     case WM_DWMCOLORIZATIONCOLORCHANGED:
       UpdateTheme(hwnd);
       return 0;
+
+    case WM_GETMINMAXINFO: {
+      // SS-fix001 supplement - prevent shrinking the window below 640x480
+      // (outer size), scaled by the DPI of the monitor the window is on.
+      auto min_max_info = reinterpret_cast<MINMAXINFO*>(lparam);
+      HMONITOR monitor = MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST);
+      UINT dpi = FlutterDesktopGetDpiForMonitor(monitor);
+      double scale_factor = (dpi > 0 ? dpi : 96) / 96.0;
+      min_max_info->ptMinTrackSize.x = Scale(kMinWindowWidth, scale_factor);
+      min_max_info->ptMinTrackSize.y = Scale(kMinWindowHeight, scale_factor);
+      return 0;
+    }
   }
 
   return DefWindowProc(window_handle_, message, wparam, lparam);
