@@ -11,12 +11,19 @@ import 'screens/home_screen.dart';
 import 'screens/login_screen.dart';
 import 'services/app_update_store.dart';
 import 'services/auth_service.dart';
+import 'services/secure_session_storage.dart';
 import 'theme/space_shift_colors.dart';
 
 /// SS002 §2 — 빌드 설정(`--dart-define`)으로만 읽는다. lib/services/auth_service.dart
 /// 의 SupabaseAuthService가 읽는 값과 같은 dart-define 키라서 항상 같은 값이다.
 const String _supabaseUrl = String.fromEnvironment('SUPABASE_URL', defaultValue: '');
 const String _supabaseAnonKey = String.fromEnvironment('SUPABASE_ANON_KEY', defaultValue: '');
+
+/// SS-수정002 §4 — 실행 중 로그아웃(signedOut)이 일어나면 AuthController가
+/// [AuthController.onForcedSignOut] 콜백으로 이 전역 Navigator를 통해 보호된
+/// 화면을 모두 비우고 로그인 화면까지 보낸다(§5 performLogout과 같은 모양 —
+/// 뒤로 가기로 보호 화면에 다시 들어갈 수 없다).
+final GlobalKey<NavigatorState> _rootNavigatorKey = GlobalKey<NavigatorState>();
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -28,15 +35,40 @@ Future<void> main() async {
   // 은 Supabase.instance.client.auth.currentSession만 읽으면 된다(자동 로그인).
   // 설정이 없으면 호출하지 않는다 — §2 "인증 설정이 없습니다" 안내가 그대로 동작한다.
   if (_supabaseUrl.isNotEmpty && _supabaseAnonKey.isNotEmpty) {
+    // SS-수정002 §2 — 세션(access/refresh token)을 supabase_flutter 기본값
+    // (SharedPreferences, Windows에서는 평문 JSON 파일)이 아니라 OS 보안
+    // 저장소(flutter_secure_storage)에 둔다. 기존 SharedPreferences에 남은
+    // 세션은 SecureSessionStorage.initialize()가 한 번 이전하고 그 키만
+    // 지운다. supabase_flutter가 내부적으로 쓰던 기본 키 이름과 똑같이
+    // 계산해야 기존 세션을 찾아 이전할 수 있다(supabase_flutter 2.18.3
+    // lib/src/supabase.dart의 기본 persistSessionKey 계산과 동일).
+    final persistSessionKey = 'sb-${Uri.parse(_supabaseUrl).host.split('.').first}-auth-token';
     // SS002 §2(2026-10-28 #2 후속 지시) — anonKey는 설치된 supabase_flutter가
     // deprecated 안내하는 이름이다. 같은 SUPABASE_ANON_KEY 빌드 설정 값을
     // publishableKey로 넘긴다(빌드 설정 키 이름은 그대로).
-    await supa.Supabase.initialize(url: _supabaseUrl, publishableKey: _supabaseAnonKey);
+    await supa.Supabase.initialize(
+      url: _supabaseUrl,
+      publishableKey: _supabaseAnonKey,
+      authOptions: supa.FlutterAuthClientOptions(
+        localStorage: SecureSessionStorage(persistSessionKey: persistSessionKey),
+      ),
+    );
     // SS002 §5 — 이메일 인증 메일의 콜백 링크(딥링크)가 PKCE 코드 교환까지
     // 끝내 세션을 만들면(signedIn) AuthController가 그 신호를 받아 홈으로
     // 이동할 수 있게, 전역 Supabase 클라이언트의 인증 상태 스트림을 구독해
     // 둔다(설정이 없는 빌드에는 영향 없음).
     AuthController.instance.attachAuthStateListener();
+    // SS-수정002 §4 — 실행 중 로그아웃·세션 무효화(signedOut)가 일어나면
+    // 보호된 화면에 머물지 않도록, 전역 Navigator로 모든 화면을 비우고
+    // 로그인 화면까지 보낸다(§5 performLogout과 같은 모양).
+    AuthController.instance.onForcedSignOut = () {
+      final nav = _rootNavigatorKey.currentState;
+      if (nav == null) return;
+      nav.pushAndRemoveUntil(
+        MaterialPageRoute<void>(builder: (_) => const LoginScreen(), settings: const RouteSettings(name: '/login')),
+        (route) => false,
+      );
+    };
   }
 
   // 인터넷 기반 무선 업데이트 확인은 Android에서만, 앱이 뜰 때 한 번
@@ -63,6 +95,7 @@ class AsonSpaceApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
+      navigatorKey: _rootNavigatorKey,
       title: 'SPACE SHIFT',
       debugShowCheckedModeBanner: false,
       theme: ThemeData(
