@@ -2,9 +2,12 @@
 /// 최근/진행 중 프로젝트를 보여줘, 사용자가 무엇을 할 수 있는지 바로 알 수 있게 한다.
 ///
 /// - 맨 위는 공통 머리말 대신 MASTER UI 2의 히어로 문구 배치(작은 SPACE SHIFT 표시, 두 줄 제목,
-///   무지개색 큰 "SPACE SHIFT", 설명)를 쓴다(SS-수정003). 사진·배경 이미지는 다음 작업에서 자산을 추가한다.
+///   무지개색 큰 "SPACE SHIFT", 설명)를 쓴다(SS-수정003). SS-수정003 2차 — MASTER 02처럼
+///   사용자가 승인한 사진(assets/images/home_hero.png)을 카드 배경으로 채우고, 왼쪽에 어두운
+///   그라데이션을 겹쳐 글자를 읽히게 한다.
 /// - 3가지 시작 카드(평면도 업로드·직접 그리기·이미지 변환) → 그 sourceType을 들고
-///   프로젝트 생성 단계([SsStage.projectCreation], SS004)로 이동한다.
+///   프로젝트 생성 단계([SsStage.projectCreation], SS004)로 이동한다. 카드 위쪽에는 MASTER 02
+///   사진(home_card_upload/draw/image.png), 아래쪽은 밝은 바탕에 어두운 글자.
 /// - 최근/진행 중 프로젝트는 [SsProjectStore]에서 읽는다(기본은 앱 공용
 ///   [SsProjectStoreProvider], 테스트는 [projectStore]로 주입). 프로젝트를 고르면 그
 ///   프로젝트에 저장된 현재 단계([SsProject.currentStage])로 그대로 이어서 연다.
@@ -14,6 +17,7 @@
 library;
 
 import 'dart:async';
+import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 
@@ -32,6 +36,12 @@ class HomeScreen extends StatefulWidget {
   /// 테스트에서 [MemorySsProjectStore] 등을 주입할 수 있게 한다. 지정하지 않으면
   /// 앱 전체가 공유하는 [SsProjectStoreProvider]의 저장소(기기 문서 폴더)를 쓴다.
   final SsProjectStore? projectStore;
+
+  /// MASTER 02 사진 자산(사용자 승인 — 새로 그리거나 바꾸지 않는다).
+  static const String heroImageAsset = 'assets/images/home_hero.png';
+  static const String uploadCardImageAsset = 'assets/images/home_card_upload.png';
+  static const String drawCardImageAsset = 'assets/images/home_card_draw.png';
+  static const String imageCardImageAsset = 'assets/images/home_card_image.png';
 
   @override
   State<HomeScreen> createState() => _HomeScreenState();
@@ -129,7 +139,23 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 }
 
-/// MASTER UI 2 히어로 문구 — 작은 SPACE SHIFT 표시, 두 줄 제목, 무지개색 큰 "SPACE SHIFT", 설명.
+/// MASTER 02 사진 한 장(BoxFit.cover). 자산을 읽지 못하면 실제 오류(타입 포함)를 개발자 로그로
+/// 남기고 빈 바탕만 보인다(가짜 그림을 그리지 않는다).
+Widget _homePhoto(String asset, {required Key key, Alignment alignment = Alignment.center}) {
+  return Image.asset(
+    asset,
+    key: key,
+    fit: BoxFit.cover,
+    alignment: alignment,
+    errorBuilder: (context, error, stackTrace) {
+      debugPrint('HomeScreen 사진을 불러오지 못했습니다 ($asset, ${error.runtimeType}): $error');
+      return const ColoredBox(color: Color(0xFF14284A));
+    },
+  );
+}
+
+/// MASTER UI 2 히어로 — 배경 사진(home_hero.png) + 왼쪽 어두운 그라데이션 위에 작은 SPACE SHIFT 표시,
+/// 두 줄 제목, 무지개색 큰 "SPACE SHIFT", 설명.
 class _HeroBanner extends StatelessWidget {
   const _HeroBanner();
 
@@ -138,14 +164,10 @@ class _HeroBanner extends StatelessWidget {
     return Container(
       key: const Key('ssHomeHero'),
       width: double.infinity,
-      padding: const EdgeInsets.fromLTRB(28, 24, 28, 28),
+      clipBehavior: Clip.antiAlias,
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(20),
-        gradient: const LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: [Color(0xFF0E2140), Color(0xFF1B2F55), Color(0xFF2A1E4D)],
-        ),
+        color: const Color(0xFF0E2140),
         border: Border.all(color: SsMasterTheme.panelBorder),
       ),
       child: LayoutBuilder(
@@ -154,45 +176,83 @@ class _HeroBanner extends StatelessWidget {
           final titleSize = compact ? 22.0 : 30.0;
           final brandSize = compact ? 34.0 : 52.0;
           final titleStyle = TextStyle(color: Colors.white, fontSize: titleSize, fontWeight: FontWeight.w800, height: 1.25);
-          return Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
+          // 넓으면 글자는 왼쪽(어두운 쪽)에만 두고 사진이 오른쪽 넓은 부분을 차지하게 한다.
+          final textMaxWidth = compact ? double.infinity : math.max(320.0, constraints.maxWidth * 0.55);
+          final shade = compact
+              ? const LinearGradient(
+                  begin: Alignment.centerLeft,
+                  end: Alignment.centerRight,
+                  colors: [Color(0xF20A1830), Color(0xD90A1830), Color(0x990A1830)],
+                  stops: [0.0, 0.6, 1.0],
+                )
+              : const LinearGradient(
+                  begin: Alignment.centerLeft,
+                  end: Alignment.centerRight,
+                  colors: [Color(0xF20A1830), Color(0xCC0A1830), Color(0x000A1830)],
+                  stops: [0.0, 0.42, 0.78],
+                );
+          return Stack(
             children: [
-              Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  ShaderMask(
-                    shaderCallback: (bounds) => SsMasterTheme.rainbow.createShader(bounds),
-                    child: const Icon(Icons.auto_awesome, color: Colors.white, size: 16),
-                  ),
-                  const SizedBox(width: 8),
-                  const Text(
-                    'SPACE SHIFT',
-                    key: Key('ssHomeHeroBadge'),
-                    style: TextStyle(color: SsMasterTheme.textSecondary, fontSize: 12, fontWeight: FontWeight.w700, letterSpacing: 2),
-                  ),
-                ],
+              Positioned.fill(
+                child: _homePhoto(HomeScreen.heroImageAsset, key: const Key('ssHomeHeroImage'), alignment: Alignment.centerRight),
               ),
-              const SizedBox(height: 16),
-              Text('공간의 변화를 만드는', key: const Key('ssHomeHeroTitle1'), style: titleStyle),
-              Text('새로운 가능성,', key: const Key('ssHomeHeroTitle2'), style: titleStyle),
-              const SizedBox(height: 4),
-              FittedBox(
-                fit: BoxFit.scaleDown,
-                alignment: Alignment.centerLeft,
-                child: ShaderMask(
-                  shaderCallback: (bounds) => SsMasterTheme.rainbow.createShader(bounds),
-                  child: Text(
-                    'SPACE SHIFT',
-                    key: const Key('ssHomeHeroBrand'),
-                    style: TextStyle(color: Colors.white, fontSize: brandSize, fontWeight: FontWeight.w900, letterSpacing: 1.5, height: 1.15),
+              Positioned.fill(
+                child: DecoratedBox(key: const Key('ssHomeHeroShade'), decoration: BoxDecoration(gradient: shade)),
+              ),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(28, 24, 28, 28),
+                child: ConstrainedBox(
+                  constraints: BoxConstraints(minHeight: compact ? 0 : 200),
+                  child: Align(
+                    alignment: Alignment.centerLeft,
+                    child: ConstrainedBox(
+                      constraints: BoxConstraints(maxWidth: textMaxWidth),
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              ShaderMask(
+                                shaderCallback: (bounds) => SsMasterTheme.rainbow.createShader(bounds),
+                                child: const Icon(Icons.auto_awesome, color: Colors.white, size: 16),
+                              ),
+                              const SizedBox(width: 8),
+                              const Text(
+                                'SPACE SHIFT',
+                                key: Key('ssHomeHeroBadge'),
+                                style: TextStyle(color: SsMasterTheme.textSecondary, fontSize: 12, fontWeight: FontWeight.w700, letterSpacing: 2),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 16),
+                          Text('공간의 변화를 만드는', key: const Key('ssHomeHeroTitle1'), style: titleStyle),
+                          Text('새로운 가능성,', key: const Key('ssHomeHeroTitle2'), style: titleStyle),
+                          const SizedBox(height: 4),
+                          FittedBox(
+                            fit: BoxFit.scaleDown,
+                            alignment: Alignment.centerLeft,
+                            child: ShaderMask(
+                              shaderCallback: (bounds) => SsMasterTheme.rainbow.createShader(bounds),
+                              child: Text(
+                                'SPACE SHIFT',
+                                key: const Key('ssHomeHeroBrand'),
+                                style: TextStyle(color: Colors.white, fontSize: brandSize, fontWeight: FontWeight.w900, letterSpacing: 1.5, height: 1.15),
+                              ),
+                            ),
+                          ),
+                          const SizedBox(height: 12),
+                          const Text(
+                            'AI와 함께, 당신의 공간을 새롭게 디자인하세요.',
+                            key: Key('ssHomeHeroDescription'),
+                            style: TextStyle(color: SsMasterTheme.textSecondary, fontSize: 15),
+                          ),
+                        ],
+                      ),
+                    ),
                   ),
                 ),
-              ),
-              const SizedBox(height: 12),
-              const Text(
-                'AI와 함께, 당신의 공간을 새롭게 디자인하세요.',
-                key: Key('ssHomeHeroDescription'),
-                style: TextStyle(color: SsMasterTheme.textSecondary, fontSize: 15),
               ),
             ],
           );
@@ -206,10 +266,37 @@ class _StartCardsRow extends StatelessWidget {
   const _StartCardsRow({required this.onSelect});
   final ValueChanged<SsSourceType> onSelect;
 
+  /// 이 폭보다 좁으면 카드를 세로로 쌓는다(800×600·640×480 창). 1024 이상은 MASTER 02처럼 한 줄.
+  static const double rowMinWidth = 720;
+
+  static const _lightBottom = Color(0xFFF6F8FC);
+  static const _mintBottom = Color(0xFFE2F7F1);
+
   static const _cards = [
-    (type: SsSourceType.floorPlanUpload, icon: Icons.cloud_upload_outlined, title: '평면도 업로드', desc: '도면 이미지를 업로드하여\n공간을 분석하고 시작합니다.'),
-    (type: SsSourceType.directDraw, icon: Icons.edit_outlined, title: '직접 그리기', desc: '간단한 도구로 직접 평면도를\n그리고 공간을 구성해보세요.'),
-    (type: SsSourceType.imageTransform, icon: Icons.image_outlined, title: '이미지 변환', desc: '공간 사진을 업로드하여\n새로운 디자인을 만들어보세요.'),
+    (
+      type: SsSourceType.floorPlanUpload,
+      icon: Icons.cloud_upload_outlined,
+      title: '평면도 업로드',
+      desc: '도면 이미지를 업로드하여 공간을 분석하고 시작합니다.',
+      image: HomeScreen.uploadCardImageAsset,
+      bottom: _lightBottom,
+    ),
+    (
+      type: SsSourceType.directDraw,
+      icon: Icons.edit_outlined,
+      title: '직접 그리기',
+      desc: '간단한 도구로 직접 평면도를 그리고 공간을 구성해보세요.',
+      image: HomeScreen.drawCardImageAsset,
+      bottom: _lightBottom,
+    ),
+    (
+      type: SsSourceType.imageTransform,
+      icon: Icons.image_outlined,
+      title: '이미지 변환',
+      desc: '공간 사진을 업로드하여 새로운 디자인을 만들어보세요.',
+      image: HomeScreen.imageCardImageAsset,
+      bottom: _mintBottom,
+    ),
   ];
 
   @override
@@ -217,56 +304,127 @@ class _StartCardsRow extends StatelessWidget {
     return LayoutBuilder(
       builder: (context, constraints) {
         final cards = [
-          for (final c in _cards) _StartCard(type: c.type, icon: c.icon, title: c.title, description: c.desc, onTap: () => onSelect(c.type)),
+          for (final c in _cards)
+            _StartCard(
+              type: c.type,
+              icon: c.icon,
+              title: c.title,
+              description: c.desc,
+              imageAsset: c.image,
+              bottomColor: c.bottom,
+              onTap: () => onSelect(c.type),
+            ),
         ];
-        if (constraints.maxWidth < 700) {
+        if (constraints.maxWidth < rowMinWidth) {
           return Column(children: [for (final c in cards) Padding(padding: const EdgeInsets.only(bottom: 12), child: c)]);
         }
-        return Row(children: [for (final c in cards) Expanded(child: Padding(padding: const EdgeInsets.symmetric(horizontal: 6), child: c))]);
+        return Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [for (final c in cards) Expanded(child: Padding(padding: const EdgeInsets.symmetric(horizontal: 6), child: c))],
+        );
       },
     );
   }
 }
 
+/// MASTER 02 시작 카드 — 위쪽 사진, 아래쪽 밝은 바탕(제목·설명·화살표), 사진과 글 경계에 걸친 둥근 아이콘.
 class _StartCard extends StatelessWidget {
-  const _StartCard({required this.type, required this.icon, required this.title, required this.description, required this.onTap});
+  const _StartCard({
+    required this.type,
+    required this.icon,
+    required this.title,
+    required this.description,
+    required this.imageAsset,
+    required this.bottomColor,
+    required this.onTap,
+  });
   final SsSourceType type;
   final IconData icon;
   final String title;
   final String description;
+  final String imageAsset;
+  final Color bottomColor;
   final VoidCallback onTap;
+
+  static const double _photoHeight = 80;
+  static const double _iconSize = 44;
+  static const Color _titleColor = Color(0xFF0E1B33);
+  static const Color _descColor = Color(0xFF4A5A73);
 
   @override
   Widget build(BuildContext context) {
-    return InkWell(
-      key: Key('ssHomeStartCard_${type.name}'),
-      borderRadius: BorderRadius.circular(16),
-      onTap: onTap,
-      child: Container(
-        padding: const EdgeInsets.all(18),
-        decoration: BoxDecoration(color: SsMasterTheme.panel, borderRadius: BorderRadius.circular(16), border: Border.all(color: SsMasterTheme.panelBorder)),
-        child: Row(
+    return Material(
+      color: bottomColor,
+      clipBehavior: Clip.antiAlias,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(16),
+        side: const BorderSide(color: SsMasterTheme.panelBorder),
+      ),
+      child: InkWell(
+        key: Key('ssHomeStartCard_${type.name}'),
+        onTap: onTap,
+        child: Stack(
           children: [
-            Container(
-              width: 44,
-              height: 44,
-              alignment: Alignment.center,
-              decoration: const BoxDecoration(color: Colors.white, shape: BoxShape.circle),
-              child: Icon(icon, color: SsMasterTheme.neonPurple),
+            Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                SizedBox(
+                  height: _photoHeight,
+                  child: _homePhoto(imageAsset, key: Key('ssHomeStartCardImage_${type.name}')),
+                ),
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(16, _iconSize / 2 + 8, 16, 16),
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              title,
+                              key: Key('ssHomeStartCardTitle_${type.name}'),
+                              maxLines: 1,
+                              softWrap: false,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(color: _titleColor, fontSize: 16, fontWeight: FontWeight.w800),
+                            ),
+                            const SizedBox(height: 6),
+                            Text(
+                              description,
+                              key: Key('ssHomeStartCardDesc_${type.name}'),
+                              maxLines: 3,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(color: _descColor, fontSize: 12, height: 1.35),
+                            ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      const Icon(Icons.arrow_forward, color: SsMasterTheme.neonBlue, size: 18),
+                    ],
+                  ),
+                ),
+              ],
             ),
-            const SizedBox(width: 14),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(title, style: const TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.w800)),
-                  const SizedBox(height: 6),
-                  Text(description, style: const TextStyle(color: SsMasterTheme.textSecondary, fontSize: 12)),
-                ],
+            Positioned(
+              left: 16,
+              top: _photoHeight - _iconSize / 2,
+              child: Container(
+                key: Key('ssHomeStartCardIcon_${type.name}'),
+                width: _iconSize,
+                height: _iconSize,
+                alignment: Alignment.center,
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  shape: BoxShape.circle,
+                  border: Border.all(color: const Color(0xFFE1E6F0)),
+                  boxShadow: const [BoxShadow(color: Color(0x33000000), blurRadius: 6, offset: Offset(0, 2))],
+                ),
+                child: Icon(icon, color: SsMasterTheme.neonPurple),
               ),
             ),
-            const SizedBox(width: 8),
-            const Icon(Icons.arrow_forward, color: SsMasterTheme.neonBlue, size: 18),
           ],
         ),
       ),

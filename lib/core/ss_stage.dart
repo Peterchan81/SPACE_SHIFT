@@ -25,7 +25,7 @@ enum SsStage {
   imageRendering('/image/render', '이미지 AI 렌더링', '4-2-1', 'SS007', 'AI가 이미지를 만들고 있습니다', '완료되면 결과를 확인하세요'),
   imageResult('/image/result', '이미지 결과', '4-2-2', 'SS007', '완성된 이미지를 확인합니다', '수정하거나 파일로 내보내세요'),
   floorPlanUpload('/plan/upload', '평면도 업로드', '5', 'SS008', '평면도를 올리고 AI가 공간을 인식합니다', '평면도 이미지나 PDF를 올리세요'),
-  floorPlanReview('/plan/review', '평면도 확인·보정', '6', 'SS009', 'AI가 인식한 공간을 확인합니다', '틀린 곳을 고친 뒤 CAD 변환을 누르세요'),
+  floorPlanReview('/plan/review', '평면도 확인·보정', '6', 'SS009', '인식한 공간을 확인합니다', '틀린 곳을 고친 뒤 CAD 변환을 누르세요'),
   cadConversion('/cad/convert', 'CAD 변환', '7', 'SS010', '평면도를 CAD로 바꾸고 있습니다', '변환이 끝나면 CAD를 편집하세요'),
   cadEditor('/cad/edit', 'CAD 편집·내보내기', '8', 'SS011', 'CAD 도면을 편집합니다', '치수를 확인하고 DXF로 내보내거나 3D로 넘어가세요'),
   isoConversion('/iso/convert', '3D ISO 변환', '9', 'SS012', 'CAD로 3D ISO를 만들고 있습니다', '완료되면 3D 디자인을 시작하세요'),
@@ -46,6 +46,14 @@ enum SsStage {
 
   /// 3초 법칙 — "다음에 무엇을 해야 하는가?"
   final String whatNext;
+
+  /// #1027-23 남은 문제 3 — AI 인식이 실제로 연결됐을 때만 "AI가"라고 말한다. 연결 여부는
+  /// FloorPlanAnalysisService.aiRecognitionConnected(실제 설정 값)로 정한다
+  /// ([SsStageGuide.aiRecognitionConnected]).
+  String whatIsThisFor({required bool aiRecognitionConnected}) {
+    if (this == SsStage.floorPlanReview && aiRecognitionConnected) return 'AI가 인식한 공간을 확인합니다';
+    return whatIsThis;
+  }
 
   static SsStage? fromRoute(String? name) {
     for (final s in SsStage.values) {
