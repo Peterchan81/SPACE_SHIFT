@@ -483,6 +483,13 @@ class _FloorPlanUploadScreenState extends State<FloorPlanUploadScreen> {
   BoxDecoration get _panelDecoration =>
       BoxDecoration(color: SsMasterTheme.panel, borderRadius: BorderRadius.circular(14), border: Border.all(color: SsMasterTheme.panelBorder));
 
+  /// 원본 패널 안쪽 폭이 이보다 좁으면(1024 창 등) 툴바를 제목 아래 줄에 둔다 — 제목 옆 좁은
+  /// 자리에서 "다른 이미지 업로드"가 두 줄로 끊기던 문제(#1027-23 남은 문제 2).
+  static const double _sourceHeaderStackBelow = 400;
+
+  /// 툴바 폭이 이보다 좁으면(640×480 등) 업로드 버튼에 짧은 이름을 쓰고 전체 이름은 툴팁으로 보인다.
+  static const double _pickLabelShortBelow = 210;
+
   Widget _buildSourcePanel() {
     return Container(
       decoration: _panelDecoration,
@@ -490,42 +497,81 @@ class _FloorPlanUploadScreenState extends State<FloorPlanUploadScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.center,
-            children: [
-              const Icon(Icons.image_outlined, color: SsMasterTheme.textSecondary, size: 20),
-              const SizedBox(width: 8),
-              // 제목은 더 이상 Expanded로 남는 폭을 전부 받지 않는다 — 좁은 화면(Galaxy Tab
-              // 가로 등)에서 툴바 Wrap에 밀려 한 글자씩 세로로 끊기던 문제(후속 수정 r3)를
-              // 막기 위해 한 줄(maxLines:1)·줄바꿈 없음(softWrap:false)으로 고정하고, 공간이
-              // 부족하면 제목이 아니라 아래 툴바 쪽이 다음 줄로 내려가게 한다.
-              const Text(
-                '업로드한 평면도',
-                key: Key('ssSourcePanelTitle'),
-                maxLines: 1,
-                softWrap: false,
-                overflow: TextOverflow.ellipsis,
-                style: TextStyle(color: SsMasterTheme.textPrimary, fontWeight: FontWeight.w700, fontSize: 16),
-              ),
-              const SizedBox(width: 8),
-              // MASTER UI 5 원본 패널 툴바 — 다른 이미지 업로드 + 회전/자르기(미구현은
-              // 비활성)/확대-축소/전체화면. 좁은 화면에서도 줄바꿈되게 Wrap을 쓴다. 남는
-              // 폭을 전부 받아(Expanded) 제목이 아니라 이 쪽이 먼저 줄바꿈되게 한다.
-              Expanded(
-                child: Align(
-                  alignment: Alignment.centerRight,
-                  child: Wrap(
-                    alignment: WrapAlignment.end,
+          LayoutBuilder(builder: (context, constraints) => _buildSourceHeader(constraints.maxWidth)),
+          const SizedBox(height: 12),
+          Expanded(child: _buildSourceBody()),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildSourceHeader(double width) {
+    // 제목은 한 줄(maxLines:1)·줄바꿈 없음(softWrap:false)으로 고정한다 — 좁은 화면에서 툴바에
+    // 밀려 한 글자씩 세로로 끊기지 않게(후속 수정 r3).
+    const titleText = Text(
+      '업로드한 평면도',
+      key: Key('ssSourcePanelTitle'),
+      maxLines: 1,
+      softWrap: false,
+      overflow: TextOverflow.ellipsis,
+      style: TextStyle(color: SsMasterTheme.textPrimary, fontWeight: FontWeight.w700, fontSize: 16),
+    );
+    const titleIcon = Icon(Icons.image_outlined, color: SsMasterTheme.textSecondary, size: 20);
+    if (width < _sourceHeaderStackBelow) {
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const Row(children: [titleIcon, SizedBox(width: 8), Flexible(child: titleText)]),
+          const SizedBox(height: 4),
+          _buildSourceToolbar(alignment: WrapAlignment.start, shortLabel: width < _pickLabelShortBelow),
+        ],
+      );
+    }
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.center,
+      children: [
+        titleIcon,
+        const SizedBox(width: 8),
+        titleText,
+        const SizedBox(width: 8),
+        // 남는 폭을 전부 받아(Expanded) 제목이 아니라 툴바 쪽이 먼저 줄바꿈되게 한다.
+        Expanded(
+          child: Align(
+            alignment: Alignment.centerRight,
+            child: _buildSourceToolbar(alignment: WrapAlignment.end, shortLabel: false),
+          ),
+        ),
+      ],
+    );
+  }
+
+  /// MASTER UI 5 원본 패널 툴바 — 다른 이미지 업로드 + 회전/자르기(미구현은 비활성)/확대-축소/전체화면.
+  /// 좁은 화면에서도 버튼 단위로 줄바꿈되게 Wrap을 쓰고, 업로드 버튼 글자는 항상 한 줄로 둔다.
+  Widget _buildSourceToolbar({required WrapAlignment alignment, required bool shortLabel}) {
+    final fullLabel = _sourceFile == null ? '평면도 업로드' : '다른 이미지 업로드';
+    final label = shortLabel ? (_sourceFile == null ? '업로드' : '다른 파일') : fullLabel;
+    Widget pickButton = TextButton.icon(
+      key: const Key('ssUploadPickButton'),
+      onPressed: _pickFile,
+      icon: const Icon(Icons.upload_file, size: 18, color: SsMasterTheme.neonBlue),
+      label: Text(
+        label,
+        key: const Key('ssUploadPickLabel'),
+        maxLines: 1,
+        softWrap: false,
+        overflow: TextOverflow.ellipsis,
+        style: const TextStyle(color: SsMasterTheme.neonBlue),
+      ),
+    );
+    if (shortLabel) pickButton = Tooltip(message: fullLabel, child: pickButton);
+    return Wrap(
+                    alignment: alignment,
                     spacing: 2,
                     runSpacing: 4,
                     crossAxisAlignment: WrapCrossAlignment.center,
                     children: [
-                      TextButton.icon(
-                        key: const Key('ssUploadPickButton'),
-                        onPressed: _pickFile,
-                        icon: const Icon(Icons.upload_file, size: 18, color: SsMasterTheme.neonBlue),
-                        label: Text(_sourceFile == null ? '평면도 업로드' : '다른 이미지 업로드', style: const TextStyle(color: SsMasterTheme.neonBlue)),
-                      ),
+                      pickButton,
                       IconButton(
                         key: const Key('ssRotateButton'),
                         tooltip: '회전',
@@ -566,15 +612,6 @@ class _FloorPlanUploadScreenState extends State<FloorPlanUploadScreen> {
                         icon: const Icon(Icons.fullscreen, color: SsMasterTheme.textSecondary, size: 20),
                       ),
                     ],
-                  ),
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 12),
-          Expanded(child: _buildSourceBody()),
-        ],
-      ),
     );
   }
 

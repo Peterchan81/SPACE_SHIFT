@@ -67,14 +67,30 @@ class SsRecognitionShortfall {
     final insufficient = summary == null || rooms == 0 || total < fewElementsThreshold || serviceWarnings.isNotEmpty;
     if (!insufficient) return null;
 
+    // #1027-23 남은 문제 1 — 기본 인식 엔진이 찾은 후보([engineResult])와 화면 결과([summary])의
+    // 개수가 다를 수 있다. 공간 해석(EnvelopeFirstInterpreter)은 공간(방)의 경계가 되는 벽만
+    // 결과에 넣고, 건물 외곽·내부 공간을 만들지 못하면 벽을 하나도 넣지 않는다(일부러 뺌 —
+    // 가짜 벽·방을 만들지 않는다). 그래서 머리말도 "찾지 못했다"가 아니라 "찾았지만 넣지
+    // 않았다"고 사실대로 말해, 아래 엔진 후보 개수와 모순되지 않게 한다.
+    final engineWalls = engineResult?.walls.length ?? 0;
+    final engineRooms = engineResult?.rooms.length ?? 0;
+    final engineOpenings = engineResult?.openings.length ?? 0;
+
     final parts = <String>[];
-    if (rooms == 0) parts.add('방을 찾지 못했습니다');
-    if (walls == 0) {
-      parts.add('벽을 찾지 못했습니다');
-    } else if (walls < minWallsForRoom) {
-      parts.add('벽 $walls개만 인식');
+    if (rooms == 0) {
+      parts.add(engineRooms > 0 ? '방을 확정하지 못했습니다(엔진이 찾은 방 후보 $engineRooms개는 공간으로 넣지 않았습니다)' : '방을 찾지 못했습니다');
     }
-    if (openings == 0) parts.add('문/창을 찾지 못했습니다');
+    if (walls == 0) {
+      parts.add(engineWalls > 0 ? '엔진이 찾은 벽 $engineWalls개는 방을 이루지 못해 결과에 넣지 않았습니다' : '벽을 찾지 못했습니다');
+    } else {
+      if (walls < minWallsForRoom) parts.add('벽 $walls개만 인식');
+      if (engineWalls > walls) {
+        parts.add('엔진이 찾은 벽 $engineWalls개 중 ${engineWalls - walls}개는 방을 이루지 못해 결과에 넣지 않았습니다');
+      }
+    }
+    if (openings == 0) {
+      parts.add(engineOpenings > 0 ? '엔진이 찾은 문/창 $engineOpenings개는 결과에 넣지 않았습니다' : '문/창을 찾지 못했습니다');
+    }
     if (parts.isEmpty) parts.add('확인이 필요한 경고가 있습니다');
 
     final allWarnings = <String>{...serviceWarnings, for (final n in notes) if (n.trim().isNotEmpty) n.trim()}.toList();
@@ -84,7 +100,7 @@ class SsRecognitionShortfall {
       reason: reasonFor(aiRecognitionConnected: aiRecognitionConnected),
       engineDetail: engineResult == null
           ? null
-          : '기본 인식 엔진 결과: 벽 ${engineResult.walls.length} · 방 ${engineResult.rooms.length} · 문/창 ${engineResult.openings.length}',
+          : '기본 인식 엔진이 찾은 후보: 벽 ${engineResult.walls.length} · 방 ${engineResult.rooms.length} · 문/창 ${engineResult.openings.length}',
       warnings: allWarnings,
     );
   }

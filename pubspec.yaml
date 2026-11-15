@@ -114,6 +114,10 @@ flutter:
     - assets/images/mock_ai_result.png
     - assets/images/ss_login_background.jpg
     - assets/icons/space_shift_symbol.png
+    - assets/images/home_hero.png
+    - assets/images/home_card_upload.png
+    - assets/images/home_card_draw.png
+    - assets/images/home_card_image.png
 
 flutter_launcher_icons:
   android: true
