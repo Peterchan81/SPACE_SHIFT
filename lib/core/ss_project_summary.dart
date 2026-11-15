@@ -26,8 +26,56 @@ enum SsProjectSort {
   final String label;
 }
 
+/// MASTER UI 3 — 프로젝트 카드의 5단계 진행 점(업로드 · 분석 · 생성 · 수정 · 완료).
+enum SsProjectPhase {
+  upload('업로드'),
+  analysis('분석'),
+  generate('생성'),
+  edit('수정'),
+  done('완료');
+
+  const SsProjectPhase(this.label);
+  final String label;
+}
+
+/// 5단계 점 하나의 상태 — 지난 단계(체크), 현재 단계(강조한 빈 원), 남은 단계(빈 원).
+enum SsPhaseState { completed, current, upcoming }
+
 abstract final class SsProjectSummary {
   static const int maxNameLength = 30;
+
+  /// 실제 작업 단계를 5개 묶음으로 나눈다. 세 FLOW 모두 흐름 순서대로 묶음이 줄지 않는다.
+  static SsProjectPhase phaseOfStage(SsStage stage) => switch (stage) {
+    SsStage.floorPlanReview || SsStage.cadConversion => SsProjectPhase.analysis,
+    SsStage.cadEditor || SsStage.isoConversion || SsStage.imageRendering => SsProjectPhase.generate,
+    SsStage.isoEditor || SsStage.elevationFaceEditor || SsStage.isoRendering => SsProjectPhase.edit,
+    SsStage.finalResult || SsStage.imageResult => SsProjectPhase.done,
+    _ => SsProjectPhase.upload,
+  };
+
+  /// 프로젝트의 지금 묶음(저장된 단계가 그 FLOW에 없으면 첫 단계 기준).
+  static SsProjectPhase phase(SsProject p) => phaseOfStage(flow(p)[stepIndex(p)]);
+
+  /// 5개 점 각각의 상태. 완료된 프로젝트는 모두 지난 단계(체크)로 본다.
+  static List<SsPhaseState> phaseStates(SsProject p) {
+    final complete = status(p) == SsProjectStatus.done;
+    final cur = phase(p).index;
+    return [
+      for (final ph in SsProjectPhase.values)
+        if (complete || ph.index < cur)
+          SsPhaseState.completed
+        else if (ph.index == cur)
+          SsPhaseState.current
+        else
+          SsPhaseState.upcoming,
+    ];
+  }
+
+  /// 자세한 단계 문구(툴팁) — "n/m 단계 · 다음: …".
+  static String stepDetail(SsProject p) {
+    final next = SsFlows.next(p.sourceType, resumeStage(p));
+    return '${stepIndex(p) + 1}/${stepCount(p)} 단계 · ${next == null ? '완료' : '다음: ${next.title}'}';
+  }
 
   static List<SsStage> flow(SsProject p) => SsFlows.stages[p.sourceType]!;
 

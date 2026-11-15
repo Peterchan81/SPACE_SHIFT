@@ -142,6 +142,7 @@ void main() {
     await tester.tap(find.byKey(const Key('ssProjectCard_a')));
     await tester.pumpAndSettle();
     expect(find.byKey(const Key('ssProjectOpenError')), findsOneWidget);
-    expect(tester.widget<Text>(find.byKey(const Key('ssStageTitle'))).data, SsStage.projectManagement.title);
+    // SS-수정003 3차 — MASTER 03 머리글 제목은 "프로젝트"(화면이 바뀌지 않았음을 확인).
+    expect(tester.widget<Text>(find.byKey(const Key('ssStageTitle'))).data, '프로젝트');
   });
 }

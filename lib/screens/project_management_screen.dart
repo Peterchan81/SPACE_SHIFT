@@ -1,21 +1,30 @@
-/// SS004 — MASTER UI 3(프로젝트 관리). 프로젝트 카드(대표 이미지·이름·상태·진행률·최근 수정일),
-/// 검색·정렬·보기 전환, 새 프로젝트 생성, 마지막 작업 이어서 하기, 확인을 거친 삭제.
+/// SS004 — MASTER UI 3(프로젝트 관리). 프로젝트 카드(대표 이미지·이름·상태·진행률·5단계 점·최근 수정일),
+/// 검색·정렬·보기 전환, 새 프로젝트 생성(점선 카드), 마지막 작업 이어서 하기, 확인을 거친 삭제.
 /// 프로젝트를 열면 저장된 currentStage(마지막 정상 단계)로 복원한다.
 library;
 
 import 'dart:async';
 import 'dart:io';
+import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 
 import 'package:ason_space/core/ss_project.dart';
 import 'package:ason_space/core/ss_project_store.dart';
 import 'package:ason_space/core/ss_project_summary.dart';
-import 'package:ason_space/core/ss_router.dart';
 import 'package:ason_space/core/ss_stage.dart';
+import 'package:ason_space/core/ss_stage_guide.dart';
 import 'package:ason_space/screens/ss_source_type_visual.dart';
 import 'package:ason_space/services/ss_project_store_provider.dart';
 import 'package:ason_space/theme/ss_master_theme.dart';
+import 'package:ason_space/widgets/ss_project_progress_steps.dart';
+
+/// 카드 보기 열 수 — 내용 폭(왼쪽 메뉴 236·여백 48을 뺀 폭) 기준.
+/// 창 1280 → 4열, 1024 → 3열, 800 → 2열, 640 → 1열(MASTER 03).
+int ssProjectGridColumns(double width) => ((width + 16) / 246).floor().clamp(1, 6);
+
+/// 머리글을 한 줄(제목 + 검색·보기·정렬)로 둘 창 폭.
+const double kSsProjectsHeaderWideWidth = 1024;
 
 /// 저장소에서 프로젝트를 다시 읽어(손상 시 FileSsProjectStore가 마지막 정상본으로) 마지막 작업 단계로 연다.
 /// 열지 못하면 SnackBar로 알리고 false.
@@ -168,10 +177,8 @@ class _ProjectManagementScreenState extends State<ProjectManagementScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const SsStageHeader(stage: SsStage.projectManagement),
-          const SizedBox(height: 16),
-          _buildToolbar(),
-          const SizedBox(height: 16),
+          _buildHeader(context),
+          const SizedBox(height: 20),
           if (_state == _Load.loaded && _last != null) ...[_buildResumeBanner(_last!), const SizedBox(height: 16)],
           _buildBody(),
         ],
@@ -179,68 +186,117 @@ class _ProjectManagementScreenState extends State<ProjectManagementScreen> {
     );
   }
 
-  Widget _buildToolbar() {
+  /// MASTER 03 머리글 — 넓으면 제목·안내 왼쪽 + 검색·보기·정렬 오른쪽 한 줄, 좁으면 두 줄.
+  Widget _buildHeader(BuildContext context) {
+    final wide = MediaQuery.sizeOf(context).width >= kSsProjectsHeaderWideWidth;
+    final title = Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        const Text(
+          '프로젝트',
+          key: Key('ssStageTitle'),
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: TextStyle(fontSize: 28, fontWeight: FontWeight.w800, color: SsMasterTheme.textPrimary, height: 1.2),
+        ),
+        const SizedBox(height: 8),
+        Text(
+          SsStageGuide.sentenceFor(SsStage.projectManagement),
+          key: const Key('ssStageWhat'),
+          maxLines: 2,
+          overflow: TextOverflow.ellipsis,
+          style: const TextStyle(fontSize: 14, color: SsMasterTheme.textSecondary, height: 1.4),
+        ),
+      ],
+    );
+    if (wide) {
+      return Row(
+        key: const Key('ssProjectsHeaderWide'),
+        crossAxisAlignment: CrossAxisAlignment.center,
+        children: [
+          Expanded(child: title),
+          const SizedBox(width: 16),
+          _buildToolbar(wide: true),
+        ],
+      );
+    }
+    return Column(
+      key: const Key('ssProjectsHeaderNarrow'),
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [title, const SizedBox(height: 16), _buildToolbar(wide: false)],
+    );
+  }
+
+  Widget _buildToolbar({required bool wide}) {
+    final search = SizedBox(
+      width: wide ? 220 : 300,
+      child: TextField(
+        key: const Key('ssProjectsSearch'),
+        style: const TextStyle(color: Colors.white),
+        onChanged: (v) => setState(() => _query = v),
+        decoration: InputDecoration(
+          isDense: true,
+          filled: true,
+          fillColor: SsMasterTheme.panel,
+          hintText: '프로젝트 검색',
+          hintStyle: const TextStyle(color: SsMasterTheme.textMuted),
+          prefixIcon: const Icon(Icons.search, color: SsMasterTheme.textSecondary),
+          border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: const BorderSide(color: SsMasterTheme.panelBorder)),
+          enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: const BorderSide(color: SsMasterTheme.panelBorder)),
+        ),
+      ),
+    );
+    final view = Container(
+      decoration: BoxDecoration(color: SsMasterTheme.panel, borderRadius: BorderRadius.circular(12), border: Border.all(color: SsMasterTheme.panelBorder)),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          IconButton(
+            key: const Key('ssProjectsViewGrid'),
+            tooltip: '카드 보기',
+            onPressed: () => setState(() => _grid = true),
+            icon: Icon(Icons.grid_view_rounded, color: _grid ? SsMasterTheme.neonBlue : SsMasterTheme.textSecondary),
+          ),
+          IconButton(
+            key: const Key('ssProjectsViewList'),
+            tooltip: '목록 보기',
+            onPressed: () => setState(() => _grid = false),
+            icon: Icon(Icons.view_list_rounded, color: !_grid ? SsMasterTheme.neonBlue : SsMasterTheme.textSecondary),
+          ),
+        ],
+      ),
+    );
+    final sort = Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12),
+      decoration: BoxDecoration(color: SsMasterTheme.panel, borderRadius: BorderRadius.circular(12), border: Border.all(color: SsMasterTheme.panelBorder)),
+      child: DropdownButtonHideUnderline(
+        child: DropdownButton<SsProjectSort>(
+          key: const Key('ssProjectsSort'),
+          value: _sort,
+          dropdownColor: SsMasterTheme.panel,
+          style: const TextStyle(color: Colors.white),
+          iconEnabledColor: SsMasterTheme.textSecondary,
+          items: [for (final s in SsProjectSort.values) DropdownMenuItem(value: s, child: Text(s.label))],
+          onChanged: (s) {
+            if (s != null) setState(() => _sort = s);
+          },
+        ),
+      ),
+    );
+    if (wide) {
+      return Row(
+        key: const Key('ssProjectsToolbar'),
+        mainAxisSize: MainAxisSize.min,
+        children: [search, const SizedBox(width: 12), view, const SizedBox(width: 12), sort],
+      );
+    }
     return Wrap(
+      key: const Key('ssProjectsToolbar'),
       spacing: 12,
       runSpacing: 12,
       crossAxisAlignment: WrapCrossAlignment.center,
-      children: [
-        SizedBox(
-          width: 300,
-          child: TextField(
-            key: const Key('ssProjectsSearch'),
-            style: const TextStyle(color: Colors.white),
-            onChanged: (v) => setState(() => _query = v),
-            decoration: InputDecoration(
-              isDense: true,
-              filled: true,
-              fillColor: SsMasterTheme.panel,
-              hintText: '프로젝트 검색',
-              hintStyle: const TextStyle(color: SsMasterTheme.textMuted),
-              prefixIcon: const Icon(Icons.search, color: SsMasterTheme.textSecondary),
-              border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: const BorderSide(color: SsMasterTheme.panelBorder)),
-              enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: const BorderSide(color: SsMasterTheme.panelBorder)),
-            ),
-          ),
-        ),
-        Container(
-          decoration: BoxDecoration(color: SsMasterTheme.panel, borderRadius: BorderRadius.circular(12), border: Border.all(color: SsMasterTheme.panelBorder)),
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              IconButton(
-                key: const Key('ssProjectsViewGrid'),
-                tooltip: '카드 보기',
-                onPressed: () => setState(() => _grid = true),
-                icon: Icon(Icons.grid_view_rounded, color: _grid ? SsMasterTheme.neonBlue : SsMasterTheme.textSecondary),
-              ),
-              IconButton(
-                key: const Key('ssProjectsViewList'),
-                tooltip: '목록 보기',
-                onPressed: () => setState(() => _grid = false),
-                icon: Icon(Icons.view_list_rounded, color: !_grid ? SsMasterTheme.neonBlue : SsMasterTheme.textSecondary),
-              ),
-            ],
-          ),
-        ),
-        Container(
-          padding: const EdgeInsets.symmetric(horizontal: 12),
-          decoration: BoxDecoration(color: SsMasterTheme.panel, borderRadius: BorderRadius.circular(12), border: Border.all(color: SsMasterTheme.panelBorder)),
-          child: DropdownButtonHideUnderline(
-            child: DropdownButton<SsProjectSort>(
-              key: const Key('ssProjectsSort'),
-              value: _sort,
-              dropdownColor: SsMasterTheme.panel,
-              style: const TextStyle(color: Colors.white),
-              iconEnabledColor: SsMasterTheme.textSecondary,
-              items: [for (final s in SsProjectSort.values) DropdownMenuItem(value: s, child: Text(s.label))],
-              onChanged: (s) {
-                if (s != null) setState(() => _sort = s);
-              },
-            ),
-          ),
-        ),
-      ],
+      children: [search, view, sort],
     );
   }
 
@@ -322,9 +378,10 @@ class _ProjectManagementScreenState extends State<ProjectManagementScreen> {
               builder: (context, constraints) {
                 if (_grid) {
                   const gap = 16.0;
-                  final cols = (constraints.maxWidth / 300).floor().clamp(1, 6);
+                  final cols = ssProjectGridColumns(constraints.maxWidth);
                   final w = (constraints.maxWidth - gap * (cols - 1)) / cols;
                   return Wrap(
+                    key: Key('ssProjectsGrid_$cols'),
                     spacing: gap,
                     runSpacing: gap,
                     children: [
@@ -346,7 +403,7 @@ class _ProjectManagementScreenState extends State<ProjectManagementScreen> {
                 }
                 return Column(
                   children: [
-                    SizedBox(height: 120, child: _NewProjectCard(onTap: () => unawaited(_create()))),
+                    _NewProjectCard(compact: true, onTap: () => unawaited(_create())),
                     for (var i = 0; i < visible.length; i++)
                       Padding(
                         padding: const EdgeInsets.only(top: 12),
@@ -369,40 +426,110 @@ class _ProjectManagementScreenState extends State<ProjectManagementScreen> {
   }
 }
 
+/// MASTER 03 새 프로젝트 카드의 점선 둥근 테두리.
+class SsDashedRRectPainter extends CustomPainter {
+  const SsDashedRRectPainter({required this.color, this.radius = 16, this.strokeWidth = 1.5, this.dash = 8, this.gap = 6});
+
+  final Color color;
+  final double radius;
+  final double strokeWidth;
+  final double dash;
+  final double gap;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    if (size.isEmpty) return;
+    final rect = (Offset.zero & size).deflate(strokeWidth / 2);
+    final path = Path()..addRRect(RRect.fromRectAndRadius(rect, Radius.circular(radius)));
+    final paint = Paint()
+      ..color = color
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = strokeWidth;
+    for (final metric in path.computeMetrics()) {
+      var d = 0.0;
+      while (d < metric.length) {
+        final end = math.min(d + dash, metric.length);
+        canvas.drawPath(metric.extractPath(d, end), paint);
+        d = end + gap;
+      }
+    }
+  }
+
+  @override
+  bool shouldRepaint(SsDashedRRectPainter oldDelegate) =>
+      oldDelegate.color != color || oldDelegate.radius != radius || oldDelegate.strokeWidth != strokeWidth || oldDelegate.dash != dash || oldDelegate.gap != gap;
+}
+
 class _NewProjectCard extends StatelessWidget {
-  const _NewProjectCard({required this.onTap});
+  const _NewProjectCard({required this.onTap, this.compact = false});
   final VoidCallback onTap;
+
+  /// 목록 보기용 낮은 카드(가로 배치).
+  final bool compact;
 
   @override
   Widget build(BuildContext context) {
+    final plus = Container(
+      width: compact ? 44 : 64,
+      height: compact ? 44 : 64,
+      alignment: Alignment.center,
+      decoration: const BoxDecoration(shape: BoxShape.circle, gradient: SsMasterTheme.selectedItem),
+      child: Icon(Icons.add, color: Colors.white, size: compact ? 26 : 34),
+    );
+    const titleText = '새 프로젝트 생성';
+    const subText = '새로운 공간을 디자인해보세요.';
+    final Widget content = compact
+        ? Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                plus,
+                const SizedBox(width: 14),
+                const Flexible(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(titleText, maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.w800)),
+                      SizedBox(height: 4),
+                      Text(subText, maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(color: SsMasterTheme.textSecondary, fontSize: 13)),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          )
+        : Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 12),
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                plus,
+                const SizedBox(height: 14),
+                const Text(titleText, maxLines: 1, overflow: TextOverflow.ellipsis, textAlign: TextAlign.center, style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.w800)),
+                const SizedBox(height: 6),
+                const Text(subText, maxLines: 2, overflow: TextOverflow.ellipsis, textAlign: TextAlign.center, style: TextStyle(color: SsMasterTheme.textSecondary, fontSize: 13)),
+              ],
+            ),
+          );
     return Material(
       color: Colors.transparent,
       child: InkWell(
         key: const Key('ssProjectsCreateCard'),
         borderRadius: BorderRadius.circular(16),
         onTap: onTap,
-        child: Container(
-          height: 310,
-          decoration: BoxDecoration(
-            color: SsMasterTheme.panel.withValues(alpha: 0.6),
-            borderRadius: BorderRadius.circular(16),
-            border: Border.all(color: SsMasterTheme.neonBlue.withValues(alpha: 0.5)),
-          ),
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Container(
-                width: 64,
-                height: 64,
-                alignment: Alignment.center,
-                decoration: const BoxDecoration(shape: BoxShape.circle, gradient: SsMasterTheme.selectedItem),
-                child: const Icon(Icons.add, color: Colors.white, size: 34),
-              ),
-              const SizedBox(height: 14),
-              const Text('새 프로젝트 생성', style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.w800)),
-              const SizedBox(height: 6),
-              const Text('새로운 공간을 디자인해보세요.', style: TextStyle(color: SsMasterTheme.textSecondary, fontSize: 13)),
-            ],
+        child: SizedBox(
+          height: compact ? 96 : _ProjectCard.cardHeight,
+          child: CustomPaint(
+            key: const Key('ssProjectsCreateCardDashed'),
+            painter: SsDashedRRectPainter(color: SsMasterTheme.neonBlue.withValues(alpha: 0.7)),
+            child: Container(
+              decoration: BoxDecoration(color: SsMasterTheme.panel.withValues(alpha: 0.35), borderRadius: BorderRadius.circular(16)),
+              alignment: Alignment.center,
+              child: content,
+            ),
           ),
         ),
       ),
@@ -425,10 +552,16 @@ class _StatusChip extends StatelessWidget {
     };
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-      decoration: BoxDecoration(color: SsMasterTheme.background.withValues(alpha: 0.85), borderRadius: BorderRadius.circular(20), border: Border.all(color: color)),
+      decoration: BoxDecoration(
+        color: Color.alphaBlend(color.withValues(alpha: 0.18), SsMasterTheme.background.withValues(alpha: 0.9)),
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(color: color),
+      ),
       child: Text(
         status.label,
         key: Key('ssProjectStatus_${project.info.id}'),
+        maxLines: 1,
+        softWrap: false,
         style: TextStyle(color: color, fontSize: 12, fontWeight: FontWeight.w700),
       ),
     );
@@ -487,53 +620,60 @@ class _ProjectMenu extends StatelessWidget {
   }
 }
 
+/// 날짜 · 진행률 막대(오른쪽 %) · 5단계 점 줄(MASTER 03).
 class _ProgressInfo extends StatelessWidget {
-  const _ProgressInfo({required this.project});
+  const _ProgressInfo({required this.project, this.compact = false});
   final SsProject project;
+  final bool compact;
 
   @override
   Widget build(BuildContext context) {
     final pct = SsProjectSummary.percent(project);
-    final stage = SsProjectSummary.resumeStage(project);
-    final next = SsFlows.next(project.sourceType, stage);
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       mainAxisSize: MainAxisSize.min,
       children: [
         Row(
           children: [
-            const Icon(Icons.calendar_today_outlined, size: 14, color: SsMasterTheme.textSecondary),
+            Icon(Icons.calendar_today_outlined, size: compact ? 12 : 14, color: SsMasterTheme.textSecondary),
             const SizedBox(width: 6),
-            Text(
-              SsProjectSummary.formatDate(SsProjectSummary.lastUpdated(project)),
-              key: Key('ssProjectUpdated_${project.info.id}'),
-              style: const TextStyle(color: SsMasterTheme.textSecondary, fontSize: 12),
-            ),
-            const Spacer(),
-            Text(
-              '$pct%',
-              key: Key('ssProjectProgress_${project.info.id}'),
-              style: const TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.w800),
+            Flexible(
+              child: Text(
+                SsProjectSummary.formatDate(SsProjectSummary.lastUpdated(project)),
+                key: Key('ssProjectUpdated_${project.info.id}'),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(color: SsMasterTheme.textSecondary, fontSize: compact ? 11 : 12),
+              ),
             ),
           ],
         ),
-        const SizedBox(height: 6),
-        ClipRRect(
-          borderRadius: BorderRadius.circular(6),
-          child: LinearProgressIndicator(
-            value: pct / 100,
-            minHeight: 6,
-            backgroundColor: SsMasterTheme.panelBorder,
-            color: SsMasterTheme.neonPurple,
-          ),
+        SizedBox(height: compact ? 4 : 8),
+        Row(
+          children: [
+            Expanded(
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(6),
+                child: LinearProgressIndicator(
+                  value: pct / 100,
+                  minHeight: compact ? 4 : 6,
+                  backgroundColor: SsMasterTheme.panelBorder,
+                  color: SsMasterTheme.neonPurple,
+                ),
+              ),
+            ),
+            const SizedBox(width: 8),
+            Text(
+              '$pct%',
+              key: Key('ssProjectProgress_${project.info.id}'),
+              maxLines: 1,
+              softWrap: false,
+              style: TextStyle(color: Colors.white, fontSize: compact ? 12 : 13, fontWeight: FontWeight.w800),
+            ),
+          ],
         ),
-        const SizedBox(height: 6),
-        Text(
-          '${SsProjectSummary.stepIndex(project) + 1}/${SsProjectSummary.stepCount(project)} 단계 · ${next == null ? '완료' : '다음: ${next.title}'}',
-          maxLines: 1,
-          overflow: TextOverflow.ellipsis,
-          style: const TextStyle(color: SsMasterTheme.textMuted, fontSize: 11),
-        ),
+        SizedBox(height: compact ? 4 : 8),
+        SsProjectProgressSteps(project: project, compact: compact),
       ],
     );
   }
@@ -548,6 +688,8 @@ class _ProjectCard extends StatelessWidget {
   final VoidCallback onOpen;
   final VoidCallback? onDelete;
 
+  static const double cardHeight = 320;
+
   @override
   Widget build(BuildContext context) {
     final stage = SsProjectSummary.resumeStage(project);
@@ -558,7 +700,7 @@ class _ProjectCard extends StatelessWidget {
         borderRadius: BorderRadius.circular(16),
         onTap: onOpen,
         child: Container(
-          height: 310,
+          height: cardHeight,
           clipBehavior: Clip.antiAlias,
           decoration: BoxDecoration(
             color: SsMasterTheme.panel,
@@ -635,6 +777,18 @@ class _ProjectListTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final stage = SsProjectSummary.resumeStage(project);
+    final nameText = Text(
+      '${index.toString().padLeft(2, '0')}  ${project.info.name}',
+      maxLines: 1,
+      overflow: TextOverflow.ellipsis,
+      style: const TextStyle(color: Colors.white, fontSize: 15, fontWeight: FontWeight.w700),
+    );
+    final sourceText = Text(
+      '${project.sourceType.label} | ${stage.title}',
+      maxLines: 1,
+      overflow: TextOverflow.ellipsis,
+      style: const TextStyle(color: SsMasterTheme.textSecondary, fontSize: 12),
+    );
     return Material(
       color: Colors.transparent,
       child: InkWell(
@@ -642,47 +796,66 @@ class _ProjectListTile extends StatelessWidget {
         borderRadius: BorderRadius.circular(14),
         onTap: onOpen,
         child: Container(
-          height: 100,
           padding: const EdgeInsets.all(12),
           decoration: BoxDecoration(
             color: SsMasterTheme.panel,
             borderRadius: BorderRadius.circular(14),
             border: Border.all(color: highlighted ? SsMasterTheme.neonBlue : SsMasterTheme.panelBorder, width: highlighted ? 2 : 1),
           ),
-          child: Row(
-            children: [
-              ClipRRect(
-                borderRadius: BorderRadius.circular(10),
-                child: SizedBox(width: 120, height: 76, child: _Thumb(project: project, path: thumbnailPath)),
-              ),
-              const SizedBox(width: 14),
-              Expanded(
-                flex: 3,
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      '${index.toString().padLeft(2, '0')}  ${project.info.name}',
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(color: Colors.white, fontSize: 15, fontWeight: FontWeight.w700),
-                    ),
-                    const SizedBox(height: 4),
-                    Text(
-                      '${project.sourceType.label} | ${stage.title}',
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(color: SsMasterTheme.textSecondary, fontSize: 12),
-                    ),
-                  ],
-                ),
-              ),
-              _StatusChip(project: project),
-              const SizedBox(width: 14),
-              Expanded(flex: 2, child: Center(child: _ProgressInfo(project: project))),
-              _ProjectMenu(project: project, onOpen: onOpen, onDelete: onDelete),
-            ],
+          child: LayoutBuilder(
+            builder: (context, constraints) {
+              if (constraints.maxWidth >= 600) {
+                return SizedBox(
+                  height: 84,
+                  child: Row(
+                    children: [
+                      ClipRRect(
+                        borderRadius: BorderRadius.circular(10),
+                        child: SizedBox(width: 120, height: 76, child: _Thumb(project: project, path: thumbnailPath)),
+                      ),
+                      const SizedBox(width: 14),
+                      Expanded(
+                        flex: 3,
+                        child: Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [nameText, const SizedBox(height: 4), sourceText],
+                        ),
+                      ),
+                      _StatusChip(project: project),
+                      const SizedBox(width: 14),
+                      Expanded(flex: 2, child: Center(child: _ProgressInfo(project: project, compact: true))),
+                      _ProjectMenu(project: project, onOpen: onOpen, onDelete: onDelete),
+                    ],
+                  ),
+                );
+              }
+              return Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Row(
+                    children: [
+                      ClipRRect(
+                        borderRadius: BorderRadius.circular(10),
+                        child: SizedBox(width: 80, height: 56, child: _Thumb(project: project, path: thumbnailPath)),
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          mainAxisSize: MainAxisSize.min,
+                          children: [nameText, const SizedBox(height: 2), sourceText, const SizedBox(height: 4), _StatusChip(project: project)],
+                        ),
+                      ),
+                      _ProjectMenu(project: project, onOpen: onOpen, onDelete: onDelete),
+                    ],
+                  ),
+                  const SizedBox(height: 8),
+                  _ProgressInfo(project: project, compact: true),
+                ],
+              );
+            },
           ),
         ),
       ),
