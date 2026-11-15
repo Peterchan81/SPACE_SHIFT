@@ -272,7 +272,8 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.byType(LoginScreen), findsNothing);
-    expect(find.byKey(const Key('ssStageTitle')), findsOneWidget);
+    // SS-수정003 — 홈은 공통 머리말 대신 MASTER UI 2 히어로를 쓴다.
+    expect(find.byKey(const Key('ssHomeHero')), findsOneWidget);
   });
 
   testWidgets('사진이 없을 때 다음 버튼이 비활성화된다', (WidgetTester tester) async {

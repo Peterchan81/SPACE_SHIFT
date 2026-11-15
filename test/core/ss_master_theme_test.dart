@@ -26,13 +26,14 @@ void main() {
     expect(scaffold.backgroundColor, SsMasterTheme.background);
   });
 
-  testWidgets('상단 Header는 무지개 SS 로고 + SPACE SHIFT, 도움말·알림 아이콘(비활성)을 보인다', (tester) async {
+  testWidgets('상단 Header는 무지개 SS 로고 + SPACE SHIFT, 도움말·알림 아이콘(SS-BUG-011부터 동작)을 보인다', (tester) async {
     await pumpStage(tester, SsStage.home);
-    expect(find.byKey(const Key('ssTopBar')), findsOneWidget);
-    expect(find.text('SPACE SHIFT'), findsOneWidget);
-    expect(find.text('SS'), findsOneWidget);
-    expect(tester.widget<IconButton>(find.byKey(const Key('ssTopBarHelp'))).onPressed, isNull);
-    expect(tester.widget<IconButton>(find.byKey(const Key('ssTopBarNotifications'))).onPressed, isNull);
+    final topBar = find.byKey(const Key('ssTopBar'));
+    expect(topBar, findsOneWidget);
+    expect(find.descendant(of: topBar, matching: find.text('SPACE SHIFT')), findsOneWidget);
+    expect(find.descendant(of: topBar, matching: find.text('SS')), findsOneWidget);
+    expect(tester.widget<IconButton>(find.byKey(const Key('ssTopBarHelp'))).onPressed, isNotNull);
+    expect(tester.widget<IconButton>(find.byKey(const Key('ssTopBarNotifications'))).onPressed, isNotNull);
   });
 
   testWidgets('프로필 아이콘은 더 이상 로그아웃하지 않고, 누르면 설정 화면을 연다(§5, 2026-10-28 #2 후속 지시)', (tester) async {

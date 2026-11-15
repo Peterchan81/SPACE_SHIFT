@@ -29,6 +29,10 @@ import '../screens/photo_design_editor_screen.dart';
 import '../screens/project_creation_screen.dart';
 import '../screens/project_management_screen.dart';
 import '../screens/settings_screen.dart';
+import '../screens/ss_guide_screen.dart';
+import '../widgets/ss_nav_current_projects.dart';
+import '../widgets/ss_notifications_panel.dart';
+import 'ss_stage_guide.dart';
 import '../services/auth_service.dart';
 import '../theme/ss_master_theme.dart';
 import 'ss_stage.dart';
@@ -199,7 +203,8 @@ class SsStageScreen extends StatelessWidget {
 }
 
 /// 상단 공통 Header(MASTER UI 2·5 기준) — 왼쪽 무지개 SS 로고 + "SPACE SHIFT", 오른쪽 도움말·알림·프로필.
-/// 아직 동작이 없는 도움말·알림 아이콘은 누를 수 없게 비활성(onPressed: null)만 두고 가짜 동작을 만들지 않는다.
+/// 도움말 아이콘은 시작 가이드([SsGuideScreen])를, 알림 아이콘은 실제 프로젝트 저장소의 최근 활동만 보여주는
+/// 알림 패널([SsNotificationsPanel])을 연다(SS-BUG-011 — 가짜 알림은 만들지 않는다).
 ///
 /// 프로필 아이콘(2026-10-28 #2 후속 지시 — Galaxy Tab 실기 검증 후) — 더 이상
 /// 이 아이콘에서 직접 로그아웃하지 않는다. 누르면 [SettingsScreen]으로 이동해,
@@ -229,10 +234,16 @@ class SsTopBar extends StatelessWidget {
             style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700, color: Colors.white, letterSpacing: 1.1),
           ),
           const Spacer(),
-          IconButton(key: const Key('ssTopBarHelp'), onPressed: null, icon: const Icon(Icons.help_outline, color: SsMasterTheme.textSecondary)),
+          IconButton(
+            key: const Key('ssTopBarHelp'),
+            tooltip: '도움말',
+            onPressed: () => Navigator.of(context).push<void>(MaterialPageRoute<void>(builder: (_) => const SsGuideScreen())),
+            icon: const Icon(Icons.help_outline, color: SsMasterTheme.textSecondary),
+          ),
           IconButton(
             key: const Key('ssTopBarNotifications'),
-            onPressed: null,
+            tooltip: '알림',
+            onPressed: () => showSsNotificationsPanel(context),
             icon: const Icon(Icons.notifications_outlined, color: SsMasterTheme.textSecondary),
           ),
           IconButton(
@@ -247,43 +258,28 @@ class SsTopBar extends StatelessWidget {
   }
 }
 
-/// 3초 법칙 머리말 — "지금 무엇을 하는 화면인가 / 다음에 무엇을 하나"(MASTER UI 5 머리말 기준: 번호 상자 + 제목 + 설명).
+/// 3초 법칙 머리말 — MASTER 화면처럼 큰 제목 + 한 줄 안내 문장([SsStageGuide])으로 "지금 어디인지 / 다음에 무엇을
+/// 하는지"를 알려준다(SS-수정003 — 개발용 번호 상자·"다음: …" 표시는 쓰지 않는다).
 class SsStageHeader extends StatelessWidget {
   const SsStageHeader({super.key, required this.stage});
   final SsStage stage;
 
   @override
   Widget build(BuildContext context) {
-    return Row(
+    return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
+      mainAxisSize: MainAxisSize.min,
       children: [
-        Container(
-          width: 44,
-          height: 44,
-          alignment: Alignment.center,
-          decoration: BoxDecoration(gradient: SsMasterTheme.selectedItem, borderRadius: BorderRadius.circular(10)),
-          child: Text(stage.masterUi, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w800, fontSize: 15)),
+        Text(
+          stage.title,
+          key: const Key('ssStageTitle'),
+          style: const TextStyle(fontSize: 28, fontWeight: FontWeight.w800, color: SsMasterTheme.textPrimary, height: 1.2),
         ),
-        const SizedBox(width: 14),
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                stage.title,
-                key: const Key('ssStageTitle'),
-                style: const TextStyle(fontSize: 24, fontWeight: FontWeight.w800, color: SsMasterTheme.textPrimary),
-              ),
-              const SizedBox(height: 6),
-              Text(stage.whatIsThis, key: const Key('ssStageWhat'), style: const TextStyle(fontSize: 14, color: SsMasterTheme.textSecondary)),
-              const SizedBox(height: 2),
-              Text(
-                '다음: ${stage.whatNext}',
-                key: const Key('ssStageNext'),
-                style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: SsMasterTheme.neonBlue),
-              ),
-            ],
-          ),
+        const SizedBox(height: 8),
+        Text(
+          SsStageGuide.sentenceFor(stage),
+          key: const Key('ssStageWhat'),
+          style: const TextStyle(fontSize: 14, color: SsMasterTheme.textSecondary, height: 1.4),
         ),
       ],
     );
@@ -317,46 +313,68 @@ class SsNavRail extends StatelessWidget {
     final mainItems = SsNavItem.values.where((i) => i != SsNavItem.settings && enabled.contains(i)).toList();
     final showSettings = enabled.contains(SsNavItem.settings);
     final showCurrentProjects = enabled.contains(SsNavItem.currentProject);
+    final navRows = <Widget>[
+      for (final item in mainItems)
+        _SsNavRow(item: item, icon: _icons[item]!, isSelected: item == selected, onTap: onSelect == null ? null : () => onSelect!(item)),
+    ];
+    final settingsRows = <Widget>[
+      if (showSettings) ...[
+        const Divider(height: 1, color: SsMasterTheme.panelBorder),
+        _SsNavRow(
+          item: SsNavItem.settings,
+          icon: _icons[SsNavItem.settings]!,
+          isSelected: SsNavItem.settings == selected,
+          onTap: onSelect == null ? null : () => onSelect!(SsNavItem.settings),
+        ),
+        const SizedBox(height: 12),
+      ],
+    ];
+    // SS-BUG-011 — 진행 중인 프로젝트는 실제 저장소 목록([SsNavCurrentProjects]) — 누르면 마지막 저장 단계로 재개.
+    const currentProjects = Padding(
+      padding: EdgeInsets.fromLTRB(16, 20, 16, 8),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            '진행 중인 프로젝트',
+            key: Key('ssNavCurrentProjectsLabel'),
+            style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: SsMasterTheme.textMuted, letterSpacing: 0.4),
+          ),
+          SizedBox(height: 8),
+          Expanded(child: SsNavCurrentProjects(key: Key('ssNavCurrentProjectsList'))),
+        ],
+      ),
+    );
     return Container(
       key: const Key('ssNavRail'),
       width: 236,
       decoration: const BoxDecoration(color: SsMasterTheme.panel, border: Border(right: BorderSide(color: SsMasterTheme.panelBorder))),
-      child: Column(
-        children: [
-          const SizedBox(height: 16),
-          for (final item in mainItems)
-            _SsNavRow(item: item, icon: _icons[item]!, isSelected: item == selected, onTap: onSelect == null ? null : () => onSelect!(item)),
-          if (showCurrentProjects)
-            Expanded(
-              child: Padding(
-                padding: const EdgeInsets.fromLTRB(16, 20, 16, 8),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: const [
-                    Text(
-                      '진행 중인 프로젝트',
-                      key: Key('ssNavCurrentProjectsLabel'),
-                      style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: SsMasterTheme.textMuted, letterSpacing: 0.4),
-                    ),
-                    SizedBox(height: 8),
-                    Expanded(child: SizedBox(key: Key('ssNavCurrentProjectsList'))),
-                  ],
-                ),
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          // 낮은 창(예: 640×480)에서는 메뉴가 잘리지 않게 전체를 스크롤하고, 진행 중인 프로젝트 영역은 고정 높이로 둔다.
+          final needed = 16.0 + mainItems.length * 52 + (showSettings ? 65 : 0) + (showCurrentProjects ? 140 : 0);
+          if (constraints.maxHeight.isFinite && constraints.maxHeight < needed) {
+            return SingleChildScrollView(
+              key: const Key('ssNavRailScroll'),
+              child: Column(
+                children: [
+                  const SizedBox(height: 16),
+                  ...navRows,
+                  if (showCurrentProjects) const SizedBox(height: 180, child: currentProjects),
+                  ...settingsRows,
+                ],
               ),
-            )
-          else
-            const Spacer(),
-          if (showSettings) ...[
-            const Divider(height: 1, color: SsMasterTheme.panelBorder),
-            _SsNavRow(
-              item: SsNavItem.settings,
-              icon: _icons[SsNavItem.settings]!,
-              isSelected: SsNavItem.settings == selected,
-              onTap: onSelect == null ? null : () => onSelect!(SsNavItem.settings),
-            ),
-            const SizedBox(height: 12),
-          ],
-        ],
+            );
+          }
+          return Column(
+            children: [
+              const SizedBox(height: 16),
+              ...navRows,
+              if (showCurrentProjects) const Expanded(child: currentProjects) else const Spacer(),
+              ...settingsRows,
+            ],
+          );
+        },
       ),
     );
   }
