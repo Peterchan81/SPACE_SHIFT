@@ -36,6 +36,7 @@ import '../models/ss_spatial_model_json.dart';
 import '../services/ss_project_store_provider.dart';
 import '../services/ss_recognition_summary.dart';
 import '../theme/ss_master_theme.dart';
+import '../widgets/workspace/ss_recognition_shortfall.dart';
 
 class FloorPlanReviewScreen extends StatefulWidget {
   const FloorPlanReviewScreen({super.key, this.projectId, this.projectStore});
@@ -122,6 +123,8 @@ class _FloorPlanReviewScreenState extends State<FloorPlanReviewScreen> {
             ? null
             : (SsReviewEditorController(baseModel: model, initialScene: initialScene)..history.addListener(_onReviewCommitted));
         _visibleLayers = SsRecognitionLayer.values.toSet();
+        // SS-수정004 — 인식 결과가 0개면 비교할 것이 없으므로 처음부터 그릴 수 있는 상태로 연다.
+        _editMode = model != null && SsRecognitionSummary.fromModel(model).totalCount == 0;
         _state = _ReviewLoad.loaded;
       });
     } catch (e, st) {
@@ -152,6 +155,7 @@ class _FloorPlanReviewScreenState extends State<FloorPlanReviewScreen> {
   Future<void> _onConvertPressed() async {
     final controller = _controller;
     if (controller == null) return;
+    if (!SsRecognitionShortfall.canConvertToCad(SsRecognitionSummary.fromModel(controller.effectiveModel))) return;
     final remaining = SsRecognitionSummary.fromModel(controller.effectiveModel).reviewItems.length;
     final confirmed = await showDialog<bool>(
       context: context,
@@ -259,23 +263,46 @@ class _FloorPlanReviewScreenState extends State<FloorPlanReviewScreen> {
     );
   }
 
+  /// SS-수정004 — 본문 폭이 이보다 좁으면(800×600, 640×480 창 등) 두 패널을 나란히 두지 않고
+  /// 위아래로 쌓아 스크롤한다 — 패널 머리줄·도구줄이 잘리지 않게 한다.
+  static const double _narrowBodyWidth = 700;
+
   Widget _buildBody(SsReviewEditorController controller) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Expanded(
-          child: Row(
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        if (constraints.maxWidth >= _narrowBodyWidth) {
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Expanded(
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    Expanded(child: _buildSourcePanel()),
+                    const SizedBox(width: 16),
+                    Expanded(child: _buildReviewPanel(controller)),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 16),
+              _buildBottomToolbar(controller),
+            ],
+          );
+        }
+        return SingleChildScrollView(
+          key: const Key('ssReviewNarrowScroll'),
+          child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              Expanded(child: _buildSourcePanel()),
-              const SizedBox(width: 16),
-              Expanded(child: _buildReviewPanel(controller)),
+              SizedBox(height: 260, child: _buildSourcePanel()),
+              const SizedBox(height: 16),
+              SizedBox(height: 640, child: _buildReviewPanel(controller)),
+              const SizedBox(height: 16),
+              _buildBottomToolbar(controller),
             ],
           ),
-        ),
-        const SizedBox(height: 16),
-        _buildBottomToolbar(controller),
-      ],
+        );
+      },
     );
   }
 
@@ -314,6 +341,7 @@ class _FloorPlanReviewScreenState extends State<FloorPlanReviewScreen> {
   Widget _buildReviewPanel(SsReviewEditorController controller) {
     final model = controller.effectiveModel;
     final summary = SsRecognitionSummary.fromModel(model);
+    final canConvert = SsRecognitionShortfall.canConvertToCad(summary);
     final aspect = model.sourceWidthPx > 0 && model.sourceHeightPx > 0 ? model.sourceWidthPx / model.sourceHeightPx : 1.0;
     final shownLayers = [
       for (final layer in SsRecognitionLayer.values)
@@ -326,12 +354,25 @@ class _FloorPlanReviewScreenState extends State<FloorPlanReviewScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(
+          // SS-수정004 — 1024 폭에서 이 머리줄이 오른쪽으로 넘쳐 잘리던 문제: 제목과 도구 버튼을
+          // Wrap으로 두어 폭이 모자라면 버튼이 다음 줄로 내려간다.
+          Wrap(
+            spacing: 8,
+            runSpacing: 4,
+            alignment: WrapAlignment.spaceBetween,
+            crossAxisAlignment: WrapCrossAlignment.center,
             children: [
-              const Icon(Icons.view_in_ar_outlined, color: SsMasterTheme.textSecondary, size: 20),
-              const SizedBox(width: 8),
-              const Text('공간 인식 결과', style: TextStyle(color: SsMasterTheme.textPrimary, fontWeight: FontWeight.w700, fontSize: 16)),
-              const Spacer(),
+              const Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(Icons.view_in_ar_outlined, color: SsMasterTheme.textSecondary, size: 20),
+                  SizedBox(width: 8),
+                  Text('공간 인식 결과', style: TextStyle(color: SsMasterTheme.textPrimary, fontWeight: FontWeight.w700, fontSize: 16)),
+                ],
+              ),
+              Wrap(
+                crossAxisAlignment: WrapCrossAlignment.center,
+                children: [
               IconButton(
                 key: const Key('ssReviewAddWallButton'),
                 tooltip: '누락된 벽 추가',
@@ -356,6 +397,8 @@ class _FloorPlanReviewScreenState extends State<FloorPlanReviewScreen> {
                 onPressed: () => setState(() => _editMode = !_editMode),
                 icon: Icon(_editMode ? Icons.visibility_outlined : Icons.edit_outlined, size: 16),
                 label: Text(_editMode ? '보기 모드로' : '수정하기'),
+              ),
+                ],
               ),
             ],
           ),
@@ -438,11 +481,19 @@ class _FloorPlanReviewScreenState extends State<FloorPlanReviewScreen> {
             width: double.infinity,
             child: ElevatedButton(
               key: const Key('ssReviewConvertButton'),
-              onPressed: _onConvertPressed,
+              onPressed: canConvert ? _onConvertPressed : null,
               style: ElevatedButton.styleFrom(backgroundColor: SsMasterTheme.neonBlue, padding: const EdgeInsets.symmetric(vertical: 14)),
               child: const Text('CAD 파일로 변환'),
             ),
           ),
+          if (!canConvert) ...[
+            const SizedBox(height: 6),
+            const Text(
+              SsRecognitionShortfall.cadDisabledReason,
+              key: Key('ssReviewConvertDisabledReason'),
+              style: TextStyle(color: SsMasterTheme.textSecondary, fontSize: 12),
+            ),
+          ],
         ],
       ),
     );
@@ -454,6 +505,29 @@ class _FloorPlanReviewScreenState extends State<FloorPlanReviewScreen> {
   }
 
   Widget _buildReviewBanner(SsRecognitionSummary summary) {
+    // SS-수정004 — 벽이 없으면 "CAD로 변환할 준비가 되었습니다" 같은 가짜 성공을 보이지 않고,
+    // 무엇을 해야 하는지 안내한다.
+    if (!SsRecognitionShortfall.canConvertToCad(summary)) {
+      return Container(
+        key: const Key('ssReviewNeedsWallBanner'),
+        padding: const EdgeInsets.all(10),
+        decoration: BoxDecoration(color: Colors.orange.withValues(alpha: 0.12), border: Border.all(color: Colors.orangeAccent), borderRadius: BorderRadius.circular(8)),
+        child: Row(
+          children: [
+            const Icon(Icons.info_outline, color: Colors.orangeAccent, size: 18),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Text(
+                summary.totalCount == 0
+                    ? '인식된 요소가 없습니다. “누락된 벽 추가” 도구를 골라 원본 위에 벽부터 그려 보세요.'
+                    : '벽이 없습니다. “누락된 벽 추가” 도구로 벽을 그려 주세요.',
+                style: const TextStyle(color: Colors.orangeAccent, fontSize: 13),
+              ),
+            ),
+          ],
+        ),
+      );
+    }
     if (summary.reviewItems.isEmpty) {
       return Container(
         key: const Key('ssReviewAllClear'),
@@ -488,9 +562,12 @@ class _FloorPlanReviewScreenState extends State<FloorPlanReviewScreen> {
       key: const Key('ssReviewSelectionPanel'),
       padding: const EdgeInsets.all(10),
       decoration: BoxDecoration(color: SsMasterTheme.background.withValues(alpha: 0.5), borderRadius: BorderRadius.circular(8), border: Border.all(color: SsMasterTheme.panelBorder)),
-      child: Row(
+      child: Wrap(
+        spacing: 4,
+        runSpacing: 4,
+        crossAxisAlignment: WrapCrossAlignment.center,
         children: [
-          Expanded(child: Text('${sel.objectType} ${sel.objectId} 선택됨', style: const TextStyle(color: SsMasterTheme.textPrimary, fontSize: 13))),
+          Text('${sel.objectType} ${sel.objectId} 선택됨', style: const TextStyle(color: SsMasterTheme.textPrimary, fontSize: 13)),
           if (sel.objectType == '문')
             TextButton(key: const Key('ssReviewConvertToWindow'), onPressed: () => controller.setSelectedOpeningKind(SSOpeningKind.window), child: const Text('창으로 바꾸기')),
           if (sel.objectType == '창')
@@ -507,6 +584,11 @@ class _FloorPlanReviewScreenState extends State<FloorPlanReviewScreen> {
   }
 
   Widget _buildCanvas(SsReviewEditorController controller, SSSpatialModel model, double aspect) {
+    // SS-수정004 — AI 인식 결과가 0개면 원본 평면도를 흐리게 깔아 그 위에 그릴 수 있게 하고,
+    // 아직 아무 요소도 없으면 짧은 안내를 겹친다.
+    final baseEmpty = SsRecognitionSummary.fromModel(controller.baseModel).totalCount == 0;
+    final underlay = baseEmpty ? _sourceBytes : null;
+    final showHint = SsRecognitionSummary.fromModel(model).totalCount == 0;
     return Container(
       key: const Key('ssReviewCanvasBox'),
       height: 320,
@@ -532,19 +614,46 @@ class _FloorPlanReviewScreenState extends State<FloorPlanReviewScreen> {
                         controller.pointerDown(p);
                         controller.pointerUp();
                       },
-                child: CustomPaint(
-                  size: size,
-                  painter: _SsReviewPainter(
-                    model: model,
-                    visibleLayers: _visibleLayers,
-                    scene: controller.scene,
-                    selection: controller.selection,
-                    draftPoints: controller.draftStrokePoints,
-                    draftTool: controller.tool,
-                    draftColorValue: controller.colorValue,
-                    draftStrokeWidth: controller.strokeWidth,
-                    addWallDraftStart: controller.addWallDraftStart,
-                  ),
+                child: Stack(
+                  children: [
+                    if (underlay != null)
+                      Positioned.fill(
+                        child: Opacity(
+                          opacity: 0.35,
+                          child: Image.memory(underlay, key: const Key('ssReviewSourceUnderlay'), fit: BoxFit.fill),
+                        ),
+                      ),
+                    CustomPaint(
+                      size: size,
+                      painter: _SsReviewPainter(
+                        model: model,
+                        visibleLayers: _visibleLayers,
+                        scene: controller.scene,
+                        selection: controller.selection,
+                        draftPoints: controller.draftStrokePoints,
+                        draftTool: controller.tool,
+                        draftColorValue: controller.colorValue,
+                        draftStrokeWidth: controller.strokeWidth,
+                        addWallDraftStart: controller.addWallDraftStart,
+                      ),
+                    ),
+                    if (showHint)
+                      Positioned.fill(
+                        child: IgnorePointer(
+                          child: Center(
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                              decoration: BoxDecoration(color: SsMasterTheme.background.withValues(alpha: 0.8), borderRadius: BorderRadius.circular(8)),
+                              child: const Text(
+                                '도구를 골라 벽부터 그려 보세요',
+                                key: Key('ssReviewEmptyHint'),
+                                style: TextStyle(color: SsMasterTheme.textPrimary, fontSize: 13, fontWeight: FontWeight.w600),
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                  ],
                 ),
               );
             },
@@ -604,41 +713,62 @@ class _FloorPlanReviewScreenState extends State<FloorPlanReviewScreen> {
     const colors = [0xFFEF4444, 0xFFF97316, 0xFFEAB308, 0xFF3B82F6, 0xFFA855F7, 0xFFFFFFFF];
     return Container(
       key: const Key('ssReviewBottomToolbar'),
+      width: double.infinity,
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
       decoration: BoxDecoration(color: SsMasterTheme.panel, borderRadius: BorderRadius.circular(12), border: Border.all(color: SsMasterTheme.panelBorder)),
-      child: Row(
+      // SS-수정004 — 1024×768 이하 창에서 도구줄이 오른쪽으로 넘쳐 잘리던 문제: 도구 묶음을
+      // Wrap으로 두어 폭이 모자라면 다음 줄로 내려간다.
+      child: Wrap(
+        spacing: 16,
+        runSpacing: 8,
+        crossAxisAlignment: WrapCrossAlignment.center,
         children: [
-          _reviewToolButton(controller, SsReviewTool.pen, Icons.edit_outlined, '펜'),
-          _reviewToolButton(controller, SsReviewTool.highlighter, Icons.brush_outlined, '형광펜'),
-          _reviewToolButton(controller, SsReviewTool.eraser, Icons.auto_fix_normal_outlined, '지우개'),
-          _reviewToolButton(controller, SsReviewTool.select, Icons.crop_free, '선택'),
-          const SizedBox(width: 16),
-          for (final c in colors) _colorSwatch(controller, c),
-          const SizedBox(width: 16),
-          const Text('굵기', style: TextStyle(color: SsMasterTheme.textSecondary, fontSize: 12)),
-          SizedBox(
-            width: 120,
-            child: Slider(
-              key: const Key('ssReviewStrokeWidthSlider'),
-              value: controller.strokeWidth,
-              min: 1,
-              max: 10,
-              divisions: 9,
-              label: controller.strokeWidth.round().toString(),
-              onChanged: controller.setStrokeWidth,
-            ),
+          Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              _reviewToolButton(controller, SsReviewTool.pen, Icons.edit_outlined, '펜'),
+              _reviewToolButton(controller, SsReviewTool.highlighter, Icons.brush_outlined, '형광펜'),
+              _reviewToolButton(controller, SsReviewTool.eraser, Icons.auto_fix_normal_outlined, '지우개'),
+              _reviewToolButton(controller, SsReviewTool.select, Icons.crop_free, '선택'),
+            ],
           ),
-          const Spacer(),
-          if (_autosave != null)
-            Padding(
-              padding: const EdgeInsets.only(right: 12),
-              child: ListenableBuilder(
-                listenable: _autosave!,
-                builder: (context, _) => Text(_autosave!.state.label, key: const Key('ssReviewSaveState'), style: const TextStyle(color: SsMasterTheme.textMuted, fontSize: 12)),
+          Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [for (final c in colors) _colorSwatch(controller, c)],
+          ),
+          Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Text('굵기', style: TextStyle(color: SsMasterTheme.textSecondary, fontSize: 12)),
+              SizedBox(
+                width: 120,
+                child: Slider(
+                  key: const Key('ssReviewStrokeWidthSlider'),
+                  value: controller.strokeWidth,
+                  min: 1,
+                  max: 10,
+                  divisions: 9,
+                  label: controller.strokeWidth.round().toString(),
+                  onChanged: controller.setStrokeWidth,
+                ),
               ),
-            ),
-          IconButton(key: const Key('ssReviewUndo'), onPressed: controller.canUndo ? controller.undo : null, icon: const Icon(Icons.undo), color: SsMasterTheme.textSecondary),
-          IconButton(key: const Key('ssReviewRedo'), onPressed: controller.canRedo ? controller.redo : null, icon: const Icon(Icons.redo), color: SsMasterTheme.textSecondary),
+            ],
+          ),
+          Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              if (_autosave != null)
+                Padding(
+                  padding: const EdgeInsets.only(right: 12),
+                  child: ListenableBuilder(
+                    listenable: _autosave!,
+                    builder: (context, _) => Text(_autosave!.state.label, key: const Key('ssReviewSaveState'), style: const TextStyle(color: SsMasterTheme.textMuted, fontSize: 12)),
+                  ),
+                ),
+              IconButton(key: const Key('ssReviewUndo'), onPressed: controller.canUndo ? controller.undo : null, icon: const Icon(Icons.undo), color: SsMasterTheme.textSecondary),
+              IconButton(key: const Key('ssReviewRedo'), onPressed: controller.canRedo ? controller.redo : null, icon: const Icon(Icons.redo), color: SsMasterTheme.textSecondary),
+            ],
+          ),
         ],
       ),
     );

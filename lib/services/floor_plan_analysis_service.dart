@@ -17,6 +17,12 @@ import 'floor_plan_analysis_engine.dart' as engine;
 class FloorPlanAnalysisService {
   const FloorPlanAnalysisService();
 
+  /// SS-수정004 — 이 서비스가 AI 인식(외부 모델)을 실제로 부르는지. 지금 구현은 로컬
+  /// 기본 인식 엔진(floor_plan_analysis_engine.dart)만 쓰고 외부 AI·네트워크를 전혀
+  /// 부르지 않으므로 false다. 화면은 이 값을 그대로 안내 문구에 쓴다(사실대로 표시).
+  /// AI 인식을 실제로 연결하는 서비스(별도 작업)는 이 값을 재정의해 true를 돌려준다.
+  bool get aiRecognitionConnected => false;
+
   Future<FloorPlanAnalysisOutcome> analyze(
     FloorPlanFile file, {
     void Function(FloorPlanAnalysisStep step)? onStep,

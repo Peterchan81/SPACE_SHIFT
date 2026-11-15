@@ -38,6 +38,7 @@ import '../services/ss_project_store_provider.dart';
 import '../services/ss_recognition_summary.dart';
 import '../services/ss_spatial_model_builder.dart';
 import '../theme/ss_master_theme.dart';
+import '../widgets/workspace/ss_recognition_shortfall.dart';
 
 class FloorPlanUploadScreen extends StatefulWidget {
   const FloorPlanUploadScreen({
@@ -86,6 +87,40 @@ class _FloorPlanUploadScreenState extends State<FloorPlanUploadScreen> {
   final TransformationController _zoomController = TransformationController();
 
   bool get _hasImage => _sourceFile != null && _sourceFile!.kind == FloorPlanFileKind.image && _sourceFile!.bytes != null;
+
+  /// SS-수정004 — 파일은 정상으로 읽었지만(업로드 성공) 인식 엔진이 구조를 찾지 못한 경우.
+  /// 업로드 실패(파일 읽기 실패·내부 오류)와 구분해, 빨간 오류 상자 대신 안내 상자를 보인다.
+  bool get _isRecognitionShortfallFailure {
+    final outcome = _outcome;
+    return outcome != null && !outcome.isSuccess && outcome.failureReason == FloorPlanAnalysisFailureReason.noWallsFound;
+  }
+
+  /// "수정하기"/"직접 수정하기" — 인식 결과가 0개여도(인식 실패 포함) 이미지를 올렸고 분석이 끝났으면 들어갈 수 있다.
+  bool get _canOpenEditor => !_analyzing && (_model != null || (_hasImage && _outcome != null));
+
+  /// SS-수정004 — 인식 결과가 부족하면 안내(무엇이·왜·다음 행동), 충분하면 null.
+  SsRecognitionShortfall? get _shortfall {
+    if (_analyzing || !_hasImage) return null;
+    final connected = widget.analysisService.aiRecognitionConnected;
+    final model = _model;
+    if (model == null) {
+      if (!_isRecognitionShortfallFailure) return null;
+      final message = _outcome?.message;
+      return SsRecognitionShortfall.evaluate(
+        summary: null,
+        aiRecognitionConnected: connected,
+        notes: message == null ? const [] : [message.replaceAll('\n', ' ')],
+      );
+    }
+    final result = _outcome?.result;
+    return SsRecognitionShortfall.evaluate(
+      summary: SsRecognitionSummary.fromModel(model),
+      aiRecognitionConnected: connected,
+      engineResult: result,
+      warnings: result?.warnings ?? const [],
+      notes: model.warnings,
+    );
+  }
 
   @override
   void initState() {
@@ -330,9 +365,44 @@ class _FloorPlanUploadScreenState extends State<FloorPlanUploadScreen> {
     });
   }
 
+  /// SS-수정004 "다시 인식" — 같은 파일로 분석을 한 번 더 실행한다. 실행 중이면 무시한다(중복 누름 방지).
+  Future<void> _retryAnalysis() async {
+    final file = _sourceFile;
+    if (_analyzing || file == null) return;
+    await _runAnalysis(file);
+  }
+
+  /// SS-수정004 "직접 수정하기" — 인식 결과가 0개이거나 인식이 실패해도 검토·수정 화면으로 간다.
+  /// 인식 결과 자체가 없으면 요소가 하나도 없는 빈 공간 모델(가짜 요소 없음)을 AI 인식 칸에
+  /// 저장해, 검토 화면이 원본 위에서 처음부터 그릴 수 있게 한다.
+  Future<void> _openDirectEdit() async {
+    if (_analyzing || _sourceFile == null) return;
+    final project = _project;
+    if (_model == null && project != null) {
+      final result = _outcome?.result;
+      final emptyModel = SSSpatialModel(
+        sourceWidthPx: result?.sourceWidthPx ?? 0,
+        sourceHeightPx: result?.sourceHeightPx ?? 0,
+        spaces: const [],
+        walls: const [],
+        openings: const [],
+        objects: const [],
+        warnings: const ['인식된 요소가 없어 빈 상태에서 직접 수정을 시작했습니다.'],
+      );
+      final saved = project.withStageData(
+        SsDataSlot.recognitionData,
+        {'kind': 'ssSpatialModel', 'model': ssSpatialModelToJson(emptyModel), 'emptyStart': true},
+        label: '직접 수정 시작(인식 요소 없음)',
+      );
+      _project = saved;
+      _autosave?.update(saved);
+    }
+    await _goNext(requireModel: false);
+  }
+
   /// "수정하기"/"CAD 파일로 변환(확인 후)" 공통 — 다음 보정 단계(SS009)로 이동한다.
-  Future<void> _goNext() async {
-    if (_model == null) return;
+  Future<void> _goNext({bool requireModel = true}) async {
+    if (requireModel && _model == null) return;
     final project = _project;
     final autosave = _autosave;
     if (project != null && autosave != null) {
@@ -572,7 +642,7 @@ class _FloorPlanUploadScreenState extends State<FloorPlanUploadScreen> {
               ),
             ),
           ),
-        if (!_analyzing && _outcome != null && !_outcome!.isSuccess)
+        if (!_analyzing && _outcome != null && !_outcome!.isSuccess && !_isRecognitionShortfallFailure)
           Positioned(
             left: 12,
             right: 12,
@@ -594,6 +664,7 @@ class _FloorPlanUploadScreenState extends State<FloorPlanUploadScreen> {
 
   Widget _buildRecognitionPanel() {
     final model = _model;
+    final shortfall = _shortfall;
     return Container(
       decoration: _panelDecoration,
       padding: const EdgeInsets.all(16),
@@ -608,7 +679,7 @@ class _FloorPlanUploadScreenState extends State<FloorPlanUploadScreen> {
               const Spacer(),
               OutlinedButton.icon(
                 key: const Key('ssUploadEditButton'),
-                onPressed: model == null ? null : _goNext,
+                onPressed: _canOpenEditor ? _openDirectEdit : null,
                 icon: const Icon(Icons.edit_outlined, size: 16),
                 label: const Text('수정하기'),
               ),
@@ -616,7 +687,9 @@ class _FloorPlanUploadScreenState extends State<FloorPlanUploadScreen> {
           ),
           const SizedBox(height: 12),
           Expanded(
-            child: model == null
+            child: model == null && shortfall != null
+                ? _buildShortfallWithoutModel(shortfall)
+                : model == null
                 ? const Center(
                     child: Text(
                       '평면도를 업로드하면\nAI 인식 결과가 여기에 표시됩니다.',
@@ -625,14 +698,14 @@ class _FloorPlanUploadScreenState extends State<FloorPlanUploadScreen> {
                       style: TextStyle(color: SsMasterTheme.textSecondary),
                     ),
                   )
-                : _buildRecognitionBody(model),
+                : _buildRecognitionBody(model, shortfall),
           ),
         ],
       ),
     );
   }
 
-  Widget _buildRecognitionBody(SSSpatialModel model) {
+  Widget _buildRecognitionBody(SSSpatialModel model, SsRecognitionShortfall? shortfall) {
     final summary = SsRecognitionSummary.fromModel(model);
     final aspect = model.sourceWidthPx > 0 && model.sourceHeightPx > 0 ? model.sourceWidthPx / model.sourceHeightPx : 1.0;
     final shownLayers = [
@@ -651,17 +724,23 @@ class _FloorPlanUploadScreenState extends State<FloorPlanUploadScreen> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
+                if (shortfall != null) ...[
+                  _buildShortfallNotice(shortfall),
+                  const SizedBox(height: 14),
+                ],
                 Container(
                   key: const Key('ssRecognitionOverlay'),
                   height: 260,
                   decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(8)),
                   clipBehavior: Clip.antiAlias,
-                  child: Center(
-                    child: AspectRatio(
-                      aspectRatio: aspect,
-                      child: CustomPaint(painter: _SsRecognitionPainter(model: model, visibleLayers: _visibleLayers)),
-                    ),
-                  ),
+                  child: summary.totalCount == 0
+                      ? _buildFadedSource()
+                      : Center(
+                          child: AspectRatio(
+                            aspectRatio: aspect,
+                            child: CustomPaint(painter: _SsRecognitionPainter(model: model, visibleLayers: _visibleLayers)),
+                          ),
+                        ),
                 ),
                 const SizedBox(height: 14),
                 Row(
@@ -764,13 +843,97 @@ class _FloorPlanUploadScreenState extends State<FloorPlanUploadScreen> {
           ),
         ),
         const SizedBox(height: 16),
+        _buildConvertButton(SsRecognitionShortfall.canConvertToCad(summary)),
+      ],
+    );
+  }
+
+  /// "CAD 파일로 변환" — 비활성이면 그 이유를 버튼 아래에 보인다(SS-수정004).
+  Widget _buildConvertButton(bool enabled) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      mainAxisSize: MainAxisSize.min,
+      children: [
         SizedBox(
           width: double.infinity,
           child: ElevatedButton(
             key: const Key('ssUploadConvertButton'),
-            onPressed: _onConvertPressed,
+            onPressed: enabled ? _onConvertPressed : null,
             style: ElevatedButton.styleFrom(backgroundColor: SsMasterTheme.neonBlue, padding: const EdgeInsets.symmetric(vertical: 14)),
             child: const Text('CAD 파일로 변환'),
+          ),
+        ),
+        if (!enabled) ...[
+          const SizedBox(height: 6),
+          const Text(
+            SsRecognitionShortfall.cadDisabledReason,
+            key: Key('ssUploadConvertDisabledReason'),
+            style: TextStyle(color: SsMasterTheme.textSecondary, fontSize: 12),
+          ),
+        ],
+      ],
+    );
+  }
+
+  Widget _buildShortfallNotice(SsRecognitionShortfall shortfall) {
+    return SsRecognitionShortfallNotice(
+      shortfall: shortfall,
+      busy: _analyzing,
+      onRetry: _sourceFile == null ? null : _retryAnalysis,
+      onPickOther: _pickFile,
+      onDirectEdit: _openDirectEdit,
+    );
+  }
+
+  /// 인식이 구조를 하나도 찾지 못해 공간 모델이 없을 때 — 안내 상자 + 흐린 원본 + 비활성 CAD 버튼.
+  Widget _buildShortfallWithoutModel(SsRecognitionShortfall shortfall) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Expanded(
+          child: SingleChildScrollView(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                _buildShortfallNotice(shortfall),
+                const SizedBox(height: 14),
+                Container(
+                  height: 260,
+                  decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(8)),
+                  clipBehavior: Clip.antiAlias,
+                  child: _buildFadedSource(),
+                ),
+              ],
+            ),
+          ),
+        ),
+        const SizedBox(height: 16),
+        _buildConvertButton(false),
+      ],
+    );
+  }
+
+  /// 인식 결과가 아예 없을 때 빈 그림 대신 업로드한 원본을 흐리게 보이고 문구를 겹친다.
+  Widget _buildFadedSource() {
+    final bytes = _sourceFile?.bytes;
+    return Stack(
+      key: const Key('ssRecognitionNoElementsOverlay'),
+      fit: StackFit.expand,
+      children: [
+        if (bytes != null)
+          Opacity(
+            opacity: 0.3,
+            child: Image.memory(bytes, key: const Key('ssRecognitionSourceFaded'), fit: BoxFit.contain),
+          ),
+        Center(
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+            decoration: BoxDecoration(color: SsMasterTheme.background.withValues(alpha: 0.85), borderRadius: BorderRadius.circular(8)),
+            child: const Text(
+              '인식된 요소가 없습니다',
+              key: Key('ssRecognitionNoElementsText'),
+              style: TextStyle(color: SsMasterTheme.textPrimary, fontWeight: FontWeight.w700),
+            ),
           ),
         ),
       ],
