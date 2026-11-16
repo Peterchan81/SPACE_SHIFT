@@ -30,7 +30,8 @@ abstract final class SsStageGuide {
       SsStage.imageEditing => '실제 공간 사진에서 바꿀 부분을 고르고 원하는 스타일을 적어보세요.',
       SsStage.imageRendering => 'AI가 이미지를 만들고 있습니다. 완료되면 결과를 확인하세요.',
       SsStage.imageResult => '완성된 이미지를 확인하고, 수정하거나 파일로 내보내세요.',
-      SsStage.floorPlanUpload => '평면도 이미지나 PDF를 업로드하면 AI가 공간을 인식합니다.',
+      // SS-수정003 4차 — 확인·보정 단계와 같은 기준: AI 인식이 연결되지 않았으면 "AI"라고 하지 않는다.
+      SsStage.floorPlanUpload => connected ? '평면도 이미지나 PDF를 업로드하면 AI가 공간을 인식합니다.' : '평면도 이미지나 PDF를 업로드하면 공간을 인식합니다.',
       SsStage.floorPlanReview => connected
           ? 'AI가 인식한 공간을 확인하고, 틀린 곳을 고친 뒤 CAD 변환을 진행하세요.'
           : '인식한 공간을 확인하고, 틀린 곳을 고친 뒤 CAD 변환을 진행하세요.',

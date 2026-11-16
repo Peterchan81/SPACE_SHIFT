@@ -8,6 +8,8 @@
 /// 흰색 V1 테마(`SpaceShiftColors`)는 아직 V1 화면이 쓰므로 그대로 둔다.
 library;
 
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import '../screens/cad_conversion_screen.dart';
@@ -30,10 +32,16 @@ import '../screens/project_creation_screen.dart';
 import '../screens/project_management_screen.dart';
 import '../screens/settings_screen.dart';
 import '../screens/ss_guide_screen.dart';
+import '../widgets/ss_keep_words_text.dart';
 import '../widgets/ss_nav_current_projects.dart';
 import '../widgets/ss_notifications_panel.dart';
+import '../widgets/ss_project_rename_dialog.dart';
+import 'ss_project.dart';
+import 'ss_project_store.dart';
+import 'ss_recent_projects.dart';
 import 'ss_stage_guide.dart';
 import '../services/auth_service.dart';
+import '../services/ss_project_store_provider.dart';
 import '../theme/ss_master_theme.dart';
 import 'ss_stage.dart';
 
@@ -260,26 +268,186 @@ class SsTopBar extends StatelessWidget {
 
 /// 3초 법칙 머리말 — MASTER 화면처럼 큰 제목 + 한 줄 안내 문장([SsStageGuide])으로 "지금 어디인지 / 다음에 무엇을
 /// 하는지"를 알려준다(SS-수정003 — 개발용 번호 상자·"다음: …" 표시는 쓰지 않는다).
-class SsStageHeader extends StatelessWidget {
-  const SsStageHeader({super.key, required this.stage});
+///
+/// SS-수정003 4차 — 열린 프로젝트가 있으면(작업 단계 + 프로젝트 id) MASTER 05처럼 왼쪽 프로젝트 번호 상자(목록 번호
+/// 01·02…), 큰 프로젝트 이름과 이름 바꾸기 ✎ 버튼, 그 아래 이 단계 안내 한 줄을 보인다. 프로젝트가 없는 화면(홈·관리·
+/// 생성)이나 프로젝트를 읽지 못하면 지금 머리말(단계 제목 + 안내) 그대로다.
+class SsStageHeader extends StatefulWidget {
+  const SsStageHeader({super.key, required this.stage, this.projectId, this.projectStore});
   final SsStage stage;
+
+  /// 열린 프로젝트 id. 없으면 지금 Route 인자(String 또는 {'projectId': …})에서 찾는다.
+  final String? projectId;
+
+  /// 테스트 주입용. 없으면 앱 공용 저장소([SsProjectStoreProvider]).
+  final SsProjectStore? projectStore;
+
+  /// Route 인자에서 프로젝트 id를 찾는다(단계 화면은 id 글자, 정면도 화면은 {'projectId': …}).
+  static String? projectIdFromArguments(Object? arguments) {
+    if (arguments is String) return arguments.isEmpty ? null : arguments;
+    if (arguments is Map) {
+      final id = arguments['projectId'];
+      if (id is String && id.isNotEmpty) return id;
+    }
+    return null;
+  }
+
+  @override
+  State<SsStageHeader> createState() => _SsStageHeaderState();
+}
+
+class _SsStageHeaderState extends State<SsStageHeader> {
+  bool _resolved = false;
+  SsProjectStore? _store;
+  SsProject? _project;
+  int _number = 0;
+  bool _renaming = false;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (_resolved) return;
+    _resolved = true;
+    if (SsFlows.entry.contains(widget.stage)) return;
+    final id = widget.projectId ?? SsStageHeader.projectIdFromArguments(ModalRoute.of(context)?.settings.arguments);
+    if (id != null) unawaited(_load(id));
+  }
+
+  Future<void> _load(String projectId) async {
+    try {
+      final store = widget.projectStore ?? await SsProjectStoreProvider.instance.store();
+      final all = await SsRecentProjects.load(store);
+      final index = all.indexWhere((p) => p.info.id == projectId);
+      if (!mounted || index < 0) return;
+      setState(() {
+        _store = store;
+        _project = all[index];
+        _number = index + 1;
+      });
+    } catch (e, st) {
+      // 저장소 오류인지 다른 예외인지 단정하지 않는다 — 머리말은 단계 머리말 그대로 두고, 실제 원인은 개발자에게.
+      debugPrint('SsStageHeader 프로젝트 정보 불러오기 실패 (${e.runtimeType}): $e / $st');
+    }
+  }
+
+  Future<void> _rename() async {
+    final store = _store;
+    final project = _project;
+    if (store == null || project == null || _renaming) return;
+    final name = await showSsProjectRenameDialog(context, initialName: project.info.name);
+    if (name == null || !mounted) return;
+    final messenger = ScaffoldMessenger.maybeOf(context);
+    _renaming = true;
+    try {
+      final renamed = await renameSsProject(store, project.info.id, name);
+      if (!mounted) return;
+      if (renamed == null) {
+        messenger?.showSnackBar(const SnackBar(content: Text('이름을 바꿀 프로젝트를 찾지 못했습니다.', key: Key('ssProjectRenameError'))));
+        return;
+      }
+      setState(() => _project = renamed);
+    } catch (e, st) {
+      // 저장 실패의 원인을 단정하지 않는다 — 화면엔 일반 실패만, 실제 원인(타입 포함)은 개발자에게.
+      debugPrint('프로젝트 이름 바꾸기 실패 (${e.runtimeType}): $e / $st');
+      messenger?.showSnackBar(const SnackBar(content: Text('프로젝트 이름을 저장하지 못했습니다. 다시 시도해주세요.', key: Key('ssProjectRenameError'))));
+    } finally {
+      _renaming = false;
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      mainAxisSize: MainAxisSize.min,
+    final stage = widget.stage;
+    final sentence = SsStageGuide.sentenceFor(stage);
+    final project = _project;
+    if (project == null) {
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(
+            stage.title,
+            key: const Key('ssStageTitle'),
+            style: const TextStyle(fontSize: 28, fontWeight: FontWeight.w800, color: SsMasterTheme.textPrimary, height: 1.2),
+          ),
+          const SizedBox(height: 8),
+          SsKeepWordsText(
+            sentence,
+            key: const Key('ssStageWhat'),
+            style: const TextStyle(fontSize: 14, color: SsMasterTheme.textSecondary, height: 1.4),
+          ),
+        ],
+      );
+    }
+    return Row(
+      key: const Key('ssStageProjectHeader'),
+      crossAxisAlignment: CrossAxisAlignment.center,
       children: [
-        Text(
-          stage.title,
-          key: const Key('ssStageTitle'),
-          style: const TextStyle(fontSize: 28, fontWeight: FontWeight.w800, color: SsMasterTheme.textPrimary, height: 1.2),
+        Container(
+          key: const Key('ssStageProjectNumberBox'),
+          width: 52,
+          height: 52,
+          alignment: Alignment.center,
+          decoration: BoxDecoration(
+            color: SsMasterTheme.panel,
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(color: SsMasterTheme.neonBlue, width: 1.5),
+          ),
+          child: Text(
+            _number.toString().padLeft(2, '0'),
+            key: const Key('ssStageProjectNumber'),
+            style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w800, color: Colors.white),
+          ),
         ),
-        const SizedBox(height: 8),
-        Text(
-          SsStageGuide.sentenceFor(stage),
-          key: const Key('ssStageWhat'),
-          style: const TextStyle(fontSize: 14, color: SsMasterTheme.textSecondary, height: 1.4),
+        const SizedBox(width: 14),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Row(
+                children: [
+                  Flexible(
+                    child: Text(
+                      project.info.name,
+                      key: const Key('ssStageProjectName'),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(fontSize: 26, fontWeight: FontWeight.w800, color: SsMasterTheme.textPrimary, height: 1.2),
+                    ),
+                  ),
+                  const SizedBox(width: 4),
+                  IconButton(
+                    key: const Key('ssStageProjectRename'),
+                    tooltip: '프로젝트 이름 바꾸기',
+                    onPressed: () => unawaited(_rename()),
+                    visualDensity: VisualDensity.compact,
+                    padding: EdgeInsets.zero,
+                    constraints: const BoxConstraints.tightFor(width: 32, height: 32),
+                    iconSize: 18,
+                    icon: const Icon(Icons.edit_outlined, color: SsMasterTheme.textSecondary),
+                  ),
+                  const SizedBox(width: 10),
+                  Flexible(
+                    child: Text(
+                      stage.title,
+                      key: const Key('ssStageTitle'),
+                      maxLines: 1,
+                      softWrap: false,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: SsMasterTheme.neonCyan),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 6),
+              SsKeepWordsText(
+                sentence,
+                key: const Key('ssStageWhat'),
+                style: const TextStyle(fontSize: 14, color: SsMasterTheme.textSecondary, height: 1.4),
+              ),
+            ],
+          ),
         ),
       ],
     );

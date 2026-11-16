@@ -12,6 +12,7 @@ import 'package:flutter/material.dart';
 import '../../models/floor_plan_geometry.dart';
 import '../../services/ss_recognition_summary.dart';
 import '../../theme/ss_master_theme.dart';
+import '../ss_keep_words_text.dart';
 
 /// 인식 결과가 부족하다는 판단과 그 안내 문구.
 class SsRecognitionShortfall {
@@ -147,7 +148,7 @@ class SsRecognitionShortfallNotice extends StatelessWidget {
               const Icon(Icons.info_outline, color: _accent, size: 18),
               const SizedBox(width: 8),
               Expanded(
-                child: Text(
+                child: SsKeepWordsText(
                   shortfall.headline,
                   key: const Key('ssShortfallHeadline'),
                   style: const TextStyle(color: _accent, fontWeight: FontWeight.w700, fontSize: 13),
@@ -156,10 +157,10 @@ class SsRecognitionShortfallNotice extends StatelessWidget {
             ],
           ),
           const SizedBox(height: 6),
-          Text(shortfall.reason, key: const Key('ssShortfallReason'), style: const TextStyle(color: SsMasterTheme.textPrimary, fontSize: 12)),
+          SsKeepWordsText(shortfall.reason, key: const Key('ssShortfallReason'), style: const TextStyle(color: SsMasterTheme.textPrimary, fontSize: 12)),
           if (shortfall.engineDetail != null) ...[
             const SizedBox(height: 4),
-            Text(
+            SsKeepWordsText(
               shortfall.engineDetail!,
               key: const Key('ssShortfallEngineDetail'),
               style: const TextStyle(color: SsMasterTheme.textSecondary, fontSize: 12),
@@ -167,7 +168,7 @@ class SsRecognitionShortfallNotice extends StatelessWidget {
           ],
           for (var i = 0; i < shortfall.warnings.length; i++) ...[
             const SizedBox(height: 4),
-            Text(
+            SsKeepWordsText(
               '• ${shortfall.warnings[i]}',
               key: Key('ssShortfallWarning_$i'),
               style: const TextStyle(color: SsMasterTheme.textSecondary, fontSize: 12),

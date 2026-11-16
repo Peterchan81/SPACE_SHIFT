@@ -52,6 +52,8 @@ enum SsStage {
   /// ([SsStageGuide.aiRecognitionConnected]).
   String whatIsThisFor({required bool aiRecognitionConnected}) {
     if (this == SsStage.floorPlanReview && aiRecognitionConnected) return 'AI가 인식한 공간을 확인합니다';
+    // SS-수정003 4차 — 업로드 단계도 같은 기준(AI 미연결이면 "AI"라고 하지 않는다).
+    if (this == SsStage.floorPlanUpload && !aiRecognitionConnected) return '평면도를 올리고 공간을 인식합니다';
     return whatIsThis;
   }
 

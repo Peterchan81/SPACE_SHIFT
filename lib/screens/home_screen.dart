@@ -26,6 +26,7 @@ import '../core/ss_project_store.dart';
 import '../core/ss_stage.dart';
 import '../services/ss_project_store_provider.dart';
 import '../theme/ss_master_theme.dart';
+import '../widgets/ss_keep_words_text.dart';
 import 'ss_guide_screen.dart';
 import 'ss_recommendation_screen.dart';
 import 'ss_tips_screen.dart';
@@ -243,7 +244,7 @@ class _HeroBanner extends StatelessWidget {
                             ),
                           ),
                           const SizedBox(height: 12),
-                          const Text(
+                          const SsKeepWordsText(
                             'AI와 함께, 당신의 공간을 새롭게 디자인하세요.',
                             key: Key('ssHomeHeroDescription'),
                             style: TextStyle(color: SsMasterTheme.textSecondary, fontSize: 15),
@@ -391,7 +392,7 @@ class _StartCard extends StatelessWidget {
                               style: const TextStyle(color: _titleColor, fontSize: 16, fontWeight: FontWeight.w800),
                             ),
                             const SizedBox(height: 6),
-                            Text(
+                            SsKeepWordsText(
                               description,
                               key: Key('ssHomeStartCardDesc_${type.name}'),
                               maxLines: 3,
