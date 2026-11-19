@@ -16,6 +16,7 @@ import 'package:ason_space/core/ss_recent_projects.dart';
 import 'package:ason_space/screens/project_management_screen.dart' show resumeSsProject;
 import 'package:ason_space/services/ss_project_store_provider.dart';
 import 'package:ason_space/theme/ss_master_theme.dart';
+import 'package:ason_space/widgets/ss_project_rename_dialog.dart';
 
 class SsNavCurrentProjects extends StatefulWidget {
   const SsNavCurrentProjects({super.key, this.projectStore, this.maxItems = 5});
@@ -39,7 +40,19 @@ class _SsNavCurrentProjectsState extends State<SsNavCurrentProjects> {
   @override
   void initState() {
     super.initState();
+    SsProjectRenames.revision.addListener(_onRenamed);
     unawaited(_load());
+  }
+
+  @override
+  void dispose() {
+    SsProjectRenames.revision.removeListener(_onRenamed);
+    super.dispose();
+  }
+
+  /// SS-수정003 4차 — 작업 화면 머리글에서 이름을 바꾸면 목록을 바로 다시 읽는다.
+  void _onRenamed() {
+    if (mounted) unawaited(_load());
   }
 
   Future<void> _load() async {

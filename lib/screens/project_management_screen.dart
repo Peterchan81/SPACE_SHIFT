@@ -17,6 +17,7 @@ import 'package:ason_space/core/ss_stage_guide.dart';
 import 'package:ason_space/screens/ss_source_type_visual.dart';
 import 'package:ason_space/services/ss_project_store_provider.dart';
 import 'package:ason_space/theme/ss_master_theme.dart';
+import 'package:ason_space/widgets/ss_keep_words_text.dart';
 import 'package:ason_space/widgets/ss_project_progress_steps.dart';
 
 /// 카드 보기 열 수 — 내용 폭(왼쪽 메뉴 236·여백 48을 뺀 폭) 기준.
@@ -201,7 +202,7 @@ class _ProjectManagementScreenState extends State<ProjectManagementScreen> {
           style: TextStyle(fontSize: 28, fontWeight: FontWeight.w800, color: SsMasterTheme.textPrimary, height: 1.2),
         ),
         const SizedBox(height: 8),
-        Text(
+        SsKeepWordsText(
           SsStageGuide.sentenceFor(SsStage.projectManagement),
           key: const Key('ssStageWhat'),
           maxLines: 2,
@@ -315,8 +316,9 @@ class _ProjectManagementScreenState extends State<ProjectManagementScreen> {
           const Icon(Icons.history, color: SsMasterTheme.neonCyan),
           const SizedBox(width: 12),
           Expanded(
-            child: Text(
+            child: SsKeepWordsText(
               '마지막 작업: ${p.info.name} · ${stage.title} 단계에서 이어서 할 수 있습니다.',
+              key: const Key('ssProjectsResumeText'),
               maxLines: 2,
               overflow: TextOverflow.ellipsis,
               style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w600),

@@ -186,6 +186,17 @@ class SsProject {
     return copyWith(currentStage: stage, updatedAt: now ?? DateTime.now());
   }
 
+  /// SS-수정003 4차 — 이름만 바꾼 새 프로젝트(id·생성일·단계·데이터·이력·수정일·저장 형식 그대로).
+  SsProject withName(String name) => SsProject(
+    info: SsProjectInfo(id: info.id, name: name, createdAt: info.createdAt),
+    sourceType: sourceType,
+    currentStage: currentStage,
+    data: data,
+    history: history,
+    updatedAt: updatedAt,
+    schemaVersion: schemaVersion,
+  );
+
   /// 앞 단계가 더 새로워져 다시 만들어야 하는 칸과 그 이유(§9).
   List<SsStaleNotice> staleNotices() {
     final out = <SsStaleNotice>[];
