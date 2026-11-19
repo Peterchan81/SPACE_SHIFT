@@ -753,21 +753,20 @@ class _RecentProjectsSection extends StatelessWidget {
       key: key,
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        for (var i = 0; i < slots; i++)
+        for (var i = 0; i < slots; i++) ...[
+          if (i > 0) const SizedBox(width: 10),
           Expanded(
-            child: Padding(
-              padding: EdgeInsets.only(left: i == 0 ? 0 : 10),
-              child: i < shown.length
-                  ? _ProjectCard(
-                      project: shown[i],
-                      number: i + 1,
-                      images: images[shown[i].info.id],
-                      onTap: () => onOpen(shown[i]),
-                      onMenu: (a) => onMenu(a, shown[i]),
-                    )
-                  : _EmptySlot(key: Key('ssHomeRecentEmptySlot_$i')),
-            ),
+            child: i < shown.length
+                ? _ProjectCard(
+                    project: shown[i],
+                    number: i + 1,
+                    images: images[shown[i].info.id],
+                    onTap: () => onOpen(shown[i]),
+                    onMenu: (a) => onMenu(a, shown[i]),
+                  )
+                : _EmptySlot(key: Key('ssHomeRecentEmptySlot_$i')),
           ),
+        ],
       ],
     );
   }
@@ -938,7 +937,7 @@ class _ProjectCard extends StatelessWidget {
               ),
               const SizedBox(height: 6),
               SizedBox(
-                height: 34,
+                height: 38,
                 child: Row(
                   children: [
                     Expanded(
