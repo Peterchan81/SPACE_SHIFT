@@ -199,14 +199,23 @@ void main() {
     expect(find.byType(SsRecommendationScreen), findsOneWidget);
   });
 
-  for (final size in const [Size(1672, 941), Size(1280, 800)]) {
+  // 1280×720은 원본 1672×941과 같은 비율 — 원본처럼 스크롤 없이 한 화면이어야 한다.
+  for (final size in const [Size(1672, 941), Size(1280, 720), Size(1280, 800), Size(1920, 1080)]) {
     testWidgets('${size.width.toInt()}×${size.height.toInt()} — 스크롤 없이 안내 카드까지 한 화면에 보인다', (tester) async {
       await _pump(tester, await _storeWith(3), size: size);
       expect(tester.takeException(), isNull);
       expect(find.byKey(const Key('ssHomeFit')), findsOneWidget);
       expect(find.byKey(const Key('ssHomeScroll')), findsNothing);
       for (final id in ['guide', 'recommend', 'tips']) {
-        expect(tester.getBottomLeft(find.byKey(Key('ssHomeTipCard_$id'))).dy, lessThanOrEqualTo(size.height));
+        final cardBottom = tester.getBottomLeft(find.byKey(Key('ssHomeTipCard_$id'))).dy;
+        expect(cardBottom, lessThanOrEqualTo(size.height));
+        // 알약 버튼은 카드 안에 있고, 설명과 겹치지 않는다.
+        expect(tester.getBottomLeft(find.byKey(Key('ssHomeTip_$id'))).dy, lessThanOrEqualTo(cardBottom), reason: '$id 버튼이 카드 밖으로 잘림');
+        expect(
+          tester.getBottomLeft(find.byKey(Key('ssHomeTipDesc_$id'))).dy,
+          lessThanOrEqualTo(tester.getTopLeft(find.byKey(Key('ssHomeTip_$id'))).dy + 0.5),
+          reason: '$id 설명과 버튼이 겹침',
+        );
       }
     });
   }

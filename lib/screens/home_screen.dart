@@ -114,15 +114,20 @@ class _HomePlan {
   static const double bottomPad = 14;
   static const double _gaps = gapAfterBanner + gapAfterCards + gapAfterRecent + bottomPad;
 
+  /// 안내 카드 줄(제목·설명·알약 버튼)이 들어갈 최소 높이.
+  static const double minTipsH = 92;
+
   static _HomePlan resolve(double w, double h) {
     final pad = w >= HomeScreen.fitMinWidth ? 20.0 : 14.0;
     if (w >= HomeScreen.fitMinWidth && h.isFinite) {
       final banner = (h * 0.28).floorToDouble();
       final rest = h - banner - _gaps;
-      final cards = (rest * 22 / 59).floorToDouble();
-      final recent = (rest * 25 / 59).floorToDouble();
-      final tips = (rest - cards - recent - 1).floorToDouble();
-      if (cards >= 150 && recent >= 170 && tips >= 88) {
+      // 안내 카드 줄은 제목·설명·알약 버튼이 들어갈 높이를 먼저 확보하고(원본 비율 12/59, 최소 minTipsH),
+      // 나머지를 원본 비율(시작 카드 22 : 최근/AI 25)로 나눈다 — 1672×941과 같은 비율인 1280×720도 한 화면.
+      final tips = (rest * 12 / 59).clamp(minTipsH, 116.0).floorToDouble();
+      final cards = ((rest - tips) * 22 / 47).floorToDouble();
+      final recent = (rest - tips - cards - 1).floorToDouble();
+      if (cards >= 140 && recent >= 160) {
         return _HomePlan(fit: true, bannerH: banner, cardsH: cards, recentH: recent, tipsH: tips, pad: pad);
       }
     }
@@ -1289,7 +1294,7 @@ class _TipCard extends StatelessWidget {
   Widget build(BuildContext context) {
     return Container(
       key: Key('ssHomeTipCard_$id'),
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
       decoration: BoxDecoration(
         color: cardColor,
         borderRadius: BorderRadius.circular(14),
@@ -1307,9 +1312,16 @@ class _TipCard extends StatelessWidget {
           ),
           const SizedBox(width: 12),
           Expanded(
-            child: Column(
+            child: LayoutBuilder(
+              builder: (context, constraints) {
+                // 낮은 줄(예: 1280×720)에서도 제목·설명·알약 버튼이 서로 겹치거나 잘리지 않게, 들어가지 않으면 통째로 살짝 줄인다.
+                return FittedBox(
+                  fit: BoxFit.scaleDown,
+                  alignment: Alignment.centerLeft,
+                  child: SizedBox(
+                    width: constraints.maxWidth,
+                    child: Column(
               mainAxisSize: MainAxisSize.min,
-              mainAxisAlignment: MainAxisAlignment.center,
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Row(
@@ -1327,14 +1339,12 @@ class _TipCard extends StatelessWidget {
                   ],
                 ),
                 const SizedBox(height: 2),
-                Flexible(
-                  child: Text(
-                    description,
-                    key: Key('ssHomeTipDesc_$id'),
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(color: SsMasterTheme.textSecondary, fontSize: 12),
-                  ),
+                SsKeepWordsText(
+                  description,
+                  key: Key('ssHomeTipDesc_$id'),
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(color: SsMasterTheme.textSecondary, fontSize: 12),
                 ),
                 const SizedBox(height: 6),
                 TextButton(
@@ -1359,6 +1369,10 @@ class _TipCard extends StatelessWidget {
                   ),
                 ),
               ],
+                    ),
+                  ),
+                );
+              },
             ),
           ),
         ],
