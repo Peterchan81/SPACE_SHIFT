@@ -495,8 +495,8 @@ class SsNavRail extends StatelessWidget {
   /// SS 수정 01 — 메뉴 폭은 원본 비율(화면 폭의 약 11%, 넓은 화면 최대 190). 좁은 창에서도 글자가 잘리지 않게 최소 176.
   static double widthFor(double screenWidth) => (screenWidth * 0.11).clamp(176.0, 190.0);
 
-  /// 메뉴 한 줄의 높이(아이콘·여백 포함).
-  static const double rowHeight = 64;
+  /// 메뉴 한 줄의 높이(아이콘·여백 포함) — MASTER 02 컴팩트 메뉴 간격.
+  static const double rowHeight = 48;
 
   static const _icons = {
     SsNavItem.home: Icons.home_outlined,
