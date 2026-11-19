@@ -220,45 +220,73 @@ class SsStageScreen extends StatelessWidget {
 class SsTopBar extends StatelessWidget {
   const SsTopBar({super.key});
 
+  /// SS 수정 01 — MASTER 02 헤더 왼쪽의 공식 심볼(기존 자산 그대로).
+  static const String symbolAsset = 'assets/icons/space_shift_symbol.png';
+
+  /// 헤더 높이 — 원본(1672×941에서 약 84) 비율: 화면 높이의 약 9%.
+  static double heightFor(double screenHeight) => (screenHeight * 0.09).clamp(60.0, 84.0);
+
   @override
   Widget build(BuildContext context) {
+    final height = heightFor(MediaQuery.sizeOf(context).height);
+    final symbolSize = height * 0.6;
+    final brandSize = (height * 0.3).clamp(18.0, 26.0);
+    final iconSize = (height * 0.38).clamp(24.0, 32.0);
     return Container(
       key: const Key('ssTopBar'),
-      height: 64,
-      padding: const EdgeInsets.symmetric(horizontal: 20),
-      decoration: const BoxDecoration(
-        color: SsMasterTheme.panel,
-        border: Border(bottom: BorderSide(color: SsMasterTheme.panelBorder)),
-      ),
+      height: height,
+      padding: EdgeInsets.symmetric(horizontal: height * 0.45),
+      decoration: const BoxDecoration(color: SsMasterTheme.background),
       child: Row(
         children: [
-          ShaderMask(
-            shaderCallback: (bounds) => SsMasterTheme.rainbow.createShader(bounds),
-            child: const Text('SS', style: TextStyle(fontSize: 26, fontWeight: FontWeight.w900, color: Colors.white)),
+          Image.asset(
+            symbolAsset,
+            key: const Key('ssTopBarSymbol'),
+            height: symbolSize,
+            fit: BoxFit.contain,
+            errorBuilder: (context, error, stackTrace) {
+              debugPrint('SsTopBar 심볼을 불러오지 못했습니다 (${error.runtimeType}): $error');
+              return SizedBox(width: symbolSize, height: symbolSize);
+            },
           ),
-          const SizedBox(width: 10),
-          const Text(
-            'SPACE SHIFT',
-            style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700, color: Colors.white, letterSpacing: 1.1),
+          SizedBox(width: height * 0.3),
+          ShaderMask(
+            key: const Key('ssTopBarBrand'),
+            shaderCallback: (bounds) => SsMasterTheme.brandText.createShader(bounds),
+            child: Text(
+              'SPACE SHIFT',
+              maxLines: 1,
+              softWrap: false,
+              style: TextStyle(fontSize: brandSize, fontWeight: FontWeight.w300, color: Colors.white, letterSpacing: brandSize * 0.12),
+            ),
           ),
           const Spacer(),
           IconButton(
             key: const Key('ssTopBarHelp'),
             tooltip: '도움말',
+            iconSize: iconSize,
             onPressed: () => Navigator.of(context).push<void>(MaterialPageRoute<void>(builder: (_) => const SsGuideScreen())),
-            icon: const Icon(Icons.help_outline, color: SsMasterTheme.textSecondary),
+            icon: const Icon(Icons.help_outline, color: Colors.white),
           ),
           IconButton(
             key: const Key('ssTopBarNotifications'),
             tooltip: '알림',
+            iconSize: iconSize,
             onPressed: () => showSsNotificationsPanel(context),
-            icon: const Icon(Icons.notifications_outlined, color: SsMasterTheme.textSecondary),
+            icon: const Icon(Icons.notifications_none, color: Colors.white),
           ),
           IconButton(
             key: const Key('ssTopBarProfile'),
             tooltip: '설정',
             onPressed: () => Navigator.of(context).push<void>(MaterialPageRoute<void>(builder: (_) => SettingsScreen())),
-            icon: const Icon(Icons.account_circle_outlined, color: SsMasterTheme.textSecondary),
+            icon: Container(
+              key: const Key('ssTopBarProfileCircle'),
+              width: iconSize * 1.35,
+              height: iconSize * 1.35,
+              alignment: Alignment.center,
+              decoration: const BoxDecoration(color: Colors.white, shape: BoxShape.circle),
+              child: Icon(Icons.person, color: SsMasterTheme.background, size: iconSize),
+            ),
           ),
         ],
       ),
@@ -464,6 +492,12 @@ class SsNavRail extends StatelessWidget {
   final SsNavItem? selected;
   final ValueChanged<SsNavItem>? onSelect;
 
+  /// SS 수정 01 — 메뉴 폭은 원본 비율(화면 폭의 약 11%, 넓은 화면 최대 190). 좁은 창에서도 글자가 잘리지 않게 최소 176.
+  static double widthFor(double screenWidth) => (screenWidth * 0.11).clamp(176.0, 190.0);
+
+  /// 메뉴 한 줄의 높이(아이콘·여백 포함).
+  static const double rowHeight = 64;
+
   static const _icons = {
     SsNavItem.home: Icons.home_outlined,
     SsNavItem.projects: Icons.folder_outlined,
@@ -513,14 +547,20 @@ class SsNavRail extends StatelessWidget {
         ],
       ),
     );
+    final railWidth = widthFor(MediaQuery.sizeOf(context).width);
     return Container(
       key: const Key('ssNavRail'),
-      width: 236,
-      decoration: const BoxDecoration(color: SsMasterTheme.panel, border: Border(right: BorderSide(color: SsMasterTheme.panelBorder))),
+      width: railWidth - 18,
+      margin: const EdgeInsets.fromLTRB(10, 0, 8, 12),
+      decoration: BoxDecoration(
+        color: SsMasterTheme.panel.withValues(alpha: 0.85),
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: SsMasterTheme.panelBorder),
+      ),
       child: LayoutBuilder(
         builder: (context, constraints) {
           // 낮은 창(예: 640×480)에서는 메뉴가 잘리지 않게 전체를 스크롤하고, 진행 중인 프로젝트 영역은 고정 높이로 둔다.
-          final needed = 16.0 + mainItems.length * 52 + (showSettings ? 65 : 0) + (showCurrentProjects ? 140 : 0);
+          final needed = 16.0 + mainItems.length * rowHeight + (showSettings ? rowHeight + 13 : 0) + (showCurrentProjects ? 140 : 0);
           if (constraints.maxHeight.isFinite && constraints.maxHeight < needed) {
             return SingleChildScrollView(
               key: const Key('ssNavRailScroll'),
@@ -558,21 +598,34 @@ class _SsNavRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final foreground = isSelected ? Colors.white : SsMasterTheme.textSecondary;
+    final foreground = isSelected ? Colors.white : const Color(0xFFE3E8F2);
     return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
       child: InkWell(
         key: Key('ssNav_${item.name}'),
         borderRadius: BorderRadius.circular(12),
         onTap: onTap,
         child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-          decoration: BoxDecoration(gradient: isSelected ? SsMasterTheme.selectedItem : null, borderRadius: BorderRadius.circular(12)),
+          height: SsNavRail.rowHeight - 10,
+          padding: const EdgeInsets.symmetric(horizontal: 10),
+          decoration: BoxDecoration(
+            gradient: isSelected ? SsMasterTheme.selectedNavItem : null,
+            borderRadius: BorderRadius.circular(12),
+            boxShadow: isSelected ? SsMasterTheme.selectedNavGlow : null,
+          ),
           child: Row(
             children: [
-              Icon(icon, color: foreground, size: 20),
-              const SizedBox(width: 12),
-              Text(item.label, style: TextStyle(fontSize: 14, fontWeight: isSelected ? FontWeight.w700 : FontWeight.w500, color: foreground)),
+              Icon(icon, color: foreground, size: 24),
+              const SizedBox(width: 10),
+              Flexible(
+                child: Text(
+                  item.label,
+                  maxLines: 1,
+                  softWrap: false,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(fontSize: 13, fontWeight: isSelected ? FontWeight.w700 : FontWeight.w600, color: foreground),
+                ),
+              ),
             ],
           ),
         ),

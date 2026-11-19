@@ -118,6 +118,8 @@ flutter:
     - assets/images/home_card_upload.png
     - assets/images/home_card_draw.png
     - assets/images/home_card_image.png
+    - assets/images/home2_ai_plan_example.png
+    - assets/images/home2_ai_3d_example.png
 
 flutter_launcher_icons:
   android: true

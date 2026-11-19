@@ -31,7 +31,8 @@ void main() {
     final topBar = find.byKey(const Key('ssTopBar'));
     expect(topBar, findsOneWidget);
     expect(find.descendant(of: topBar, matching: find.text('SPACE SHIFT')), findsOneWidget);
-    expect(find.descendant(of: topBar, matching: find.text('SS')), findsOneWidget);
+    // SS 수정 01 — 글자 "SS" 대신 MASTER 02처럼 공식 심볼 그림(assets/icons/space_shift_symbol.png)을 쓴다.
+    expect(find.descendant(of: topBar, matching: find.byKey(const Key('ssTopBarSymbol'))), findsOneWidget);
     expect(tester.widget<IconButton>(find.byKey(const Key('ssTopBarHelp'))).onPressed, isNotNull);
     expect(tester.widget<IconButton>(find.byKey(const Key('ssTopBarNotifications'))).onPressed, isNotNull);
   });

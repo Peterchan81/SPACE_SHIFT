@@ -47,4 +47,39 @@ abstract final class SsMasterTheme {
     end: Alignment.centerRight,
     colors: [Color(0xFF2F6BFF), Color(0xFF8B2FE0)],
   );
+
+  /// SS 수정 01(MASTER 02) — 상단 Header "SPACE SHIFT" 글자: 분홍→보라→파랑.
+  static const LinearGradient brandText = LinearGradient(
+    begin: Alignment.centerLeft,
+    end: Alignment.centerRight,
+    colors: [Color(0xFFFF5FA8), Color(0xFFB25CFF), Color(0xFF5B8CFF), Color(0xFF3FC5FF)],
+  );
+
+  /// SS 수정 01(MASTER 02) — 홈 배너의 큰 "SPACE SHIFT": 파랑→보라→분홍→주황.
+  static const LinearGradient heroBrand = LinearGradient(
+    begin: Alignment.centerLeft,
+    end: Alignment.centerRight,
+    colors: [Color(0xFF2FA8FF), Color(0xFF7B61FF), Color(0xFFE94BC0), Color(0xFFFF8A3D)],
+  );
+
+  /// SS 수정 01(MASTER 02) — 좌측 메뉴 선택 항목: 파랑→보라→분홍.
+  static const LinearGradient selectedNavItem = LinearGradient(
+    begin: Alignment.centerLeft,
+    end: Alignment.centerRight,
+    colors: [Color(0xFF2F6BFF), Color(0xFF8B2FE0), Color(0xFFE24FCF)],
+  );
+
+  /// 선택 메뉴 바깥 네온 빛.
+  static const List<BoxShadow> selectedNavGlow = [
+    BoxShadow(color: Color(0x998B5CF6), blurRadius: 18),
+    BoxShadow(color: Color(0x663B82F6), blurRadius: 8, spreadRadius: 1),
+  ];
+
+  /// 홈 콘텐츠 판(둥근 테두리 + 가장자리 네온 빛).
+  static const Color homePanel = Color(0xFF0B1B36);
+  static const Color homePanelBorder = Color(0xFF2A4C80);
+  static const List<BoxShadow> homePanelGlow = [
+    BoxShadow(color: Color(0x403B82F6), blurRadius: 18),
+    BoxShadow(color: Color(0x26A855F7), blurRadius: 30),
+  ];
 }
